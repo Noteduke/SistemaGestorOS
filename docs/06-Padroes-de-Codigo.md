@@ -1,0 +1,72 @@
+# PADRÕES DE CÓDIGO
+# SISTEMA GESTOR OS
+
+**Versão:** 1.0
+**Status:** Em evolução
+
+# 1. Objetivo
+
+Definir os padrões de desenvolvimento que deverão ser seguidos em todo o Sistema Gestor OS.
+
+# 2. Princípios Gerais
+
+- Clareza acima de complexidade.
+- Código legível.
+- Simplicidade.
+- Reutilização.
+- Responsabilidade única quando aplicável.
+- Documentação antes da implementação.
+
+# 3. Organização do Código
+
+Frontend e Backend permanecerão separados.
+
+Cada módulo deverá possuir estrutura consistente.
+
+Evitar duplicação de código.
+
+# 4. Nomenclatura
+
+- Classes: PascalCase.
+- Métodos e funções: camelCase.
+- Constantes: UPPER_SNAKE_CASE quando fizer sentido.
+- Arquivos deverão seguir o padrão adotado pelo framework.
+
+# 5. Comentários
+
+Comentar apenas quando o código não for autoexplicativo.
+
+Comentários devem explicar o "porquê", não o "como".
+
+# 6. Git
+
+Utilizar Conventional Commits.
+
+Exemplos:
+
+- feat:
+- fix:
+- docs:
+- refactor:
+- test:
+- chore:
+
+Commits pequenos e frequentes.
+
+# 7. Tratamento de Erros
+
+Centralizar sempre que possível.
+
+Mensagens padronizadas.
+
+# 8. Testes
+
+Novos módulos deverão ser desenvolvidos considerando futura automação de testes.
+
+# 9. Revisões
+
+Nenhum código relevante deverá ser incorporado sem revisão.
+
+# 10. Evolução
+
+Este documento será ampliado com padrões específicos para React, NestJS, Prisma, SQL, Docker e documentação.

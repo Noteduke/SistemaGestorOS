@@ -1,0 +1,7 @@
+# Normalizar arquivos de texto para LF no repositório e no checkout.
+* text=auto eol=lf
+
+# Codificação UTF-8 para os arquivos de texto desta estrutura documental.
+*.md text working-tree-encoding=UTF-8
+.gitignore text working-tree-encoding=UTF-8
+.gitattributes text working-tree-encoding=UTF-8
