@@ -66,6 +66,16 @@ Os índices deverão ser criados conforme necessidade de desempenho e documentad
 
 Sempre que necessário, registrar informações de criação, alteração e exclusão lógica.
 
-# 10. Evolução
+# 10. Estado da implementação
+
+O primeiro recorte de persistência está em `backend/prisma/schema.prisma` e na migration `backend/prisma/migrations/20261006120000_initial_core/migration.sql`.
+
+O recorte inclui pessoas e seus papéis, telefones, e-mails e endereço, além de tipos/marcas de equipamento, equipamentos e eventos de titularidade. O diagrama e as relações estão descritos em `docs/modelagem/Modelo-Banco.md` e `docs/modelagem/Diagrama-Entidades.md`.
+
+A migration ainda não foi validada pelo Prisma nem aplicada em um banco MySQL. A aplicação deverá normalizar CPF/CNPJ antes de persistir, garantir no máximo um telefone e um e-mail principal por pessoa e atualizar o titular atual junto com o evento de titularidade na mesma transação.
+
+Permanecem para etapas seguintes: usuário e permissões, auditoria administrativa, OS e seu snapshot histórico, estoque, compras, vendas e financeiro. Regras que constam em `docs/Especificacoes-Nao-Documentadas.md` não devem ser presumidas durante a modelagem.
+
+# 11. Evolução
 
 Este documento será expandido juntamente com a modelagem do sistema.
