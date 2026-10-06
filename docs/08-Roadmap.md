@@ -56,7 +56,9 @@ Transformar todas as decisões em documentação oficial.
 
 - Inicialização do Backend (NestJS): base mínima configurada; módulos e endpoints permanecem pendentes.
 - Inicialização do Frontend (React).
-- Prisma: CLI, configuração, generator e geração do Client preparados; conexão real com MySQL e aplicação da migration permanecem pendentes.
+- Prisma 7.10.0: CLI, configuração, generator e geração do Client preparados; schema inicial existente e migration inicial versionada.
+- MySQL local: manter o Community Server 8.0.46 nesta fase; preparação para o projeto, criação/configuração do banco `gestor_os` e do usuário local `gestor_os`, e configuração local da `DATABASE_URL` permanecem pendentes.
+- Persistência: conexão real da aplicação, aplicação da migration inicial por `prisma migrate deploy` e validação da migration contra o servidor real permanecem pendentes.
 - Docker Compose.
 - Autenticação.
 - Estrutura inicial dos módulos.

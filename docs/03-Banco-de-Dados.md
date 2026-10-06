@@ -89,3 +89,12 @@ Este documento será expandido juntamente com a modelagem do sistema.
 - `schema.prisma` e `prisma/migrations/` permanecem versionados.
 - O datasource continua usando MySQL 8. A configuração da URL e dos caminhos do Prisma fica em `backend/prisma.config.ts`.
 - A configuração do adapter do Prisma Client na aplicação será implementada quando a camada de persistência for iniciada.
+
+# 13. Ambiente local de desenvolvimento
+
+- O banco oficial permanece MySQL 8, conforme a DA-005. O ambiente local atual utiliza MySQL Community Server 8.0.46, que será mantido nesta fase do desenvolvimento. Essa versão é uma configuração operacional e não altera a decisão arquitetural.
+- O serviço Windows identificado é `MySQL80`, na porta `3306`.
+- A configuração aprovada para o banco do projeto é `gestor_os`, charset `utf8mb4`, collation `utf8mb4_unicode_ci` e usuário `gestor_os` limitado a `localhost`. A aplicação não utilizará `root`.
+- O banco `gestor_os` e o usuário `gestor_os` ainda não foram criados no servidor local. A aplicação ainda não realizou conexão real com o MySQL.
+- A migration inicial permanece apenas versionada: ainda não foi aplicada nem validada contra o servidor. Após a preparação do banco, sua primeira aplicação está prevista por `prisma migrate deploy`.
+- `docker/compose.yaml` ainda referencia `mysql:8.4`, enquanto o ambiente local usa MySQL 8.0.46. Essa divergência conhecida será tratada quando Docker passar a fazer parte efetiva do ambiente de execução; ela não altera a stack oficial neste momento.
