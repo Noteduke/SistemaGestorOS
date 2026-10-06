@@ -74,7 +74,7 @@ O primeiro recorte de persistência está em `backend/prisma/schema.prisma` e na
 
 O recorte inclui pessoas e seus papéis, telefones, e-mails e endereço, além de tipos/marcas de equipamento, equipamentos e eventos de titularidade. O diagrama e as relações estão descritos em `docs/modelagem/Modelo-Banco.md` e `docs/modelagem/Diagrama-Entidades.md`.
 
-O schema Prisma foi validado pelo Prisma. A migration SQL ainda não foi aplicada nem validada contra uma instância MySQL. A aplicação deverá normalizar CPF/CNPJ antes de persistir, garantir no máximo um telefone e um e-mail principal por pessoa e atualizar o titular atual junto com o evento de titularidade na mesma transação.
+O schema Prisma foi validado pelo Prisma. A migration inicial `20261006120000_initial_core` foi aplicada no MySQL Community Server 8.0.46 por `prisma migrate deploy`. A estrutura resultante foi conferida com a migration versionada e com o schema Prisma: nove tabelas do domínio, 58 colunas, chaves primárias e estrangeiras, índices, restrições de unicidade, nulabilidade, defaults, charset e collation. O Prisma Migrate controla o histórico pela tabela administrativa `_prisma_migrations`. O banco deixou de estar vazio em estrutura; nenhum dado de teste foi inserido. A aplicação deverá normalizar CPF/CNPJ antes de persistir, garantir no máximo um telefone e um e-mail principal por pessoa e atualizar o titular atual junto com o evento de titularidade na mesma transação.
 
 Permanecem para etapas seguintes: usuário e permissões, auditoria administrativa, OS e seu snapshot histórico, estoque, compras, vendas e financeiro. Regras que constam em `docs/Especificacoes-Nao-Documentadas.md` não devem ser presumidas durante a modelagem.
 
@@ -95,6 +95,6 @@ Este documento será expandido juntamente com a modelagem do sistema.
 - O banco oficial permanece MySQL 8, conforme a DA-005. O ambiente local atual utiliza MySQL Community Server 8.0.46, que será mantido nesta fase do desenvolvimento. Essa versão é uma configuração operacional e não altera a decisão arquitetural.
 - O serviço Windows identificado é `MySQL80`, na porta `3306`.
 - A configuração aprovada para o banco do projeto é `gestor_os`, charset `utf8mb4`, collation `utf8mb4_unicode_ci` e usuário `gestor_os` limitado a `localhost`. A aplicação não utilizará `root`.
-- O banco `gestor_os` e o usuário `gestor_os` ainda não foram criados no servidor local. A aplicação ainda não realizou conexão real com o MySQL.
-- A migration inicial permanece apenas versionada: ainda não foi aplicada nem validada contra o servidor. Após a preparação do banco, sua primeira aplicação está prevista por `prisma migrate deploy`.
+- O banco `gestor_os` e o usuário `gestor_os` foram criados no servidor local. A conexão real com MySQL foi validada com esse usuário, inclusive por consulta de leitura pelo Prisma Client. A integração do Client à aplicação NestJS ainda depende da camada de acesso ao banco.
+- A migration inicial `20261006120000_initial_core` foi aplicada com sucesso por `prisma migrate deploy`. `prisma migrate status` confirmou que não há migration pendente, e o registro concluído consta em `_prisma_migrations`.
 - `docker/compose.yaml` ainda referencia `mysql:8.4`, enquanto o ambiente local usa MySQL 8.0.46. Essa divergência conhecida será tratada quando Docker passar a fazer parte efetiva do ambiente de execução; ela não altera a stack oficial neste momento.
