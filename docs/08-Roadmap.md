@@ -58,7 +58,7 @@ Transformar todas as decisões em documentação oficial.
 - Inicialização do Frontend (React).
 - Prisma 7.10.0: CLI, configuração, generator e geração do Client preparados; schema inicial existente e migration inicial versionada.
 - MySQL local: Community Server 8.0.46 mantido nesta fase; banco `gestor_os` e usuário local `gestor_os` criados, com `DATABASE_URL` configurada apenas no `.env` local ignorado pelo Git. Conexão real validada.
-- Persistência: migration inicial `20261006120000_initial_core` aplicada por `prisma migrate deploy` e estrutura validada contra o servidor real. O histórico passou a ser controlado por `_prisma_migrations`, e o banco deixou de estar vazio em estrutura. Consulta de leitura pelo Prisma Client validada; integração à aplicação NestJS permanece pendente.
+- Persistência: migration inicial `20261006120000_initial_core` aplicada por `prisma migrate deploy` e estrutura validada contra o servidor real. O histórico passou a ser controlado por `_prisma_migrations`, e o banco deixou de estar vazio em estrutura. `PrismaModule` e `PrismaService` integrados à aplicação NestJS, com conexão, leitura e encerramento validados; módulos de negócio e endpoints permanecem pendentes.
 - Docker Compose.
 - Autenticação.
 - Estrutura inicial dos módulos.

@@ -79,8 +79,8 @@ Este documento será ampliado com padrões específicos para React, NestJS, Pris
 
 # 12. Persistência no Backend
 
-- `PrismaModule` e `PrismaService` ficarão em `backend/src/infrastructure/prisma/`. `PrismaModule` não será `@Global()`; os módulos consumidores deverão importá-lo explicitamente.
-- `PrismaService` será exclusivamente infraestrutura: construirá e configurará o Prisma Client com o adapter aprovado, disponibilizará o Client e cuidará da conexão, desconexão e lifecycle da aplicação.
+- `PrismaModule` e `PrismaService` ficam em `backend/src/infrastructure/prisma/`. `PrismaModule` não é `@Global()`; os módulos consumidores deverão importá-lo explicitamente.
+- `PrismaService` é exclusivamente infraestrutura: constrói e configura o Prisma Client com o adapter aprovado, disponibiliza o Client e cuida da conexão, desconexão e ciclo de vida da aplicação.
 - Validações e regras de clientes, equipamentos, OS, orçamentos, estoque, financeiro, compras, autorização e demais entidades não pertencem ao `PrismaService`. Services de domínio coordenarão os fluxos de negócio.
 - Services de domínio poderão utilizar `PrismaService` diretamente. Repositories serão criados apenas quando consultas complexas ou reutilizadas, encapsulamento relevante, testabilidade ou uma fronteira específica de persistência trouxerem benefício concreto. Não criar repositories que apenas repitam `findUnique`, `findMany`, `create`, `update` ou `delete`.
 - Prisma Client é o acesso padrão ao banco. SQL raw por `$queryRaw` ou `$executeRaw` será excepcional, parametrizado com segurança, identificado e revisável dentro da fronteira de persistência. Módulos não deverão criar clientes MySQL paralelos nem espalhar SQL pela aplicação.

@@ -36,7 +36,7 @@ Controller/API → Service de domínio → Repository → PrismaService → Pris
 
 Repository não é uma camada obrigatória para todas as entidades. Services de domínio podem utilizar `PrismaService` diretamente. Regras de negócio e coordenação de fluxos permanecem nos services de domínio, fora da infraestrutura.
 
-O `PrismaModule` ficará em `backend/src/infrastructure/prisma/` junto com o `PrismaService`. Não será `@Global()`; cada módulo que precisar de persistência deverá importá-lo explicitamente. Módulos de negócio não deverão criar conexões MySQL próprias nem utilizar diretamente o driver interno do adapter Prisma.
+O `PrismaModule` fica em `backend/src/infrastructure/prisma/` junto com o `PrismaService`. Não é `@Global()`; cada módulo que precisar de persistência deverá importá-lo explicitamente. Módulos de negócio não deverão criar conexões MySQL próprias nem utilizar diretamente o driver interno do adapter Prisma.
 
 # 4. Tecnologias Oficiais
 
@@ -119,4 +119,3 @@ A arquitetura deverá permitir crescimento contínuo sem necessidade de reescrit
 - 02-Regras-de-Negocio.md
 - 03-Banco-de-Dados.md
 - 04-API.md
-
