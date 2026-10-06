@@ -97,6 +97,49 @@ Reduzir retrabalho e garantir consistência entre regras de negócio e código.
 
 ---
 
+# DA-017
+
+## Título
+Camada de Persistência.
+
+## Situação
+Aprovada na conversa original do projeto; decisão histórica transcrita para a documentação oficial.
+
+## Contexto
+A decisão histórica define a fronteira de acesso do Backend ao banco de dados.
+
+## Problema
+Evitar acessos paralelos ao banco e SQL espalhado pela aplicação.
+
+## Alternativas avaliadas
+Não recuperadas da fonte histórica.
+
+## Decisão adotada
+Toda comunicação entre o Backend e o banco de dados deverá ocorrer através do Prisma ORM. Não será permitido acesso direto ao banco por SQL espalhado pela aplicação. O fluxo é Backend → Prisma → MySQL. Módulos de negócio não deverão criar conexões MySQL próprias nem utilizar diretamente o driver empregado internamente por `@prisma/adapter-mariadb`.
+
+## Justificativa
+Não recuperada da fonte histórica.
+
+## Impactos
+Prisma constitui a fronteira oficial de persistência do Backend. A organização de `PrismaModule`, `PrismaService`, repositories opcionais, SQL raw excepcional e transações está detalhada nos documentos de arquitetura, banco de dados e padrões de código.
+
+## Data de aprovação
+Não recuperada da fonte histórica.
+
+## Responsável
+Não informado na fonte histórica disponível.
+
+## Procedência
+Conversa original do projeto; o conteúdo conceitual da decisão foi confirmado para esta transcrição.
+
+---
+
+# Lacunas da numeração histórica
+
+DA-007 a DA-016 ainda não estão registradas neste documento. Decisões históricas correspondentes, se existirem, precisam ser recuperadas e consolidadas. DA-001 a DA-006 e DA-017 preservam seus identificadores; as lacunas não foram preenchidas nem as decisões existentes renumeradas.
+
+---
+
 # Estrutura de novas decisões
 
 Toda nova decisão deverá seguir o formato:

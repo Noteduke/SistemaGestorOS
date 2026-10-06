@@ -20,6 +20,24 @@ O Gestor OS será um ERP 100% Web, dividido em Frontend e Backend independentes,
 
 Toda regra de negócio ficará concentrada no Backend.
 
+## 3.1 Fronteira de persistência
+
+Toda comunicação do Backend com o MySQL deverá passar pelo Prisma ORM, conforme DA-017. O fluxo padrão será:
+
+```text
+Controller/API → Service de domínio → PrismaService → Prisma Client → MySQL
+```
+
+Quando um Repository tiver justificativa concreta, o fluxo poderá ser:
+
+```text
+Controller/API → Service de domínio → Repository → PrismaService → Prisma Client → MySQL
+```
+
+Repository não é uma camada obrigatória para todas as entidades. Services de domínio podem utilizar `PrismaService` diretamente. Regras de negócio e coordenação de fluxos permanecem nos services de domínio, fora da infraestrutura.
+
+O `PrismaModule` ficará em `backend/src/infrastructure/prisma/` junto com o `PrismaService`. Não será `@Global()`; cada módulo que precisar de persistência deverá importá-lo explicitamente. Módulos de negócio não deverão criar conexões MySQL próprias nem utilizar diretamente o driver interno do adapter Prisma.
+
 # 4. Tecnologias Oficiais
 
 ## Frontend

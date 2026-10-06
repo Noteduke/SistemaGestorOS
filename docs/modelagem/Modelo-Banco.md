@@ -6,7 +6,7 @@ Documentar o modelo relacional implementado para o Sistema Gestor OS e registrar
 
 ## Status
 
-Primeiro recorte implementado no schema Prisma e na migration inicial. A migration ainda precisa ser validada e aplicada em um ambiente MySQL.
+Primeiro recorte implementado no schema Prisma. A migration `20261006120000_initial_core` foi aplicada com sucesso no banco `gestor_os`, em MySQL Community Server 8.0.46, e a estrutura foi validada. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; não havia migration pendente no momento da validação.
 
 ## Última atualização
 

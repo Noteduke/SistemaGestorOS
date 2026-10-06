@@ -76,3 +76,13 @@ Este documento será ampliado com padrões específicos para React, NestJS, Pris
 - O Backend utiliza ESM (`"type": "module"`) e TypeScript com `NodeNext`.
 - Imports relativos entre arquivos TypeScript devem usar a extensão `.js`, conforme a resolução ESM emitida pelo compilador.
 - O Prisma Client gerado é reproduzido por script e não deve ser editado manualmente. Seu caminho e política de versionamento estão definidos em `docs/03-Banco-de-Dados.md`.
+
+# 12. Persistência no Backend
+
+- `PrismaModule` e `PrismaService` ficarão em `backend/src/infrastructure/prisma/`. `PrismaModule` não será `@Global()`; os módulos consumidores deverão importá-lo explicitamente.
+- `PrismaService` será exclusivamente infraestrutura: construirá e configurará o Prisma Client com o adapter aprovado, disponibilizará o Client e cuidará da conexão, desconexão e lifecycle da aplicação.
+- Validações e regras de clientes, equipamentos, OS, orçamentos, estoque, financeiro, compras, autorização e demais entidades não pertencem ao `PrismaService`. Services de domínio coordenarão os fluxos de negócio.
+- Services de domínio poderão utilizar `PrismaService` diretamente. Repositories serão criados apenas quando consultas complexas ou reutilizadas, encapsulamento relevante, testabilidade ou uma fronteira específica de persistência trouxerem benefício concreto. Não criar repositories que apenas repitam `findUnique`, `findMany`, `create`, `update` ou `delete`.
+- Prisma Client é o acesso padrão ao banco. SQL raw por `$queryRaw` ou `$executeRaw` será excepcional, parametrizado com segurança, identificado e revisável dentro da fronteira de persistência. Módulos não deverão criar clientes MySQL paralelos nem espalhar SQL pela aplicação.
+- Services de negócio decidirão os limites das operações atômicas e usarão `$transaction` do Prisma. `PrismaService` não coordenará regras de negócio.
+- Permanecem válidos ESM, `NodeNext` e a extensão `.js` em imports relativos, inclusive para o Prisma Client gerado.

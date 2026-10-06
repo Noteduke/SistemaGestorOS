@@ -6,7 +6,7 @@ Apresentar os relacionamentos do modelo atualmente implementado no Prisma. Este 
 
 ## Status
 
-Diagrama inicial documentado; corresponde ao schema Prisma em 06/10/2026. A migration ainda não foi aplicada em um MySQL.
+Diagrama inicial documentado; corresponde ao schema Prisma em 06/10/2026. A migration `20261006120000_initial_core` foi aplicada com sucesso no banco `gestor_os`, em MySQL Community Server 8.0.46, e a estrutura foi validada. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; não havia migration pendente no momento da validação.
 
 ## Última atualização
 

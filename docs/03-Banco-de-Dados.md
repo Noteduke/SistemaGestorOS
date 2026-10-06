@@ -98,3 +98,23 @@ Este documento será expandido juntamente com a modelagem do sistema.
 - O banco `gestor_os` e o usuário `gestor_os` foram criados no servidor local. A conexão real com MySQL foi validada com esse usuário, inclusive por consulta de leitura pelo Prisma Client. A integração do Client à aplicação NestJS ainda depende da camada de acesso ao banco.
 - A migration inicial `20261006120000_initial_core` foi aplicada com sucesso por `prisma migrate deploy`. `prisma migrate status` confirmou que não há migration pendente, e o registro concluído consta em `_prisma_migrations`.
 - `docker/compose.yaml` ainda referencia `mysql:8.4`, enquanto o ambiente local usa MySQL 8.0.46. Essa divergência conhecida será tratada quando Docker passar a fazer parte efetiva do ambiente de execução; ela não altera a stack oficial neste momento.
+
+# 14. Fronteira de persistência
+
+Prisma ORM é a camada oficial de acesso do Backend ao MySQL, conforme DA-017. Módulos de negócio não deverão criar conexões MySQL próprias nem utilizar clientes ou drivers paralelos para contornar o Prisma. O uso interno do driver `mariadb` por `@prisma/adapter-mariadb` não autoriza seu uso direto pelos módulos.
+
+`PrismaService` e `PrismaModule` pertencerão à infraestrutura em `backend/src/infrastructure/prisma/`. A integração permanente com NestJS ainda não foi implementada. O `PrismaModule` não será global e deverá ser importado explicitamente por cada módulo consumidor.
+
+# 15. Configuração da CLI e da aplicação
+
+`backend/prisma.config.ts` configura a CLI do Prisma, incluindo a URL do datasource e os caminhos de schema e migrations. Essa configuração não carrega automaticamente a `DATABASE_URL` no runtime NestJS. A aplicação utilizará `@nestjs/config` para obter a variável em runtime quando a integração for implementada; a dependência ainda não foi instalada.
+
+Credenciais não devem constar no código nem no Git. `backend/.env` permanece local e não versionado; outros ambientes deverão fornecer a configuração apropriada sem expor credenciais.
+
+# 16. SQL raw excepcional
+
+Prisma Client é o mecanismo padrão de acesso aos dados. Quando sua API normal não atender adequadamente uma necessidade técnica concreta, poderá ser avaliado SQL raw por recursos do próprio Prisma, como `$queryRaw` e `$executeRaw`. A consulta deverá ser parametrizada de forma segura, identificável e revisável, dentro da fronteira de persistência. SQL raw não deverá se tornar alternativa habitual ao ORM nem ficar espalhado pelos módulos.
+
+# 17. Transações
+
+Operações que exijam atomicidade deverão utilizar os mecanismos transacionais do Prisma, especialmente `$transaction`. `PrismaService` disponibilizará essa infraestrutura; o service responsável pelo fluxo de negócio decidirá quando iniciar a transação e quais operações ela abrangerá. Mudança de titular e seu evento histórico, movimentos de estoque, baixas financeiras e alterações de OS com histórico são exemplos futuros, sem implementação nesta etapa.
