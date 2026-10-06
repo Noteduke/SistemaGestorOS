@@ -54,9 +54,9 @@ Transformar todas as decisões em documentação oficial.
 
 # FASE 4 — Implementação da Base
 
-- Inicialização do Backend (NestJS).
+- Inicialização do Backend (NestJS): base mínima configurada; módulos e endpoints permanecem pendentes.
 - Inicialização do Frontend (React).
-- Prisma.
+- Prisma: CLI, configuração, generator e geração do Client preparados; conexão real com MySQL e aplicação da migration permanecem pendentes.
 - Docker Compose.
 - Autenticação.
 - Estrutura inicial dos módulos.

@@ -23,10 +23,12 @@ pnpm-debug.log*
 # Variáveis de ambiente e segredos locais
 .env
 .env.*
+!.env.example
 
 # Prisma: artefatos gerados (schema e migrations devem ser versionados)
 prisma/generated/
 generated/prisma/
+backend/src/generated/prisma/
 
 # Docker: dados locais (Dockerfile e arquivos Compose devem ser versionados)
 .docker-data/

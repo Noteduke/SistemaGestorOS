@@ -70,3 +70,9 @@ Nenhum código relevante deverá ser incorporado sem revisão.
 # 10. Evolução
 
 Este documento será ampliado com padrões específicos para React, NestJS, Prisma, SQL, Docker e documentação.
+
+# 11. Backend NestJS e TypeScript
+
+- O Backend utiliza ESM (`"type": "module"`) e TypeScript com `NodeNext`.
+- Imports relativos entre arquivos TypeScript devem usar a extensão `.js`, conforme a resolução ESM emitida pelo compilador.
+- O Prisma Client gerado é reproduzido por script e não deve ser editado manualmente. Seu caminho e política de versionamento estão definidos em `docs/03-Banco-de-Dados.md`.
