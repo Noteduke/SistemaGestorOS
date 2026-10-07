@@ -6,11 +6,11 @@ Apresentar os relacionamentos do modelo atualmente implementado no Prisma. Este 
 
 ## Status
 
-Diagrama físico correspondente ao schema Prisma após as migrations `20261006120000_initial_core` e `20261007120000_person_basic`, aplicadas no banco `gestor_os`, em MySQL Community Server 8.0.46. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; `prisma migrate status` confirmou que não há migration pendente. O diagrama inclui os campos de Pessoa básica; as demais decisões funcionais aprovadas continuam identificadas abaixo como pendências.
+Diagrama físico correspondente ao schema Prisma após as migrations `20261006120000_initial_core`, `20261007120000_person_basic` e `20261007183000_person_contacts`, aplicadas no banco `gestor_os`, em MySQL Community Server 8.0.46. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; `prisma migrate status` confirmou que não há migration pendente. O diagrama inclui contatos e eventos mínimos de Pessoa; demais decisões funcionais continuam identificadas abaixo como pendências.
 
 ## Última atualização
 
-08/10/2026.
+07/10/2026.
 
 ## Diagrama
 
@@ -19,6 +19,9 @@ erDiagram
   PERSON ||--o{ PERSON_ROLE_ASSIGNMENT : has
   PERSON ||--o{ PERSON_PHONE : has
   PERSON ||--o{ PERSON_EMAIL : has
+  PERSON ||--o{ PERSON_CONTACT_EVENT : records
+  PERSON_PHONE o|--o{ PERSON_CONTACT_EVENT : references
+  PERSON_EMAIL o|--o{ PERSON_CONTACT_EVENT : references
   PERSON ||--o| PERSON_ADDRESS : "current schema: has"
   PERSON o|--o{ PERSON : "contact person link"
   PERSON ||--o{ EQUIPMENT : owns
@@ -47,15 +50,28 @@ erDiagram
   }
   PERSON_PHONE {
     int id PK
+    string public_id UK
     int person_id FK
     string number
     boolean is_primary
   }
   PERSON_EMAIL {
     int id PK
+    string public_id UK
     int person_id FK
     string address
     boolean is_primary
+  }
+  PERSON_CONTACT_EVENT {
+    int id PK
+    int person_id FK
+    enum event_type
+    int phone_id FK
+    int email_id FK
+    string previous_contact_public_id
+    string previous_value
+    string new_value
+    datetime occurred_at
   }
   PERSON_ADDRESS {
     int id PK
@@ -108,9 +124,8 @@ erDiagram
 - OS registra a Pessoa informada na abertura sem exigir separação do proprietário real. Não haverá snapshot completo de Pessoa/Equipamento dentro de cada OS; o histórico de alterações e movimentações deve permitir acompanhar mudanças sem duplicar os cadastros. O schema atual não contém entidade OS nem mecanismo de histórico geral.
 - `equipment_ownership_events` existe para eventos de titularidade. Transferência altera titular atual, registra evento e não reescreve OS antigas; pode ocorrer fora ou durante OS, com associação opcional à OS. Usuários autorizados podem alterar cadastros e transferir mesmo com histórico, sem justificativa obrigatória; as mudanças devem gerar histórico automaticamente. O modelo atual não registra tipos de histórico, usuário executor, justificativa ou vínculo com OS.
 - O sistema terá histórico geral por entidade, conceitualmente com alteração de campo e evento/movimentação, valores anterior/novo quando aplicável, entidade, data/hora e usuário quando disponível. A estrutura física, lista final de eventos, classificação de acesso e filtros permanecem pendentes. O vínculo opcional de transferência a OS está aprovado funcionalmente, mas não existe entidade OS nem chave de vínculo no schema.
-- Telefone, e-mail e endereço terão no máximo um principal por Pessoa e coleção, sem exigir que exista principal; marcar um desmarca o anterior. Vários endereços do mesmo Tipo são permitidos. O schema atual não garante principalidade única e restringe endereço a zero ou um por Pessoa.
-- **Próximo recorte aprovado, ainda não aplicado:** adicionar/listar telefones e e-mails como sub-recursos diretos de Pessoa. `person_phones` e `person_emails` já possuem FK para `people`, mas ainda não têm `public_id`; sua inclusão única está aprovada se tecnicamente viável, sem expor `id` interno. `label` ficará nulo e fora da entrada/saída da API, assim como edição/remoção/inativação. Todo `POST` exigirá `confirmPersonChange: true`. Telefone não padrão até 32 dígitos exigirá também `confirmNonstandardPhone: true` após aviso sem gravação; acima de 32 bloqueia. E-mail terá `trim`, minúsculas, formato básico aprovado e até 254; repetição na mesma Pessoa bloqueia, entre Pessoas grava com aviso genérico sem confirmação extra. Pessoa inativa admite `GET` de contatos, mas bloqueia `POST`. O diagrama acima continua representando somente o schema aplicado; nenhuma dessas evoluções físicas está desenhada como existente.
-- **Integridade e histórico futuros:** criação de novo principal desmarcará o anterior da mesma Pessoa e coleção em transação; a principalidade de telefone e e-mail é independente. O índice físico atual não impõe unicidade. Está aprovado avaliar índice funcional único customizado por coleção, considerando `person_id` apenas para principal, com MySQL 8/Prisma 7.10.0; falha na validação exige parar e relatar. `UNIQUE(person_id, is_primary)` não serve, pois impediria vários não principais. A futura `person_contact_events` registrará `PHONE_CREATED`/`EMAIL_CREATED` em cada inclusão e `PHONE_PRIMARY_CHANGED`/`EMAIL_PRIMARY_CHANGED` sempre que o principal efetivo mudar, inclusive de nulo para o primeiro, atomicamente. Não haverá usuário fictício nem rota pública de histórico neste recorte; o histórico mínimo não substitui o geral. A inspeção prévia de dados e uma nova migration ainda são necessárias; nenhum índice funcional, `public_id` de contato ou tabela de histórico foi criado no banco aplicado.
+- Telefone, e-mail e endereço admitem no máximo um principal por Pessoa e coleção, sem exigir que exista principal; marcar outro desmarca o anterior. Índices funcionais aplicados garantem principalidade única para telefones e e-mails. Vários endereços do mesmo Tipo são permitidos funcionalmente, mas o schema ainda restringe endereço a zero ou um por Pessoa.
+- **Contatos implementados:** a migration `20261007183000_person_contacts` adiciona `public_id` único a telefones/e-mails, unicidade de e-mail por Pessoa, índices funcionais de principalidade e a tabela `person_contact_events`. As rotas diretas de `POST`/`GET` são descritas em `docs/04-API.md`; `label` permanece fora da API, sem edição/remoção/inativação e sem rota de histórico. A inclusão exige confirmação cadastral; telefone não padrão até 32 dígitos exige confirmação específica. E-mail segue a gramática ASCII documentada na API. As operações persistem contato, principalidade e eventos na mesma transação. A tabela de eventos não possui CHECK físico para XOR entre `phone_id`/`email_id` ou coerência de `event_type`; o service valida essas combinações. Autenticação e guards continuam pendentes, portanto as rotas não estão prontas para produção.
 - Catálogos iniciais serão carregados por seed idempotente sob comando controlado, sem execução automática ao iniciar o Backend; a estratégia técnica de identificadores e preservação de alterações será definida na implementação.
 - Regra de serial aprovada: repetição para o mesmo proprietário atual bloqueia; para proprietário diferente avisa e permite cadastro, sem sugerir transferência. Sem serial, salva sem busca automática por proprietário + Tipo + Marca + Modelo. Serial é armazenado em caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; `ABC-123` e `ABC123` são diferentes. Pesquisa de equipamentos é independente de duplicidade: localiza por proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, serial e Status; Modelo aceita texto, serial aceita busca exata ou parcial, Status permite Ativo/Inativo/Todos e inativos ficam ocultos por padrão. Detalhes de pesquisa avançada/filtros combinados permanecem pendentes.
 - Equipamento exige funcionalmente Proprietário, Tipo de Equipamento, Marca, Modelo e Status; serial é opcional. O schema atual deixa `brand_id` e `model` opcionais e não tem status de Equipamento. Status funcionais são apenas Ativo/Inativo, com novo Equipamento Ativo; estados adicionais estão fora desta etapa.
@@ -120,7 +135,7 @@ erDiagram
 - `people.person_type` PF/PJ é obrigatório e sem default; Nome/Razão Social também é obrigatório. Nome Fantasia, inscrições e Observações já existem como campos opcionais. Tipo de Contribuinte e Aviso, assim como os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço, continuam ausentes do schema.
 - `document` é opcional e unique no modelo físico. A API básica valida CPF numérico e CNPJ numérico ou alfanumérico oficial, normaliza o valor canônico, confere compatibilidade com PF/PJ e bloqueia duplicidade. `VARCHAR(14)` comporta os 14 caracteres do CNPJ. A coluna por si só não impõe cálculo dos dígitos, normalização ou compatibilidade; essas validações são realizadas no Backend.
 - Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
-- A migration de Pessoa básica e suas validações de Backend já foram implementadas. As demais decisões funcionais descritas neste documento continuam pendentes; esta atualização do diagrama não altera schema ou banco.
+- As migrations inicial, de Pessoa básica e de contatos foram aplicadas. As demais decisões funcionais descritas neste documento continuam pendentes.
 
 ## Histórico de alterações
 
@@ -133,5 +148,5 @@ erDiagram
 | 07/10/2026 | Registro dos catálogos iniciais de Tipo de Equipamento e Marca, normalização, pesquisa, alterações permanentes e vínculo opcional de transferência com OS, sem alterar o diagrama físico. |
 | 07/10/2026 | Atualização do diagrama para refletir a migration de Pessoa básica já aplicada e separar os campos implementados das regras ainda pendentes. |
 | 08/10/2026 | Registro da decisão de documento: CPF numérico; CNPJ numérico antigo ou alfanumérico oficial, canônico sem pontuação e em maiúsculas; schema/migration permanecem inalterados naquela atualização documental. |
-| 08/10/2026 | Registro do próximo recorte aprovado de telefones/e-mails, mantendo o diagrama restrito ao modelo físico aplicado. |
+| 07/10/2026 | Registro do recorte de contatos aplicado, incluindo eventos mínimos e índices de principalidade. |
 | 08/10/2026 | Registro do contrato técnico final aprovado para contatos, histórico mínimo e integridade futura, sem alterar o diagrama físico aplicado. |

@@ -20,6 +20,13 @@ enum PersonType {
   PJ
 }
 
+enum PersonContactEventType {
+  PHONE_CREATED
+  EMAIL_CREATED
+  PHONE_PRIMARY_CHANGED
+  EMAIL_PRIMARY_CHANGED
+}
+
 model Person {
   id                      Int                    @id @default(autoincrement())
   publicId                String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
@@ -36,6 +43,7 @@ model Person {
   roles                   PersonRoleAssignment[]
   phones                  PersonPhone[]
   emails                  PersonEmail[]
+  contactEvents           PersonContactEvent[]
   address                 PersonAddress?
   primaryContactFor       Person[]               @relation("PersonPrimaryContact")
   primaryContact          Person?                @relation("PersonPrimaryContact", fields: [primaryContactId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -58,29 +66,52 @@ model PersonRoleAssignment {
 }
 
 model PersonPhone {
-  id        Int      @id @default(autoincrement())
-  personId  Int      @map("person_id")
-  label     String?  @db.VarChar(80)
-  number    String   @db.VarChar(32)
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
-  person    Person   @relation(fields: [personId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id        Int                  @id @default(autoincrement())
+  publicId  String               @unique @default(uuid()) @map("public_id") @db.Char(36)
+  personId  Int                  @map("person_id")
+  label     String?              @db.VarChar(80)
+  number    String               @db.VarChar(32)
+  isPrimary Boolean              @default(false) @map("is_primary")
+  createdAt DateTime             @default(now()) @map("created_at") @db.DateTime(3)
+  person    Person               @relation(fields: [personId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events    PersonContactEvent[]
 
   @@index([personId, isPrimary])
   @@map("person_phones")
 }
 
 model PersonEmail {
-  id        Int      @id @default(autoincrement())
-  personId  Int      @map("person_id")
-  label     String?  @db.VarChar(80)
-  address   String   @db.VarChar(254)
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
-  person    Person   @relation(fields: [personId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id        Int                  @id @default(autoincrement())
+  publicId  String               @unique @default(uuid()) @map("public_id") @db.Char(36)
+  personId  Int                  @map("person_id")
+  label     String?              @db.VarChar(80)
+  address   String               @db.VarChar(254)
+  isPrimary Boolean              @default(false) @map("is_primary")
+  createdAt DateTime             @default(now()) @map("created_at") @db.DateTime(3)
+  person    Person               @relation(fields: [personId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events    PersonContactEvent[]
 
+  @@unique([personId, address])
   @@index([personId, isPrimary])
   @@map("person_emails")
+}
+
+model PersonContactEvent {
+  id                      Int                    @id @default(autoincrement())
+  personId                Int                    @map("person_id")
+  eventType               PersonContactEventType @map("event_type")
+  phoneId                 Int?                   @map("phone_id")
+  emailId                 Int?                   @map("email_id")
+  previousContactPublicId String?                @map("previous_contact_public_id") @db.Char(36)
+  previousValue           String?                @map("previous_value") @db.VarChar(254)
+  newValue                String                 @map("new_value") @db.VarChar(254)
+  occurredAt              DateTime               @default(now()) @map("occurred_at") @db.DateTime(3)
+  person                  Person                 @relation(fields: [personId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  phone                   PersonPhone?           @relation(fields: [phoneId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  email                   PersonEmail?           @relation(fields: [emailId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([personId, occurredAt])
+  @@map("person_contact_events")
 }
 
 model PersonAddress {
