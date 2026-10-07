@@ -80,7 +80,7 @@ Prioridade inicial:
 9. Dashboard
 10. Configurações
 
-Antes da implementação funcional de Cadastros, a modelagem e uma migration deverão refletir as regras aprovadas em 07/10/2026 para campos de Pessoa, os catálogos iniciais de Tipos de Contato/Contribuinte/Endereço, o ciclo de vida dos catálogos auxiliares, a regra de duplicidade de Pessoa e endereços múltiplos. O schema aplicado ainda diverge dessas regras. Permanecem pendentes os critérios exatos de similaridade, normalização e algoritmo para busca de possíveis duplicatas sem documento, a preservação de snapshot do nome antigo de opções auxiliares editadas, e regras/códigos fiscais detalhados.
+Antes da implementação funcional de Cadastros e OS, a modelagem e futuras migrations deverão refletir as regras aprovadas de campos e catálogos de Pessoa, Aviso, exclusão/inativação de Pessoas e Equipamentos, elegibilidade do proprietário, Pessoa informada na abertura da OS, transferência/correção de titularidade e snapshots históricos. O schema aplicado ainda diverge dessas regras: não há Aviso nem entidade de OS/snapshot, `equipment` não tem campo de ativo/inativo e as relações não impõem elegibilidade do proprietário. Permanecem pendentes critérios técnicos de vínculo histórico, perfil/permissão de administrador, auditoria/justificativa da correção retroativa, vínculo de transferência a OS, regras adicionais de duplicidade de equipamento, ciclo operacional do Equipamento além de ativo/inativo, múltiplos Avisos/leitura, similaridade de duplicidade de Pessoas sem documento, snapshot de nomes de cadastros auxiliares e regras/códigos fiscais detalhados.
 
 ---
 

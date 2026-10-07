@@ -59,7 +59,7 @@ Tipo de Contato para pessoa ou organização com relação de parceria comercial
 Informação passiva registrada no cadastro de Pessoa, sem comportamento obrigatório de exibição em outros fluxos.
 
 ## Aviso
-Informação operacional do cadastro de Pessoa que deve ser apresentada ao operador ao visualizar a Pessoa, realizar uma venda para ela ou abrir uma Ordem de Serviço para ela. A forma visual e demais comportamentos ainda estão pendentes.
+Campo único e informativo do cadastro de Pessoa. Nos contextos aprovados, o sistema pergunta se o operador deseja ver o conteúdo; não o exibe automaticamente e não bloqueia operações. As regras de apresentação e permissão estão em `docs/02-Regras-de-Negocio.md`.
 
 ## Marca
 Cadastro único de identificação da marca de um equipamento, representando também seu fabricante para fins do Sistema Gestor OS.
@@ -71,7 +71,16 @@ Item controlado em estoque e comercializado.
 Atividade executada pela empresa, não representando item de estoque.
 
 ## Equipamento
-Bem pertencente ao cliente que poderá gerar uma Ordem de Serviço.
+Bem cuja titularidade atual é vinculada a uma Pessoa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. A Pessoa informada na OS não precisa ser o proprietário real.
+
+## Proprietário do Equipamento
+Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo de Contato Cliente.
+
+## Pessoa informada na abertura da OS
+Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. A OS preserva o retrato histórico desse momento; não há separação obrigatória nesta etapa em relação ao proprietário real do equipamento.
+
+## Transferência de titularidade
+Operação que altera o proprietário atual de equipamento com vínculo histórico e registra evento de titularidade, sem reescrever OS anteriores.
 
 ## Orçamento
 Proposta comercial apresentada ao cliente antes da execução ou venda.

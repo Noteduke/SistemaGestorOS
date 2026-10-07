@@ -63,6 +63,16 @@ O sistema deverá funcionar corretamente em diferentes resoluções.
 
 Todo acesso aos dados ocorrerá exclusivamente através da API oficial.
 
+## 10.1 Apresentação do Aviso da Pessoa
+
+Nos contextos de visualização do cadastro da Pessoa, abertura de OS para ela e venda para ela, quando houver Aviso preenchido, a interface apresenta a pergunta “Há informação a ser visualizada. Deseja visualizar agora?”. A interface só apresenta o conteúdo se o operador escolher Sim. Ao escolher Não, apresenta “Não deixe de verificar as mensagens pendentes antes de continuar.” A operação continua normalmente nos dois casos. Não exibir o conteúdo automaticamente.
+
+A pergunta volta a ocorrer em cada ocorrência de um contexto aprovado, sem dispensa por sessão, atendimento ou usuário. Nesta etapa, não há log de leitura, registro da resposta, confirmação formal de ciência ou histórico de leituras. A interface segue a regra fornecida pela API; validações e permissões permanecem responsabilidade do Backend.
+
+## 10.2 Pessoas e equipamentos inativos
+
+Pessoas e equipamentos inativos não devem aparecer como opções padrão em novos lançamentos ou novas OS, respectivamente. A pesquisa deve permitir incluir inativos por filtro, e os registros históricos continuam apresentando as entidades normalmente. O Frontend não deve inferir ou implementar critérios de vínculo histórico para exclusão; deve seguir o resultado e as regras fornecidas pela API.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.
