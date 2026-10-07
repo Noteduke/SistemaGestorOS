@@ -35,7 +35,7 @@ O primeiro recorte cobre cadastros compartilhados e equipamentos. A implementaç
 | Endereço | `person_addresses` | Modelo físico atual: até um endereço por pessoa, com campos opcionais. A regra funcional aprovada agora permite múltiplos endereços, cada qual com Tipo de Endereço próprio e possibilidade de principal; o schema ainda não atende. |
 | Tipo de equipamento | `equipment_types` | Catálogo de tipos cadastráveis. |
 | Marca de equipamento | `equipment_brands` | Modelo físico atual do cadastro único de marcas. Regra aprovada: Marca e Fabricante são o mesmo conceito para equipamentos, usando um só cadastro, preferencialmente chamado Marca. |
-| Equipamento | `equipment` | Equipamento permanente, relacionado ao proprietário e tipo, com marca, modelo e serial opcionais. O serial é indexado, mas não único, pois a especificação permite avisar sobre duplicidade e ainda cadastrar outro registro. |
+| Equipamento | `equipment` | Modelo físico atual: proprietário e tipo obrigatórios; Marca/Modelo opcionais; sem status; serial opcional com índice não unique. A regra funcional aprovada exige Proprietário, Tipo, Marca, Modelo e Status, e valida serial pela combinação com proprietário atual na aplicação. |
 | Histórico de titularidade | `equipment_ownership_events` | Registra equipamento, titular anterior (opcional), novo titular e data/hora da alteração. |
 
 ### Integridade e limites conhecidos
@@ -43,6 +43,7 @@ O primeiro recorte cobre cadastros compartilhados e equipamentos. A implementaç
 - No modelo físico atual, CPF/CNPJ ocupa a coluna opcional `document`, com índice unique. A regra funcional aprovada exige armazenamento somente numérico, validade matemática, unicidade e compatibilidade com PF/PJ quando informado; a aplicação deverá normalizar e validar antes de persistir. O schema não impõe essas validações nem possui o Tipo de Pessoa.
 - `isPrimary` identifica telefone/e-mail principal. A regra de garantir no máximo um principal de cada tipo por pessoa precisa ser aplicada pelo serviço em transação; não há restrição parcial correspondente neste esquema.
 - `Equipment.ownerId` representa o titular atual. O serviço que trocar o titular deverá atualizar esse vínculo e inserir o evento de histórico na mesma transação.
+- A regra funcional exige Tipo de Contato Cliente para o proprietário, mas `Equipment.ownerId` apenas referencia `Person` no schema atual e não impõe essa elegibilidade.
 - O histórico de titularidade não substitui o log administrativo nem identifica o usuário que realizou a alteração; autenticação e trilha administrativa ainda serão modeladas.
 - Código interno sequencial exibido ao usuário, OS, estoque, compras, vendas, financeiro, segurança e auditoria completa ainda não fazem parte desta migration.
 
@@ -68,13 +69,21 @@ As decisões abaixo são funcionais e não descrevem o schema Prisma/migration j
 
 - Aviso é campo único informativo de Pessoa; a tabela atual `people` não o contém. A pergunta e mensagens aprovadas, a continuidade sem bloqueio, a frequência em cada contexto e permissões de preenchimento/alteração/apagamento são regras futuras de aplicação. Nesta etapa não há log de leitura, resposta ou confirmação formal.
 - Pessoa sem vínculo histórico pode ser excluída fisicamente; com vínculo não pode ser apagada, mas pode ser inativada. A tabela `people` já possui `is_active`; regras de seleção padrão, filtro de inativos, exibição histórica e identificação técnica dos vínculos ainda precisam ser implementadas.
-- Equipamento sem vínculo com OS ou histórico operacional pode ser excluído fisicamente; com vínculo não pode ser apagado, mas pode ser inativado. O schema atual de `equipment` não tem campo de status/ativo. Definição desse campo e filtros futuros exigem modelagem futura.
+- Equipamento sem vínculo com OS ou histórico operacional pode ser excluído fisicamente; com vínculo não pode ser apagado, mas pode ser inativado. A regra funcional de status Ativo/Inativo está aprovada, mas o schema atual de `equipment` não tem campo de status/ativo; sua representação e os filtros futuros exigem modelagem futura.
 - O proprietário deve ser Pessoa cadastrada com Tipo de Contato Cliente, tanto na criação inicial quanto em transferência; Pessoa inativa não é opção padrão. `Equipment.ownerId` atualmente referencia `Person`, mas não impõe elegibilidade por Tipo de Contato ou atividade.
 - A OS registra a Pessoa informada no atendimento na abertura, sem exigir separação entre ela e proprietário real do equipamento, e deve preservar o retrato histórico desse momento. Alterações futuras nos cadastros permanentes não devem reescrever OS antigas. Não há entidade OS nem snapshot no schema atual.
 - Transferência é permitida, altera o titular atual, cria evento em `equipment_ownership_events` e não reescreve OS antigas. Correção do proprietário sem histórico não precisa ser tratada como transferência formal; com vínculo operacional, a mudança é transferência. Correção retroativa com histórico fica restrita a administrador e exige justificativa/auditoria futura. A tabela física de eventos registra equipamento, titulares anterior/novo e data, mas não distingue correção/transferência, usuário, justificativa ou vínculo com OS.
 - O perfil/permissão correspondente a administrador não foi definido. Múltiplos Avisos, histórico de Avisos, log de leitura, auditoria de alteração/apagamento de Aviso, vínculo de transferência a OS, critérios técnicos de histórico e detalhes da correção retroativa continuam pendentes.
 
 Nenhuma dessas regras foi aplicada ao schema ou banco nesta atualização documental.
+
+### Regras aprovadas para validação e ciclo de vida de Equipamento ainda não refletidas
+
+- O cadastro exige Proprietário, Tipo de Equipamento, Marca, Modelo e Status; Número de Série é opcional. Proprietário deve ser Pessoa cadastrada com Tipo de Contato Cliente. Tipo de Equipamento e Marca são cadastros próprios; Marca também representa Fabricante.
+- Equipamento tem somente status Ativo/Inativo nesta etapa e novo equipamento inicia Ativo. Ativo aparece normalmente em abertura de OS; Inativo não é opção padrão, pode ser localizado por filtro e permanece visível em históricos. Outros status operacionais não estão incluídos.
+- Serial informado repetido para o mesmo proprietário atual bloqueia o cadastro. Para proprietário diferente, gera aviso, permite cadastrar outro e não sugere transferência. Serial não informado permite salvar sem busca automática por proprietário + Tipo + Marca + Modelo. Normalização avançada, regras de pesquisa e unicidade global não são aprovadas.
+- Tipo de Equipamento e Marca sem uso podem ser editados, inativados ou excluídos fisicamente; já usados podem ser editados ou inativados, mas não excluídos fisicamente. Inativos não são opção padrão em novos equipamentos, e equipamentos antigos continuam exibindo os valores usados. Snapshot do nome anterior após edição de valor usado permanece pendente.
+- No schema aplicado, `brand_id` e `model` são opcionais; `serial_number` é opcional e indexado sem unicidade; `equipment` não possui status; `equipment_types` e `equipment_brands` não possuem campo de atividade. O bloqueio por serial repetido para mesmo proprietário, aviso por proprietário diferente, campos obrigatórios e ciclo de vida dos catálogos dependem de modelagem e lógica futuras; nada disso foi migrado.
 
 ## Próximas áreas de modelagem
 
@@ -91,3 +100,4 @@ Nenhuma dessas regras foi aplicada ao schema ou banco nesta atualização docume
 | 07/10/2026 | Registro das regras aprovadas para campos e obrigatoriedade de Pessoa, validação de CPF/CNPJ, Tipo de Contribuinte, Tipos de Contato/Endereço, Aviso, endereços múltiplos, Pessoa de Contato e equivalência Marca/Fabricante, com divergências do schema atual explicitadas. |
 | 07/10/2026 | Complemento com catálogos iniciais e significados, ciclo de vida geral de valores auxiliares e regra de duplicidade de Pessoa com/sem documento; critérios exatos de busca e snapshot de nomes permanecem pendentes. |
 | 07/10/2026 | Registro das regras aprovadas para Aviso, exclusão/inativação de Pessoa e Equipamento, proprietário elegível, Pessoa informada na abertura da OS, transferência/correção de titularidade e divergências ainda existentes no schema. |
+| 07/10/2026 | Registro das regras aprovadas de serial, campos obrigatórios, status Ativo/Inativo e ciclo de vida de Tipo de Equipamento/Marca, sem alterar o schema ou migration atuais. |

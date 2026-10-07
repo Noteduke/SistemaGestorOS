@@ -73,6 +73,12 @@ A pergunta volta a ocorrer em cada ocorrência de um contexto aprovado, sem disp
 
 Pessoas e equipamentos inativos não devem aparecer como opções padrão em novos lançamentos ou novas OS, respectivamente. A pesquisa deve permitir incluir inativos por filtro, e os registros históricos continuam apresentando as entidades normalmente. O Frontend não deve inferir ou implementar critérios de vínculo histórico para exclusão; deve seguir o resultado e as regras fornecidas pela API.
 
+## 10.3 Cadastro de Equipamento
+
+O formulário exige Proprietário, Tipo de Equipamento, Marca, Modelo e Status; o serial é opcional. Equipamento novo inicia com status Ativo. Tipos de Equipamento e Marcas inativos não aparecem como opções padrão para novos equipamentos, mas as referências existentes continuam visíveis nos históricos.
+
+Quando houver serial, a API bloqueia repetição para o mesmo proprietário e retorna aviso não bloqueante para repetição associada a proprietário diferente; nesse segundo caso a interface permite cadastrar outro Equipamento e não sugere transferência. Sem serial, não se executa busca automática de duplicidade pela combinação Proprietário + Tipo + Marca + Modelo. O Backend/API é autoridade para validar duplicidade; a interface apresenta o resultado sem criar regras próprias.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.

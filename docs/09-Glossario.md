@@ -73,6 +73,15 @@ Atividade executada pela empresa, não representando item de estoque.
 ## Equipamento
 Bem cuja titularidade atual é vinculada a uma Pessoa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. A Pessoa informada na OS não precisa ser o proprietário real.
 
+## Tipo de Equipamento
+Cadastro próprio que classifica o Equipamento. Seu catálogo inicial ainda está pendente.
+
+## Status do Equipamento
+Estado funcional limitado nesta etapa a Ativo ou Inativo. Equipamento novo inicia Ativo; outros estados não fazem parte do escopo atual.
+
+## Número de Série
+Identificador opcional do Equipamento e principal critério de duplicidade quando informado. A comparação considera o proprietário atual.
+
 ## Proprietário do Equipamento
 Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo de Contato Cliente.
 
