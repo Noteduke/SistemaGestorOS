@@ -62,7 +62,7 @@ Informação passiva registrada no cadastro de Pessoa, sem comportamento obrigat
 Campo único e informativo do cadastro de Pessoa. Nos contextos aprovados, o sistema pergunta se o operador deseja ver o conteúdo; não o exibe automaticamente e não bloqueia operações. As regras de apresentação e permissão estão em `docs/02-Regras-de-Negocio.md`.
 
 ## Marca
-Cadastro único de identificação da marca de um equipamento, representando também seu fabricante para fins do Sistema Gestor OS.
+Cadastro único de identificação da marca de um equipamento, representando também seu fabricante para fins do Sistema Gestor OS. Catálogo inicial aprovado: Dell, HP, Lenovo, Samsung, Acer, Asus, Positivo, Apple, Epson, Brother, Canon, Lexmark, Ricoh, Xerox, BenQ, Intelbras, APC, SMS, TS Shara, Zebra, Elgin, D-Link, TP-Link, Ubiquiti, Mikrotik e Outro. Não é enum fixo; novas marcas podem ser adicionadas. A carga inicial ainda está pendente.
 
 ## Produto
 Item controlado em estoque e comercializado.
@@ -74,13 +74,16 @@ Atividade executada pela empresa, não representando item de estoque.
 Bem cuja titularidade atual é vinculada a uma Pessoa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. A Pessoa informada na OS não precisa ser o proprietário real.
 
 ## Tipo de Equipamento
-Cadastro próprio que classifica o Equipamento. Seu catálogo inicial ainda está pendente.
+Cadastro próprio que classifica o Equipamento. Catálogo inicial aprovado: Notebook, Computador/Desktop, Impressora, Projetor, Monitor, Nobreak, Roteador, Access Point, Switch, Servidor, Scanner, Leitor de Código de Barras, Coletor de Dados, Tablet, Celular/Smartphone e Outro. Não é enum fixo; novos tipos podem ser adicionados. A carga inicial ainda está pendente.
+
+## Normalização de dados
+Regra de aplicação que converte dados textuais persistidos para MAIÚSCULAS, exceto e-mail. E-mail é salvo em minúsculas; telefone e CEP são salvos somente com números. Máscaras são visuais.
 
 ## Status do Equipamento
 Estado funcional limitado nesta etapa a Ativo ou Inativo. Equipamento novo inicia Ativo; outros estados não fazem parte do escopo atual.
 
 ## Número de Série
-Identificador opcional do Equipamento e principal critério de duplicidade quando informado. A comparação considera o proprietário atual.
+Identificador opcional do Equipamento e principal critério de duplicidade quando informado. A comparação considera o proprietário atual. É salvo em caixa alta sem remover símbolos nem alterar espaços, inclusive no início/fim; `ABC-123` e `ABC123` são valores diferentes.
 
 ## Proprietário do Equipamento
 Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo de Contato Cliente.
@@ -89,7 +92,7 @@ Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo d
 Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. A OS preserva o retrato histórico desse momento; não há separação obrigatória nesta etapa em relação ao proprietário real do equipamento.
 
 ## Transferência de titularidade
-Operação que altera o proprietário atual de equipamento com vínculo histórico e registra evento de titularidade, sem reescrever OS anteriores.
+Operação que altera o proprietário atual do equipamento e registra evento de titularidade, sem reescrever OS anteriores. Pode ocorrer fora de OS ou durante uma OS; o vínculo com OS é opcional.
 
 ## Orçamento
 Proposta comercial apresentada ao cliente antes da execução ou venda.

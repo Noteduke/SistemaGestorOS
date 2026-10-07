@@ -79,6 +79,12 @@ O formulário exige Proprietário, Tipo de Equipamento, Marca, Modelo e Status; 
 
 Quando houver serial, a API bloqueia repetição para o mesmo proprietário e retorna aviso não bloqueante para repetição associada a proprietário diferente; nesse segundo caso a interface permite cadastrar outro Equipamento e não sugere transferência. Sem serial, não se executa busca automática de duplicidade pela combinação Proprietário + Tipo + Marca + Modelo. O Backend/API é autoridade para validar duplicidade; a interface apresenta o resultado sem criar regras próprias.
 
+O Frontend pode pesquisar equipamentos por Proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, Número de Série e Status. Modelo aceita busca textual; serial aceita busca exata ou parcial; Status permite Ativo, Inativo ou Todos. Inativos ficam ocultos por padrão e aparecem quando o usuário inclui inativos pelo filtro. Essa pesquisa apenas localiza registros e não deve ser confundida com a validação de duplicidade no cadastro.
+
+Máscaras de telefone e CEP são aplicadas somente na interface; o Backend salva esses valores apenas com números. CEP é opcional. Dados textuais são persistidos em caixa alta, exceto e-mail, que é salvo em minúsculas após remoção de espaços externos. O número de série é convertido para caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; a interface não deve limpar ou ocultar essa diferença. Se a API avisar que o telefone está fora do formato esperado, a interface informa o operador e permite confirmar e continuar.
+
+Ao alterar na ficha do Equipamento o Tipo, Marca, Modelo ou Número de Série, a interface deverá respeitar a autorização retornada pela API: sem histórico, usuário comum pode corrigir; com histórico, somente administrador. Proprietário sem histórico pode ser corrigido diretamente; com histórico, a mudança usa transferência formal. Justificativa e auditoria para alterações com histórico ainda dependem de definição futura. Transferência pode ocorrer fora de OS ou durante uma OS, com associação opcional à OS; transferências nunca alteram OS antigas.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.
