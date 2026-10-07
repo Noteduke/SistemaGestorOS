@@ -29,6 +29,9 @@ Exemplos:
 - Fornecedor
 - Transportadora
 - Prestador de Serviço
+- Parceiro
+
+O catálogo inicial contém esses cinco Tipos de Contato. Os significados aprovados são: Cliente, quem contrata serviços ou adquire produtos; Fornecedor, quem fornece produtos ou serviços; Transportadora, quem realiza transporte; Prestador de Serviço, quem presta serviços; e Parceiro, pessoa ou organização com relação de parceria comercial ou operacional. Os valores pertencem a cadastro próprio, não a enumeração fixa. Uma Pessoa pode ter vários Tipos de Contato simultaneamente.
 
 Transportadoras NÃO possuirão cadastro próprio separado. Transportadora será um Tipo de Contato da Pessoa.
 
@@ -39,7 +42,7 @@ Cada cadastro poderá possuir:
 - zero ou uma Pessoa de Contato, que será outro cadastro completo de Pessoa;
 - múltiplos endereços, cada um com Tipo de Endereço proveniente de cadastro próprio e opção de ser marcado como principal.
 
-Os Tipos de Endereço não serão limitados a uma enumeração fixa. Exemplos discutidos incluem Principal, Cobrança, Entrega e Instalação; o catálogo inicial permanece pendente.
+O catálogo inicial de Tipos de Endereço contém Principal, Cobrança, Entrega e Instalação. São valores de cadastro próprio, não uma enumeração fixa. Cada endereço deve ter um Tipo de Endereço e pode também ser marcado como principal. Uma Pessoa pode ter vários endereços; ainda não foi definida uma regra sobre permitir ou impedir mais de um endereço do mesmo tipo.
 
 Os campos obrigatórios mínimos para salvar uma Pessoa são Tipo de Pessoa (PF ou PJ) e Nome/Razão Social. Todos os demais campos são opcionais no cadastro geral, salvo exigências específicas de fluxos futuros, como emissão fiscal. Além das regras de CPF/CNPJ descritas a seguir, não ficam estabelecidas outras obrigatoriedades ou formatos para os novos campos nesta etapa.
 
@@ -49,7 +52,11 @@ Nome Fantasia aplica-se a PJ e é opcional. Para exibição, se a PJ não tiver 
 
 Inscrição Estadual e Inscrição Municipal são opcionais e aplicam-se principalmente a PJ. Nesta etapa não há validação fiscal específica por estado ou município; o valor informado é armazenado sem interpretação fiscal complexa.
 
-Tipo de Contribuinte será uma classificação de cadastro próprio, opcional no cadastro geral de Pessoa e obrigatória quando houver emissão de nota fiscal. Não é obrigatória para OS sem emissão fiscal nem, inicialmente, para fornecedor, transportadora ou prestador sem fluxo fiscal específico. Valores, códigos, regras de NF-e/NFS-e e validações fiscais permanecem pendentes.
+Tipo de Contribuinte será uma classificação de cadastro próprio, opcional no cadastro geral de Pessoa e obrigatória quando houver emissão de nota fiscal. O catálogo inicial contém Contribuinte ICMS (possui inscrição estadual e recolhe ICMS), Contribuinte Isento (não possui inscrição estadual e não recolhe ICMS) e Não Contribuinte (Pessoa que não é contribuinte de ICMS, podendo ou não possuir inscrição estadual no cadastro de contribuintes). Não é obrigatório para OS sem emissão fiscal nem, inicialmente, para fornecedor, transportadora ou prestador sem fluxo fiscal específico. Códigos fiscais, regras de NF-e/NFS-e e validações fiscais permanecem pendentes.
+
+Os catálogos auxiliares deste cadastro seguem uma regra geral: uma opção ainda não vinculada pode ser editada, inativada ou excluída; uma opção já utilizada pode ser editada ou inativada, mas não excluída fisicamente. Opções inativas não são oferecidas por padrão em novos cadastros e continuam válidas para registros históricos. Ainda será definido se editar a descrição de uma opção usada altera o nome exibido no histórico ou se o nome anterior deve ser preservado como snapshot. Uma regra específica aprovada para determinado catálogo poderá substituir esta regra geral.
+
+CPF ou CNPJ informado é um critério forte de identidade; se já estiver cadastrado para outra Pessoa, bloqueia o novo cadastro. Quando não houver documento, uma possível duplicidade identificada por nome, telefone ou e-mail gera um aviso, mas não impede salvar e não é bloqueada automaticamente. Critérios exatos de similaridade, normalização e algoritmo de busca permanecem pendentes.
 
 Observações são informação passiva do cadastro. Aviso é informação operacional: quando preenchido, deve ser apresentado ao operador ao visualizar a Pessoa, realizar uma venda para ela ou abrir uma Ordem de Serviço para ela. A regra e os dados permanecem sob responsabilidade do Backend/API; o Frontend realiza a apresentação. Modalidade visual, confirmação de leitura, bloqueio, severidade, validade e histórico do Aviso permanecem pendentes.
 

@@ -41,16 +41,19 @@ Classificação do cadastro unificado como Pessoa Física (PF) ou Pessoa Jurídi
 Tipo de Contato que classifica uma Pessoa como transportadora. Não possui cadastro de Pessoa separado.
 
 ## Tipo de Contato
-Classificação de cadastro próprio que representa um papel exercido por uma Pessoa no sistema, como Cliente, Fornecedor, Transportadora ou Prestador de Serviço. Uma Pessoa pode possuir vários Tipos de Contato simultaneamente.
+Classificação de cadastro próprio que representa um papel exercido por uma Pessoa no sistema. Catálogo inicial: Cliente, Fornecedor, Transportadora, Prestador de Serviço e Parceiro. Uma Pessoa pode possuir vários Tipos de Contato simultaneamente.
 
 ## Pessoa de Contato
 Outra Pessoa, vinculada a um cadastro de Pessoa como contato. Cada Pessoa pode ter zero ou uma Pessoa de Contato; o vínculo não representa um cadastro simplificado nem um papel da Pessoa.
 
 ## Tipo de Contribuinte
-Classificação de cadastro próprio associada à Pessoa para uso fiscal. Valores e regras fiscais ainda estão pendentes.
+Classificação de cadastro próprio associada à Pessoa para uso fiscal. Catálogo inicial: Contribuinte ICMS, Contribuinte Isento e Não Contribuinte. Códigos e regras fiscais detalhadas permanecem pendentes.
 
 ## Tipo de Endereço
-Classificação de cadastro próprio associada a um endereço de Pessoa. O catálogo inicial ainda está pendente; um endereço pode ser marcado como principal.
+Classificação de cadastro próprio associada a um endereço de Pessoa. Catálogo inicial: Principal, Cobrança, Entrega e Instalação. Um endereço pode ser marcado como principal independentemente do tipo.
+
+## Parceiro
+Tipo de Contato para pessoa ou organização com relação de parceria comercial ou operacional com a empresa.
 
 ## Observações
 Informação passiva registrada no cadastro de Pessoa, sem comportamento obrigatório de exibição em outros fluxos.

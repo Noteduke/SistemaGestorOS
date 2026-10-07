@@ -80,7 +80,7 @@ Prioridade inicial:
 9. Dashboard
 10. Configurações
 
-Antes da implementação funcional de Cadastros, a modelagem e uma migration deverão refletir as regras aprovadas em 07/10/2026 para campos de Pessoa, Tipos de Contato/Contribuinte/Endereço e endereços múltiplos. O schema aplicado ainda diverge dessas regras. Catálogos iniciais, validações e ciclos de vida que continuam pendentes deverão ser especificados antes dos fluxos que dependam deles.
+Antes da implementação funcional de Cadastros, a modelagem e uma migration deverão refletir as regras aprovadas em 07/10/2026 para campos de Pessoa, os catálogos iniciais de Tipos de Contato/Contribuinte/Endereço, o ciclo de vida dos catálogos auxiliares, a regra de duplicidade de Pessoa e endereços múltiplos. O schema aplicado ainda diverge dessas regras. Permanecem pendentes os critérios exatos de similaridade, normalização e algoritmo para busca de possíveis duplicatas sem documento, a preservação de snapshot do nome antigo de opções auxiliares editadas, e regras/códigos fiscais detalhados.
 
 ---
 
