@@ -74,7 +74,10 @@ Sub-recurso do cadastro de Pessoa, com número persistido somente em dígitos. N
 Sub-recurso do cadastro de Pessoa, salvo em minúsculas após `trim`, com formato básico válido e até 254 caracteres. No recorte aprovado para implementação futura, repetição na mesma Pessoa bloqueia; entre Pessoas distintas permite com aviso não bloqueante. Pode ser principal, independentemente do telefone principal.
 
 ## Histórico mínimo de contatos
-Registro obrigatório para as futuras inclusões de telefone/e-mail em Pessoa existente e mudanças de principalidade, com os eventos `PHONE_CREATED`, `EMAIL_CREATED`, `PHONE_PRIMARY_CHANGED` e `EMAIL_PRIMARY_CHANGED`. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
+Registro especializado planejado em `person_contact_events`, tabela ainda inexistente, para as futuras inclusões de telefone/e-mail em Pessoa existente. Todo `POST` bem-sucedido registra `PHONE_CREATED` ou `EMAIL_CREATED`; `PHONE_PRIMARY_CHANGED` ou `EMAIL_PRIMARY_CHANGED` registra também a mudança do principal efetivo, inclusive de nenhum para o primeiro. Dados, troca de principal e eventos devem ser atômicos. Não há rota pública de consulta neste recorte. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
+
+## Confirmação de alteração da Pessoa
+Declaração `confirmPersonChange: true` exigida pelo contrato técnico futuro de todo `POST` de telefone/e-mail. Não substitui autenticação nem comprova sozinha a exibição da mensagem ao operador. Telefone fora do padrão exige adicionalmente `confirmNonstandardPhone: true` após aviso da API.
 
 ## Tipo de Contribuinte
 Classificação de cadastro próprio associada à Pessoa para uso fiscal. Catálogo inicial: Contribuinte ICMS, Contribuinte Isento e Não Contribuinte. Códigos e regras fiscais detalhadas permanecem pendentes.

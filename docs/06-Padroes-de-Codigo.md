@@ -90,3 +90,7 @@ Este documento será ampliado com padrões específicos para React, NestJS, Pris
 ## 12.1 Seeds de catálogos
 
 Seeds de catálogos iniciais serão idempotentes e executados por comando controlado, não automaticamente a cada inicialização do Backend. Reexecutá-los não deve duplicar registros; devem criar valores ausentes, usar identificadores estáveis quando aplicável e preservar renomeações manuais permitidas. A estratégia técnica para identificar valores após renomeação será definida na implementação do seed.
+
+## 12.2 Próximo recorte de contatos de Pessoa — contrato técnico aprovado, ainda não implementado
+
+Os services de domínio deverão persistir inclusão de telefone/e-mail, eventual troca de principal e eventos mínimos de `person_contact_events` na mesma transação Prisma; falha no histórico cancela toda a operação. A principalidade combinará transação no Backend e índice funcional único customizado no MySQL **somente se** seu replay e compatibilidade com MySQL 8 e Prisma 7.10.0 forem validados. SQL customizado pertence à nova migration versionada, não às migrations já aplicadas; se a validação falhar, parar e relatar antes de adotar alternativa. SQL raw excepcional no runtime, se necessário para bloqueio concorrente, continuará parametrizado e acessado através do Prisma, conforme a fronteira desta seção. Esse recorte ainda não possui implementação, migration nova, autenticação ou guards.
