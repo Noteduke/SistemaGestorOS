@@ -81,7 +81,7 @@ Quando houver serial, a API bloqueia repetição para o mesmo proprietário e re
 
 O Frontend pode pesquisar equipamentos por Proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, Número de Série e Status. Modelo aceita busca textual; serial aceita busca exata ou parcial; Status permite Ativo, Inativo ou Todos. Inativos ficam ocultos por padrão e aparecem quando o usuário inclui inativos pelo filtro. Essa pesquisa apenas localiza registros e não deve ser confundida com a validação de duplicidade no cadastro.
 
-Máscaras de telefone e CEP são aplicadas somente na interface; o Backend salva esses valores apenas com números. CEP é opcional. Dados textuais são persistidos em caixa alta, exceto e-mail, que é salvo em minúsculas após remoção de espaços externos. O número de série é convertido para caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; a interface não deve limpar ou ocultar essa diferença. Telefone com 10 dígitos é aceito como fixo; com 11, como celular se o primeiro dígito após o DDD for 9. Fora desses critérios, a API avisa e a interface permite confirmar e continuar.
+Máscaras de telefone e CEP são aplicadas somente na interface; o Backend salva esses valores apenas com números. CEP é opcional. Dados textuais são persistidos em caixa alta, exceto e-mail, que é salvo em minúsculas após remoção de espaços externos. O número de série é convertido para caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; a interface não deve limpar ou ocultar essa diferença. Telefone com 10 dígitos é aceito como fixo; com 11, como celular se o primeiro dígito após o DDD for 9. Fora desses critérios, entre 1 e 32 dígitos, a API avisa e a interface permite confirmar e continuar; sem dígitos ou acima de 32, bloqueia no recorte aprovado.
 
 Permissões são atribuídas por usuário/ação. Técnico e Usuário comum não são perfis rígidos; Administrador tem poderes máximos, e outro usuário pode executar ação administrativa específica se receber permissão equivalente. Usuários com permissão podem alterar Pessoa e Equipamento mesmo com histórico, sem justificativa obrigatória. Proprietário sem histórico pode ser corrigido diretamente; com histórico, a mudança usa transferência formal.
 
@@ -94,6 +94,10 @@ Cada coleção de telefones, e-mails e endereços pode ter no máximo um princip
 ## 10.4 CPF e CNPJ
 
 O campo de CPF aceita somente algarismos, com máscara visual opcional. O campo de CNPJ deve aceitar letras e números para permitir o formato alfanumérico oficial, além do formato numérico antigo. A máscara deve preservar as letras; antes do envio, o valor será encaminhado para normalização e validação pela API. A validação visual não substitui a validação do Backend. A API persiste CPF numérico e CNPJ sem pontuação, com letras em maiúsculas.
+
+## 10.5 Próximo recorte de telefones e e-mails — interface futura
+
+O próximo recorte de Backend prevê apenas adicionar e listar telefones/e-mails como sub-recursos de Pessoa; nenhuma interface será implementada nessa etapa. Quando a interface correspondente existir, deverá apresentar o aviso retornado pela API para telefone fora do padrão e somente reenviar com confirmação explícita do operador. A API não grava a primeira tentativa com aviso; mais de 32 dígitos são bloqueados. A confirmação geral antes de salvar alteração cadastral permanece aplicável, e o Backend registrará o histórico mínimo obrigatório. E-mail duplicado na mesma Pessoa é bloqueado; entre Pessoas diferentes a API permitirá com aviso não bloqueante. Pessoa inativa poderá ter contatos consultados, mas não receber novos telefones/e-mails neste recorte. A interface não deverá tratar as futuras rotas como prontas para produção antes de autenticação, guards e autorização por ação.
 
 # 11. Evolução
 

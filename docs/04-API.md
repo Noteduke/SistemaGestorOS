@@ -81,6 +81,23 @@ A regra aprovada não permite Pessoa inativa em novos vínculos operacionais. Es
 
 As respostas de Pessoa expõem `publicId`, não o `id` interno. `name` e `tradeName` são limitados a 191 caracteres, `stateRegistration` e `municipalRegistration` a 50, e `observations` a 2000. O recorte não possui PUT, PATCH ou DELETE, nem edição, inativação/reativação ou exclusão. Telefones, e-mails, endereços, Pessoa de Contato, Aviso, histórico, Equipamentos e demais módulos continuam fora destas rotas. Contratos dos demais recortes de Cadastros ainda precisam ser detalhados.
 
+### 10.3 Próximo recorte aprovado, ainda não implementado: telefones e e-mails
+
+Telefones e e-mails serão sub-recursos diretos de Pessoa. Estão aprovadas para implementação futura as rotas:
+
+| Método | Rota | Finalidade |
+| --- | --- | --- |
+| `POST` | `/api/v1/people/:publicId/phones` | Adicionar telefone. |
+| `GET` | `/api/v1/people/:publicId/phones` | Listar telefones. |
+| `POST` | `/api/v1/people/:publicId/emails` | Adicionar e-mail. |
+| `GET` | `/api/v1/people/:publicId/emails` | Listar e-mails. |
+
+As rotas `/contacts/phones` e `/contacts/emails` não serão usadas neste recorte, para não confundir telefone/e-mail com Tipo de Contato ou Pessoa de Contato. `PATCH`, `PUT`, `DELETE`, edição geral de Pessoa e uso funcional de `label` ficam fora. As respostas públicas não exporão o `id` interno; está aprovada a adição de `public_id` a telefone/e-mail se tecnicamente viável. Campos exatos, paginação e códigos de erro serão detalhados antes da implementação.
+
+O `POST` de telefone exige valor com dígitos e aceita no máximo 32 dígitos normalizados. Dez dígitos, ou onze com 9 após o DDD, passam sem aviso de formato. Outros comprimentos até 32 e onze sem esse 9 recebem aviso não bloqueante, mas a primeira tentativa não grava; o operador deverá reenviar com confirmação explícita. Mais de 32 dígitos são bloqueados. O campo booleano de confirmação e o formato do aviso serão definidos no contrato técnico, com validação no Backend. O `POST` de e-mail exige `trim`, minúsculas, formato básico válido e até 254 caracteres; e-mail inválido é bloqueado. Mesmo e-mail normalizado na mesma Pessoa é bloqueado; entre Pessoas diferentes é permitido com aviso não bloqueante. Não haverá consulta de DNS ou existência real da caixa postal.
+
+Ambos os `POST` poderão marcar o novo contato como principal; nesse caso, o anterior da mesma Pessoa e coleção será desmarcado na transação, sem alterar a outra coleção. Sem marcação, o principal existente permanece, e uma coleção pode ficar sem principal. `GET` é permitido para Pessoa inativa; `POST` é bloqueado até sua reativação. A inclusão de contato em Pessoa existente é alteração cadastral: cada `POST` depende do histórico mínimo obrigatório dos eventos `PHONE_CREATED`, `EMAIL_CREATED`, `PHONE_PRIMARY_CHANGED` e `EMAIL_PRIMARY_CHANGED` quando aplicáveis. A confirmação geral de mudança cadastral continua válida, além da confirmação específica do aviso de telefone. Nenhuma dessas rotas existe no Backend ainda. Autenticação, guards e autorização por usuário/ação permanecem pendentes; as rotas atuais e futuras não estão prontas para produção.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.

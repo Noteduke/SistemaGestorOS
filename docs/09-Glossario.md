@@ -67,6 +67,15 @@ Outra Pessoa, vinculada a um cadastro de Pessoa como contato. Cada Pessoa pode t
 ## Registro principal
 Telefone, e-mail ou endereço marcado como principal. Cada Pessoa pode ter no máximo um principal em cada coleção, sem obrigação de possuir um. O principal do endereço é único independentemente do Tipo; vários endereços podem ter o mesmo Tipo.
 
+## Telefone da Pessoa
+Sub-recurso do cadastro de Pessoa, com número persistido somente em dígitos. No recorte aprovado para implementação futura, aceita de 1 a 32 dígitos: formato brasileiro de dez dígitos ou celular de onze com 9 após o DDD passa sem aviso; demais comprimentos dentro do limite exigem aviso e confirmação explícita antes da gravação. Valor sem dígitos ou acima de 32 é bloqueado. Pode ser principal, independentemente do e-mail principal.
+
+## E-mail da Pessoa
+Sub-recurso do cadastro de Pessoa, salvo em minúsculas após `trim`, com formato básico válido e até 254 caracteres. No recorte aprovado para implementação futura, repetição na mesma Pessoa bloqueia; entre Pessoas distintas permite com aviso não bloqueante. Pode ser principal, independentemente do telefone principal.
+
+## Histórico mínimo de contatos
+Registro obrigatório para as futuras inclusões de telefone/e-mail em Pessoa existente e mudanças de principalidade, com os eventos `PHONE_CREATED`, `EMAIL_CREATED`, `PHONE_PRIMARY_CHANGED` e `EMAIL_PRIMARY_CHANGED`. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
+
 ## Tipo de Contribuinte
 Classificação de cadastro próprio associada à Pessoa para uso fiscal. Catálogo inicial: Contribuinte ICMS, Contribuinte Isento e Não Contribuinte. Códigos e regras fiscais detalhadas permanecem pendentes.
 
