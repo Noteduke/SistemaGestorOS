@@ -6,11 +6,11 @@ Apresentar os relacionamentos do modelo atualmente implementado no Prisma. Este 
 
 ## Status
 
-Diagrama inicial documentado; corresponde ao schema Prisma em 06/10/2026. A migration `20261006120000_initial_core` foi aplicada com sucesso no banco `gestor_os`, em MySQL Community Server 8.0.46, e a estrutura foi validada. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; não havia migration pendente no momento da validação.
+Diagrama físico correspondente ao schema Prisma em 06/10/2026. A migration `20261006120000_initial_core` foi aplicada com sucesso no banco `gestor_os`, em MySQL Community Server 8.0.46, e a estrutura foi validada. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; não havia migration pendente no momento da validação. As decisões funcionais aprovadas em 07/10/2026 são descritas nas observações abaixo e ainda não foram aplicadas ao schema/banco.
 
 ## Última atualização
 
-06/10/2026.
+07/10/2026.
 
 ## Diagrama
 
@@ -19,8 +19,8 @@ erDiagram
   PERSON ||--o{ PERSON_ROLE_ASSIGNMENT : has
   PERSON ||--o{ PERSON_PHONE : has
   PERSON ||--o{ PERSON_EMAIL : has
-  PERSON ||--o| PERSON_ADDRESS : has
-  PERSON o|--o{ PERSON : "is primary contact for"
+  PERSON ||--o| PERSON_ADDRESS : "current schema: has"
+  PERSON o|--o{ PERSON : "contact person link"
   PERSON ||--o{ EQUIPMENT : owns
   EQUIPMENT_TYPE ||--o{ EQUIPMENT : classifies
   EQUIPMENT_BRAND o|--o{ EQUIPMENT : brands
@@ -91,10 +91,15 @@ erDiagram
 
 - O diagrama mostra relações e restrições principais; os campos completos estão em `docs/modelagem/Modelo-Banco.md` e `backend/prisma/schema.prisma`.
 - Serial de equipamento não possui unicidade por decisão funcional: a aplicação poderá alertar sobre coincidências e permitir um novo cadastro.
-- A relação de pessoa de contato é opcional e autorreferenciada em `people`.
+- **Modelo físico atual:** `person_addresses.person_id` é único, então o banco aplicado aceita no máximo um endereço por Pessoa. A regra funcional aprovada em 07/10/2026 permite vários endereços; a unicidade deverá ser removida e Tipo de Endereço/principalidade modelados em migration futura. O diagrama continua mostrando o schema atual, não a estrutura futura.
+- **Modelo físico atual:** `person_roles.role` é enum. A regra funcional aprovada define papéis como Tipos de Contato simultâneos provenientes de cadastro próprio; a estrutura atual é parcial e deverá ser revista.
+- A relação física de Pessoa de Contato é opcional, autorreferenciada em `people` e permite no máximo uma pessoa vinculada a cada cadastro. A coluna existente se chama `primary_contact_id`; a nomenclatura funcional aprovada é Pessoa de Contato.
+- Para equipamentos, Marca e Fabricante são o mesmo conceito e haverá um único cadastro, representado fisicamente por `equipment_brands`.
+- O schema atual ainda não representa integralmente os campos aprovados de Pessoa (Tipo de Pessoa, Nome Fantasia, inscrições, Tipo de Contribuinte, Observações e Aviso), nem os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço. Nenhuma dessas alterações foi aplicada nesta etapa.
 
 ## Histórico de alterações
 
 | Data | Alteração |
 | --- | --- |
 | 06/10/2026 | Primeiro diagrama do recorte de pessoas e equipamentos. |
+| 07/10/2026 | Registro das regras funcionais aprovadas que divergem do modelo físico, sem representar migrations ainda não aplicadas. |

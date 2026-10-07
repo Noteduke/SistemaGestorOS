@@ -19,9 +19,9 @@ Toda implementação deverá seguir este documento.
 
 ## Clientes e Fornecedores
 
-Será utilizado um cadastro único.
+Será utilizado um cadastro único de Pessoas, com Tipo de Pessoa PF ou PJ e os dados cadastrais aprovados para cada cadastro.
 
-Uma empresa ou pessoa poderá exercer mais de um papel.
+Uma Pessoa poderá exercer mais de um papel simultaneamente. Esses papéis são denominados **Tipos de Contato** e serão mantidos em cadastro próprio.
 
 Exemplos:
 
@@ -30,15 +30,24 @@ Exemplos:
 - Transportadora
 - Prestador de Serviço
 
-Transportadoras NÃO possuirão cadastro próprio.
-Serão uma categoria do cadastro de Clientes/Fornecedores.
+Transportadoras NÃO possuirão cadastro próprio separado. Transportadora será um Tipo de Contato da Pessoa.
 
 Cada cadastro poderá possuir:
 
 - múltiplos telefones;
 - múltiplos e-mails;
-- uma pessoa de contato;
-- endereços.
+- zero ou uma Pessoa de Contato, que será outro cadastro completo de Pessoa;
+- múltiplos endereços, cada um com Tipo de Endereço proveniente de cadastro próprio e opção de ser marcado como principal.
+
+Os Tipos de Endereço não serão limitados a uma enumeração fixa. Exemplos discutidos incluem Principal, Cobrança, Entrega e Instalação; o catálogo inicial permanece pendente.
+
+O cadastro de Pessoa contempla Tipo de Pessoa, Nome/Razão Social, CPF/CNPJ, Nome Fantasia, Inscrição Estadual, Inscrição Municipal, Tipo de Contribuinte, Tipos de Contato, Observações e Aviso, além dos dados e relacionamentos já aprovados. Nome/Razão Social permanece obrigatório; CPF/CNPJ é opcional e único quando informado. Não ficam estabelecidas aqui outras obrigatoriedades, formatos ou regras fiscais.
+
+Tipo de Contribuinte será uma classificação de cadastro próprio, para uso fiscal, inclusive em emissão de nota fiscal. Seus valores e regras fiscais permanecem pendentes.
+
+Observações são informação passiva do cadastro. Aviso é informação operacional: quando preenchido, deve ser apresentado ao operador ao visualizar a Pessoa, realizar uma venda para ela ou abrir uma Ordem de Serviço para ela. A regra e os dados permanecem sob responsabilidade do Backend/API; o Frontend realiza a apresentação. Modalidade visual, confirmação de leitura, bloqueio, severidade, validade e histórico do Aviso permanecem pendentes.
+
+Marca e Fabricante são o mesmo conceito para equipamentos e terão um único cadastro, denominado preferencialmente **Marca**.
 
 # 4. Produtos
 

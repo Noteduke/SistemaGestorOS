@@ -72,11 +72,25 @@ Sempre que necessário, registrar informações de criação, alteração e excl
 
 O primeiro recorte de persistência está em `backend/prisma/schema.prisma` e na migration `backend/prisma/migrations/20261006120000_initial_core/migration.sql`.
 
-O recorte inclui pessoas e seus papéis, telefones, e-mails e endereço, além de tipos/marcas de equipamento, equipamentos e eventos de titularidade. O diagrama e as relações estão descritos em `docs/modelagem/Modelo-Banco.md` e `docs/modelagem/Diagrama-Entidades.md`.
+O recorte físico atual inclui pessoas, papéis, telefones, e-mails, até um endereço por pessoa, tipos e marcas de equipamento, equipamentos e eventos de titularidade. O diagrama e as relações atuais estão descritos em `docs/modelagem/Modelo-Banco.md` e `docs/modelagem/Diagrama-Entidades.md`.
 
 O schema Prisma foi validado pelo Prisma. A migration inicial `20261006120000_initial_core` foi aplicada no MySQL Community Server 8.0.46 por `prisma migrate deploy`. A estrutura resultante foi conferida com a migration versionada e com o schema Prisma: nove tabelas do domínio, 58 colunas, chaves primárias e estrangeiras, índices, restrições de unicidade, nulabilidade, defaults, charset e collation. O Prisma Migrate controla o histórico pela tabela administrativa `_prisma_migrations`. O banco deixou de estar vazio em estrutura; nenhum dado de teste foi inserido. A aplicação deverá normalizar CPF/CNPJ antes de persistir, garantir no máximo um telefone e um e-mail principal por pessoa e atualizar o titular atual junto com o evento de titularidade na mesma transação.
 
 Permanecem para etapas seguintes: usuário e permissões, auditoria administrativa, OS e seu snapshot histórico, estoque, compras, vendas e financeiro. Regras que constam em `docs/Especificacoes-Nao-Documentadas.md` não devem ser presumidas durante a modelagem.
+
+## 10.1 Regras funcionais aprovadas para Cadastros ainda não refletidas no schema aplicado
+
+As decisões abaixo foram aprovadas documentalmente em 07/10/2026. Elas descrevem o estado funcional desejado e **não** alteram nem descrevem como já migrada a estrutura existente. A evolução do schema deverá ser feita em etapa própria, com migration Prisma revisada e aprovada antes de qualquer aplicação.
+
+- Pessoa passa a contemplar Tipo de Pessoa (PF/PJ), Nome/Razão Social, CPF/CNPJ, Nome Fantasia, Inscrição Estadual, Inscrição Municipal, Tipo de Contribuinte, Tipos de Contato, Observações e Aviso. O schema atual não possui vários desses campos ou suas relações de catálogo. Nome/Razão Social continua obrigatório; CPF/CNPJ segue opcional e único quando informado. Não foram aprovadas outras obrigatoriedades, formatos ou regras fiscais.
+- Tipo de Contribuinte será classificação de cadastro próprio para uso fiscal. Seus valores, obrigatoriedade e regras fiscais permanecem pendentes.
+- Tipo de Contato representa papéis da Pessoa, admite vários simultaneamente e terá cadastro próprio. `person_roles` atualmente usa enum e representa parcialmente os papéis; não é a solução definitiva aprovada. Catálogo inicial e regras de ciclo de vida continuam pendentes.
+- Observações será informação passiva. Aviso terá regra operacional de apresentação quando a Pessoa for visualizada, quando uma venda for realizada para ela e quando uma OS for aberta para ela. O schema atual não possui esses campos; formato, confirmação, severidade, bloqueio, validade e histórico do Aviso permanecem pendentes. O Backend/API mantém dados e regra; o Frontend apresenta o conteúdo.
+- Uma Pessoa poderá possuir múltiplos endereços. Cada endereço terá Tipo de Endereço de cadastro próprio e poderá ser marcado como principal. O schema aplicado tem `person_addresses.person_id UNIQUE`, que permite zero ou um endereço; essa unicidade não atende à regra nova. Tipo, principalidade e multiplicidade exigirão evolução por migration. Catálogo inicial e outras validações não estão aprovados.
+- Cada Pessoa poderá ter zero ou uma Pessoa de Contato, que será outra Pessoa com cadastro completo. O vínculo autorreferenciado atual é conceitualmente compatível com a cardinalidade, mas a coluna `primary_contact_id` usa terminologia “principal” que não corresponde à regra funcional. Esta documentação não altera o nome físico.
+- Para equipamentos, Marca e Fabricante são o mesmo conceito e haverá um único cadastro, preferencialmente denominado Marca. `equipment_brands` é compatível como referência conceitual; não deve ser criado cadastro separado de fabricantes de equipamentos.
+
+Estas divergências são trabalho de modelagem futuro. Nenhum schema, migration ou banco foi alterado nesta atualização documental.
 
 # 11. Evolução
 

@@ -1,6 +1,6 @@
 # Especificações Não Documentadas — Sistema Gestor OS
 
-**Fonte exclusiva:** `conversa.md`. Este documento registra lacunas e inconsistências sem resolvê-las. “Não documentado” significa que a conversa não fecha a regra de forma suficientemente inequívoca para implementação sem confirmação.
+**Fontes:** `conversa.md` e decisões posteriores aprovadas por Marcos. Este documento registra lacunas e inconsistências sem resolvê-las. “Não documentado” significa que as fontes aprovadas não fecham a regra de forma suficientemente inequívoca para implementação sem confirmação.
 
 ## 1. Conflitos e inconsistências de registro
 
@@ -10,6 +10,13 @@
 4. **Propostas arquivadas versus decisão aprovada.** A conversa contém longas recomendações e tarefas de pesquisa técnica para Dell, Correios, SEFAZ, Stone, Banco Inter e boletos. A existência desses textos não confirma contratação, endpoint, credenciais ou aprovação de arquitetura específica.
 5. **V1 e futuro se misturam.** Portal para clientes, integrações, multiempresa, automação, relatórios e componentes aparecem em diferentes horizontes sem uma matriz final consolidada de versão/prioridade.
 6. **Disponível versus aplicado.** A RN-056 escreve `Disponível = Físico − Reservado`, mas as decisões também dizem que a peça aplicada fica indisponível até a entrega e distinguem “Reservado” de “Aplicado”. Não está esclarecido se “Reservado” inclui também o saldo aplicado para essa fórmula, ou se a equação deve descontar ambos. A especificação preserva os conceitos sem escolher a fórmula conflitante.
+
+### Conflitos resolvidos por decisão aprovada em 07/10/2026
+
+- **Cardinalidade de endereços — resolvida:** uma Pessoa pode possuir vários endereços. Cada endereço tem Tipo de Endereço de cadastro próprio e pode ser marcado como principal. A cardinalidade atual do schema ainda é divergente e deverá ser evoluída por migration.
+- **Pessoa de Contato — resolvida:** cada Pessoa pode ter zero ou uma Pessoa de Contato, que é outro cadastro completo de Pessoa. A coluna física atual `primary_contact_id` continua representando esse vínculo no modelo existente; a nomenclatura funcional é Pessoa de Contato.
+- **Marca x Fabricante em equipamentos — resolvida:** são o mesmo conceito para equipamentos, com um único cadastro, chamado preferencialmente Marca. Não criar cadastro paralelo de fabricantes de equipamentos.
+- **Papéis da Pessoa — complementada:** os papéis são Tipos de Contato; uma Pessoa pode ter vários simultaneamente e o Tipo de Contato será cadastro próprio. `person_roles` com enum é apenas a estrutura atual e deverá ser revista na modelagem futura.
 
 ## 2. Regras operacionais a completar
 
@@ -25,13 +32,15 @@
 - O texto menciona um ou dois campos personalizados, mas não fixa nomes, tipos, obrigatoriedade, pesquisa, auditoria ou configuração por tipo de equipamento.
 - Número sequencial: escopo do contador (global/por empresa/ano), formato, lacunas permitidas, concorrência e regras após cancelamento não estão definidos.
 
-### Clientes e equipamentos
+### Pessoas, contatos e equipamentos
 
-- “Identificação mínima” do cliente é aprovada, mas quais campos satisfazem o mínimo não ficou explícito.
+- Permanecem pendentes obrigatoriedades adicionais, formatos e validações dos dados PF/PJ; Nome/Razão Social é o único campo obrigatório aprovado e CPF/CNPJ é opcional e único quando informado. Também faltam valores e regras do Tipo de Contribuinte, que será cadastro próprio para uso fiscal.
+- Tipos de Contato e Tipos de Endereço serão cadastros próprios; permanecem pendentes seus catálogos iniciais, regras de exclusão/inativação e validações. Exemplos de tipos não constituem listas fechadas.
+- O campo Aviso deve ser apresentado ao operador ao visualizar a Pessoa, realizar venda para ela e abrir OS para ela. Permanecem pendentes formato visual, confirmação de leitura, bloqueio, severidade, validade, período de exibição e histórico de avisos.
 - Comportamento exato para cliente inativo ao abrir nova OS (bloqueio, aviso ou permissão excepcional) carece de regra operacional inequívoca.
-- Limite, ordenação, principalidade e validação de endereços, telefones, e-mails e contatos empresariais não estão definidos. Há tensão entre decisão de endereço único por pessoa e decisões posteriores de múltiplos canais de contato; preservar essa distinção até confirmação.
-- Regra completa para troca de proprietário, equipamento herdado, transferência entre clientes e equipamentos sem serial precisa especificar confirmação, histórico e prevenção de duplicidade.
-- Não estão fechados catálogo inicial de tipos/fabricantes/marcas, nem diferença entre fabricante e marca.
+- Permanecem pendentes obrigatoriedade, ordenação, validação, exclusão/inativação e histórico de telefones, e-mails e endereços. Também não estão definidos limites de canais, principal único de telefone/e-mail/endereço ou unicidade de endereço por tipo. Para endereços, a cardinalidade aprovada é múltipla, com Tipo de Endereço e possibilidade de marcar principal; CEP obrigatório não foi aprovado.
+- Regra completa para elegibilidade do proprietário, troca de proprietário, equipamento herdado, transferência entre pessoas e prevenção de duplicidade ainda precisa definir confirmação e fluxo. A cardinalidade de Pessoa de Contato (zero ou uma) e o fato de ser outro cadastro completo estão resolvidos.
+- O catálogo inicial de tipos de equipamento e Marcas ainda não está fechado. Marca e Fabricante são o mesmo conceito cadastral para equipamentos; não há pendência de separação entre eles.
 - Sincronização entre alteração do cadastro permanente de equipamento e snapshots históricos da OS não está detalhada além da preservação histórica.
 
 ### Orçamentos, serviços e garantia
@@ -90,6 +99,7 @@
 ## 5. Dados, modelo e API
 
 - O histórico contém documentos-modelo de entidades e banco, mas a presente fonte não fecha um esquema relacional/ERD final completo com cardinalidades e restrições.
+- O schema aplicado ainda diverge de regras funcionais aprovadas para Cadastros: `person_addresses.person_id UNIQUE` permite somente um endereço; `person_roles` usa enum em vez de cadastro próprio de Tipos de Contato; `people` não contém todos os campos aprovados nem as relações de Tipo de Contribuinte e Tipo de Endereço. A evolução exige modelagem e migration futura; não se deve descrever essas mudanças como já aplicadas.
 - Campos de auditoria padrão, histórico, log administrativo e identificador externo UUID foram aprovados em nível de padrão, mas retenção e valores obrigatórios por entidade carecem de especificação.
 - A API é REST/HTTPS/versionada e padronizada; endpoints, contratos, status HTTP, paginação, filtros, idempotência, limites e compatibilidade ainda precisam de documentação implementável.
 - Preparação para multiempresa foi aprovada; isolamento de dados, usuários compartilhados, numeração e configurações por empresa não estão resolvidos.
