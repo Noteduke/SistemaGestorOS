@@ -52,7 +52,9 @@ O catálogo inicial de Tipos de Endereço contém Principal, Cobrança, Entrega 
 
 Os campos obrigatórios mínimos para salvar uma Pessoa são Tipo de Pessoa (PF ou PJ) e Nome/Razão Social. Todos os demais campos são opcionais no cadastro geral, salvo exigências específicas de fluxos futuros, como emissão fiscal. Além das regras de CPF/CNPJ descritas a seguir, não ficam estabelecidas outras obrigatoriedades ou formatos para os novos campos nesta etapa.
 
-CPF/CNPJ é opcional no cadastro geral. Quando informado, deve ser armazenado somente com números, ser matematicamente válido, único e compatível com o Tipo de Pessoa: PF exige CPF com 11 dígitos e PJ exige CNPJ com 14 dígitos. A máscara é aplicada apenas na interface. Normalização, validação matemática, compatibilidade e duplicidade são regras do Backend/API; a validação visual do Frontend não é autoridade final.
+CPF/CNPJ é opcional no cadastro geral. CPF aplica-se a PF e, quando informado, é armazenado somente com números, deve possuir 11 dígitos e ser matematicamente válido. CNPJ aplica-se a PJ e aceita o formato numérico antigo ou o formato alfanumérico oficial da Receita Federal; quando informado, é armazenado sem pontuação, com letras em maiúsculas, e validado matematicamente conforme o algoritmo aplicável. CPF ou CNPJ informado deve ser único e compatível com o Tipo de Pessoa. A máscara é aplicada apenas na interface. Normalização, validação matemática, compatibilidade e duplicidade são regras do Backend/API; a validação visual do Frontend não é autoridade final.
+
+Exemplos de armazenamento canônico: CPF `123.456.789-09` → `12345678909`; CNPJ numérico `12.345.678/0001-90` → `12345678000190`; CNPJ alfanumérico `00.000.000/E08G-12` → `00000000E08G12`. Ao normalizar CNPJ, a aplicação remove pontuação, preserva letras e converte-as para maiúsculas; não pode eliminar letras como se fossem caracteres inválidos.
 
 Nome Fantasia aplica-se a PJ e é opcional. Para exibição, se a PJ não tiver Nome Fantasia, usa-se a Razão Social como referência principal. Nome Fantasia não se aplica a PF.
 

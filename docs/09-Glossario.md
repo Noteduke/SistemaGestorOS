@@ -49,6 +49,12 @@ Pessoa física ou jurídica que fornece produtos ou serviços ao Gestor OS.
 ## Tipo de Pessoa
 Classificação do cadastro unificado como Pessoa Física (PF) ou Pessoa Jurídica (PJ).
 
+## CPF
+Documento opcional de Pessoa Física, armazenado somente com números em 11 dígitos e validado matematicamente quando informado.
+
+## CNPJ
+Documento opcional de Pessoa Jurídica. Pode usar o padrão numérico antigo ou o padrão alfanumérico oficial da Receita Federal; é armazenado sem pontuação, com letras em maiúsculas, e validado matematicamente conforme o algoritmo aplicável.
+
 ## Transportadora
 Tipo de Contato que classifica uma Pessoa como transportadora. Não possui cadastro de Pessoa separado.
 

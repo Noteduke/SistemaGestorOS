@@ -10,7 +10,7 @@ Diagrama físico correspondente ao schema Prisma em 06/10/2026. A migration `202
 
 ## Última atualização
 
-07/10/2026.
+08/10/2026.
 
 ## Diagrama
 
@@ -111,7 +111,7 @@ erDiagram
 - Tipo de Equipamento e Marca possuem catálogos iniciais aprovados como cadastros próprios expansíveis, não enums fixos; serão carregados por seed idempotente sob comando controlado, sem execução automática no startup. Regra geral de caixa alta, e-mail minúsculo com trim, telefone/CEP numéricos e pesquisa são comportamentos de aplicação. Telefone com 10 dígitos é aceito como fixo; com 11, como celular se o primeiro após DDD for 9; demais comprimentos e celular sem nono dígito geram aviso não bloqueante com possibilidade de confirmar. Na ficha, usuário autorizado pode alterar dados com ou sem histórico, sem justificativa obrigatória; mudanças são registradas automaticamente. Proprietário com histórico exige transferência formal. Isso não altera o ciclo de vida dos cadastros auxiliares de Tipo e Marca.
 - Usuário com permissão correspondente pode consultar histórico operacional básico de Pessoa, Equipamento e OS; Administrador pode consultar o histórico completo. Histórico do Aviso e histórico técnico/auditoria exigem Administrador ou permissão explícita equivalente. O schema Prisma/migration atual não contém essa estrutura, não impõe a matriz de permissões e não implementa a confirmação antes de salvar.
 - O schema atual ainda não representa integralmente os campos aprovados de Pessoa (Tipo de Pessoa, Nome Fantasia, inscrições, Tipo de Contribuinte, Observações e Aviso), nem os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço. Tipo de Pessoa e Nome/Razão Social são obrigatórios na regra funcional; essa obrigatoriedade de Tipo de Pessoa ainda não está representada no schema.
-- `document` é opcional e unique no modelo físico. A regra funcional exige que CPF/CNPJ informado seja armazenado somente com números, matematicamente válido, único e compatível com PF/PJ. O schema atual não impõe normalização, validade ou compatibilidade; essas validações deverão ser feitas pela aplicação e ainda não foram implementadas.
+- `document` é opcional e unique no modelo físico. CPF é numérico; CNPJ aceita o formato numérico antigo ou o alfanumérico oficial, armazenado sem pontuação e em maiúsculas. Ambos devem ser matematicamente válidos, únicos quando informados e compatíveis com PF/PJ. `VARCHAR(14)` comporta os 14 caracteres canônicos. O schema atual não impõe normalização, validade ou compatibilidade; essas validações deverão ser feitas pela aplicação e ainda não foram implementadas.
 - Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
 - Nenhuma dessas alterações de campos ou validações foi aplicada ao schema ou banco nesta etapa documental.
 
@@ -124,3 +124,4 @@ erDiagram
 | 07/10/2026 | Complemento das observações com Aviso, exclusão/inativação, Pessoa informada na abertura da OS e titularidade, mantendo o diagrama limitado ao schema físico atual. |
 | 07/10/2026 | Registro das regras aprovadas de serial, campos obrigatórios, status Ativo/Inativo e ciclo de vida de Tipo de Equipamento/Marca, sem alterar o diagrama físico atual. |
 | 07/10/2026 | Registro dos catálogos iniciais de Tipo de Equipamento e Marca, normalização, pesquisa, alterações permanentes e vínculo opcional de transferência com OS, sem alterar o diagrama físico. |
+| 08/10/2026 | Registro da decisão de documento: CPF numérico; CNPJ numérico antigo ou alfanumérico oficial, canônico sem pontuação e em maiúsculas; schema/migration permanecem inalterados. |

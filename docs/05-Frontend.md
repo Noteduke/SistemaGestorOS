@@ -91,6 +91,10 @@ Antes de salvar qualquer alteração de Pessoa ou Equipamento, exibir a confirma
 
 Cada coleção de telefones, e-mails e endereços pode ter no máximo um principal e não precisa ter nenhum. Ao selecionar um registro como principal, desmarcar o anterior da mesma coleção; remover/inativar o principal pode deixar a coleção sem principal. São permitidos vários endereços do mesmo Tipo.
 
+## 10.4 CPF e CNPJ
+
+O campo de CPF aceita somente algarismos, com máscara visual opcional. O campo de CNPJ deve aceitar letras e números para permitir o formato alfanumérico oficial, além do formato numérico antigo. A máscara deve preservar as letras; antes do envio, o valor será encaminhado para normalização e validação pela API. A validação visual não substitui a validação do Backend. A API persiste CPF numérico e CNPJ sem pontuação, com letras em maiúsculas.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.

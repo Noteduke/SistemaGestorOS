@@ -67,6 +67,8 @@ A API deverá possuir documentação centralizada e atualizada.
 
 O Backend/API aplica as regras de duplicidade e normalização aprovadas em `docs/02-Regras-de-Negocio.md`. CPF/CNPJ informado é validado e duplicidade bloqueia. Sem documento, correspondência exata normalizada em nome, telefone ou e-mail retorna aviso não bloqueante. Serial repetido para o mesmo proprietário bloqueia; para proprietário diferente retorna aviso não bloqueante.
 
+Para documentos de Pessoa, a API deverá validar CPF numérico para PF e CNPJ numérico ou alfanumérico oficial para PJ. CPF é persistido somente com números; CNPJ é persistido sem pontuação e em maiúsculas, preservando letras do padrão oficial. Validade matemática, compatibilidade com Tipo de Pessoa e unicidade são verificadas no Backend; não se deve normalizar CNPJ removendo tudo que não seja dígito.
+
 A API não permite Pessoa inativa em novos vínculos operacionais. Permissões são avaliadas por usuário/ação; Administrador tem poderes máximos e uma permissão explícita equivalente pode autorizar usuário específico. Mudanças de principalidade devem preservar no máximo um principal em cada coleção, com atualização atômica.
 
 Os contratos, formatos de resposta específicos para avisos, filtros e endpoints de Cadastros serão detalhados antes da implementação. Esta orientação não define rotas nem altera o schema atual.
