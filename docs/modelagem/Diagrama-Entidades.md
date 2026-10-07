@@ -95,11 +95,14 @@ erDiagram
 - **Modelo físico atual:** `person_roles.role` é enum. A regra funcional aprovada define papéis como Tipos de Contato simultâneos provenientes de cadastro próprio; a estrutura atual é parcial e deverá ser revista.
 - A relação física de Pessoa de Contato é opcional, autorreferenciada em `people` e permite no máximo uma pessoa vinculada a cada cadastro. A coluna existente se chama `primary_contact_id`; a nomenclatura funcional aprovada é Pessoa de Contato.
 - Para equipamentos, Marca e Fabricante são o mesmo conceito e haverá um único cadastro, representado fisicamente por `equipment_brands`.
-- O schema atual ainda não representa integralmente os campos aprovados de Pessoa (Tipo de Pessoa, Nome Fantasia, inscrições, Tipo de Contribuinte, Observações e Aviso), nem os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço. Nenhuma dessas alterações foi aplicada nesta etapa.
+- O schema atual ainda não representa integralmente os campos aprovados de Pessoa (Tipo de Pessoa, Nome Fantasia, inscrições, Tipo de Contribuinte, Observações e Aviso), nem os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço. Tipo de Pessoa e Nome/Razão Social são obrigatórios na regra funcional; essa obrigatoriedade de Tipo de Pessoa ainda não está representada no schema.
+- `document` é opcional e unique no modelo físico. A regra funcional exige que CPF/CNPJ informado seja armazenado somente com números, matematicamente válido, único e compatível com PF/PJ. O schema atual não impõe normalização, validade ou compatibilidade; essas validações deverão ser feitas pela aplicação e ainda não foram implementadas.
+- Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
+- Nenhuma dessas alterações de campos ou validações foi aplicada ao schema ou banco nesta etapa documental.
 
 ## Histórico de alterações
 
 | Data | Alteração |
 | --- | --- |
 | 06/10/2026 | Primeiro diagrama do recorte de pessoas e equipamentos. |
-| 07/10/2026 | Registro das regras funcionais aprovadas que divergem do modelo físico, sem representar migrations ainda não aplicadas. |
+| 07/10/2026 | Registro das regras funcionais aprovadas que divergem do modelo físico, incluindo campos obrigatórios de Pessoa e validação de CPF/CNPJ, sem representar migrations ainda não aplicadas. |

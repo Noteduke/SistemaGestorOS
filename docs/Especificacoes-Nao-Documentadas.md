@@ -34,7 +34,9 @@
 
 ### Pessoas, contatos e equipamentos
 
-- Permanecem pendentes obrigatoriedades adicionais, formatos e validações dos dados PF/PJ; Nome/Razão Social é o único campo obrigatório aprovado e CPF/CNPJ é opcional e único quando informado. Também faltam valores e regras do Tipo de Contribuinte, que será cadastro próprio para uso fiscal.
+- Tipo de Pessoa (PF/PJ) e Nome/Razão Social são os campos obrigatórios mínimos; os demais são opcionais no cadastro geral, salvo fluxo futuro específico. CPF/CNPJ continua opcional, mas as regras de armazenar só números, validar matematicamente, garantir unicidade e compatibilidade PF/CNPJ estão aprovadas e pertencem ao Backend/API. A máscara é apenas de interface. Não se deve manter a redação anterior de que Nome/Razão Social era o único obrigatório.
+- Nome Fantasia não se aplica a PF, é opcional para PJ e, quando ausente, a Razão Social é a referência principal de exibição. Inscrições Estadual e Municipal são opcionais, principalmente para PJ, armazenadas sem validação estadual/municipal nesta etapa.
+- Tipo de Contribuinte é opcional no cadastro geral e obrigatório na emissão de nota fiscal; não é exigido em OS sem emissão fiscal nem inicialmente para fornecedor, transportadora ou prestador sem fluxo fiscal específico. Permanecem pendentes os valores, códigos e regras fiscais NF-e/NFS-e. A validação de IE/IM para regras fiscais futuras também não foi definida.
 - Tipos de Contato e Tipos de Endereço serão cadastros próprios; permanecem pendentes seus catálogos iniciais, regras de exclusão/inativação e validações. Exemplos de tipos não constituem listas fechadas.
 - O campo Aviso deve ser apresentado ao operador ao visualizar a Pessoa, realizar venda para ela e abrir OS para ela. Permanecem pendentes formato visual, confirmação de leitura, bloqueio, severidade, validade, período de exibição e histórico de avisos.
 - Comportamento exato para cliente inativo ao abrir nova OS (bloqueio, aviso ou permissão excepcional) carece de regra operacional inequívoca.
@@ -99,7 +101,7 @@
 ## 5. Dados, modelo e API
 
 - O histórico contém documentos-modelo de entidades e banco, mas a presente fonte não fecha um esquema relacional/ERD final completo com cardinalidades e restrições.
-- O schema aplicado ainda diverge de regras funcionais aprovadas para Cadastros: `person_addresses.person_id UNIQUE` permite somente um endereço; `person_roles` usa enum em vez de cadastro próprio de Tipos de Contato; `people` não contém todos os campos aprovados nem as relações de Tipo de Contribuinte e Tipo de Endereço. A evolução exige modelagem e migration futura; não se deve descrever essas mudanças como já aplicadas.
+- O schema aplicado ainda diverge de regras funcionais aprovadas para Cadastros: `person_addresses.person_id UNIQUE` permite somente um endereço; `person_roles` usa enum em vez de cadastro próprio de Tipos de Contato; `people` não contém Tipo de Pessoa, Nome Fantasia, inscrições, Observações, Aviso nem relação com Tipo de Contribuinte. A coluna `document` é opcional e única, mas o schema não impõe armazenamento somente numérico, validade matemática ou compatibilidade com PF/PJ. A evolução exige modelagem e migration futura; não se deve descrever essas regras como já aplicadas.
 - Campos de auditoria padrão, histórico, log administrativo e identificador externo UUID foram aprovados em nível de padrão, mas retenção e valores obrigatórios por entidade carecem de especificação.
 - A API é REST/HTTPS/versionada e padronizada; endpoints, contratos, status HTTP, paginação, filtros, idempotência, limites e compatibilidade ainda precisam de documentação implementável.
 - Preparação para multiempresa foi aprovada; isolamento de dados, usuários compartilhados, numeração e configurações por empresa não estão resolvidos.

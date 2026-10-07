@@ -41,9 +41,15 @@ Cada cadastro poderá possuir:
 
 Os Tipos de Endereço não serão limitados a uma enumeração fixa. Exemplos discutidos incluem Principal, Cobrança, Entrega e Instalação; o catálogo inicial permanece pendente.
 
-O cadastro de Pessoa contempla Tipo de Pessoa, Nome/Razão Social, CPF/CNPJ, Nome Fantasia, Inscrição Estadual, Inscrição Municipal, Tipo de Contribuinte, Tipos de Contato, Observações e Aviso, além dos dados e relacionamentos já aprovados. Nome/Razão Social permanece obrigatório; CPF/CNPJ é opcional e único quando informado. Não ficam estabelecidas aqui outras obrigatoriedades, formatos ou regras fiscais.
+Os campos obrigatórios mínimos para salvar uma Pessoa são Tipo de Pessoa (PF ou PJ) e Nome/Razão Social. Todos os demais campos são opcionais no cadastro geral, salvo exigências específicas de fluxos futuros, como emissão fiscal. Além das regras de CPF/CNPJ descritas a seguir, não ficam estabelecidas outras obrigatoriedades ou formatos para os novos campos nesta etapa.
 
-Tipo de Contribuinte será uma classificação de cadastro próprio, para uso fiscal, inclusive em emissão de nota fiscal. Seus valores e regras fiscais permanecem pendentes.
+CPF/CNPJ é opcional no cadastro geral. Quando informado, deve ser armazenado somente com números, ser matematicamente válido, único e compatível com o Tipo de Pessoa: PF exige CPF com 11 dígitos e PJ exige CNPJ com 14 dígitos. A máscara é aplicada apenas na interface. Normalização, validação matemática, compatibilidade e duplicidade são regras do Backend/API; a validação visual do Frontend não é autoridade final.
+
+Nome Fantasia aplica-se a PJ e é opcional. Para exibição, se a PJ não tiver Nome Fantasia, usa-se a Razão Social como referência principal. Nome Fantasia não se aplica a PF.
+
+Inscrição Estadual e Inscrição Municipal são opcionais e aplicam-se principalmente a PJ. Nesta etapa não há validação fiscal específica por estado ou município; o valor informado é armazenado sem interpretação fiscal complexa.
+
+Tipo de Contribuinte será uma classificação de cadastro próprio, opcional no cadastro geral de Pessoa e obrigatória quando houver emissão de nota fiscal. Não é obrigatória para OS sem emissão fiscal nem, inicialmente, para fornecedor, transportadora ou prestador sem fluxo fiscal específico. Valores, códigos, regras de NF-e/NFS-e e validações fiscais permanecem pendentes.
 
 Observações são informação passiva do cadastro. Aviso é informação operacional: quando preenchido, deve ser apresentado ao operador ao visualizar a Pessoa, realizar uma venda para ela ou abrir uma Ordem de Serviço para ela. A regra e os dados permanecem sob responsabilidade do Backend/API; o Frontend realiza a apresentação. Modalidade visual, confirmação de leitura, bloqueio, severidade, validade e histórico do Aviso permanecem pendentes.
 
