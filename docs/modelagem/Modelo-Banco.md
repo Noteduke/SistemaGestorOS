@@ -6,15 +6,15 @@ Documentar o modelo relacional implementado para o Sistema Gestor OS e registrar
 
 ## Status
 
-Primeiro recorte implementado no schema Prisma. A migration `20261006120000_initial_core` foi aplicada com sucesso no banco `gestor_os`, em MySQL Community Server 8.0.46, e a estrutura foi validada. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; não havia migration pendente no momento da validação.
+O schema Prisma contém o recorte inicial e a evolução de Pessoa básica. As migrations `20261006120000_initial_core` e `20261007120000_person_basic` foram aplicadas no banco `gestor_os`, em MySQL Community Server 8.0.46. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; `prisma migrate status` confirmou que não há migration pendente.
 
 ## Última atualização
 
-07/10/2026. As regras aprovadas nesta data estão registradas separadamente das estruturas físicas ainda não migradas.
+07/10/2026. O recorte de Pessoa básica aplicado está separado das demais regras funcionais ainda pendentes.
 
 ## Escopo atual
 
-O primeiro recorte cobre cadastros compartilhados e equipamentos. A implementação está em `backend/prisma/schema.prisma`; a migration inicial está em `backend/prisma/migrations/20261006120000_initial_core/migration.sql`.
+O modelo físico inclui as tabelas iniciais de cadastros compartilhados e equipamentos e os novos campos de Pessoa básica. A implementação está em `backend/prisma/schema.prisma`; as migrations são `backend/prisma/migrations/20261006120000_initial_core/migration.sql` e `backend/prisma/migrations/20261007120000_person_basic/migration.sql`. A existência das demais tabelas não significa que seus módulos funcionais estejam implementados.
 
 ### Convenções
 
@@ -28,7 +28,7 @@ O primeiro recorte cobre cadastros compartilhados e equipamentos. A implementaç
 
 | Entidade | Tabela | Responsabilidade e relações |
 | --- | --- | --- |
-| Pessoa | `people` | Modelo físico atual de cadastro compartilhado. Nome obrigatório; documento opcional e único quando informado; pode apontar para outra Pessoa como contato. As novas regras funcionais aprovadas ainda não estão integralmente refletidas nesta tabela. |
+| Pessoa | `people` | `person_type` PF/PJ e `name` obrigatórios; `document` opcional e único; `trade_name`, `state_registration`, `municipal_registration` e `observations` opcionais. `is_active` mantém default verdadeiro. Pode apontar para outra Pessoa como contato, embora esse fluxo não integre a API básica. Aviso e Tipo de Contribuinte continuam ausentes. |
 | Papel da pessoa | `person_roles` | Modelo físico atual: associação N:N com enum `CUSTOMER`, `SUPPLIER`, `CARRIER` e `SERVICE_PROVIDER`. Funcionalmente, os papéis passam a ser Tipos de Contato de cadastro próprio; a enumeração atual é parcial e deverá ser revista. |
 | Telefone | `person_phones` | Vários telefones por pessoa, com rótulo e indicação de principal. |
 | E-mail | `person_emails` | Vários e-mails por pessoa, com rótulo e indicação de principal. |
@@ -40,26 +40,26 @@ O primeiro recorte cobre cadastros compartilhados e equipamentos. A implementaç
 
 ### Integridade e limites conhecidos
 
-- No modelo físico atual, CPF/CNPJ ocupa a coluna opcional `document`, com índice unique. A regra funcional aprovada exige CPF numérico e CNPJ numérico ou alfanumérico oficial, armazenado sem pontuação e em maiúsculas. Ambos devem ser matematicamente válidos, únicos e compatíveis com PF/PJ quando informados; a aplicação deverá normalizar e validar antes de persistir. O schema comporta os 14 caracteres canônicos na coluna `VARCHAR(14)`, mas não impõe essas validações nem possui o Tipo de Pessoa.
+- CPF/CNPJ ocupa a coluna opcional `document VARCHAR(14)`, com índice unique. `person_type` PF/PJ já é obrigatório, sem default. A API básica normaliza e valida CPF numérico e CNPJ numérico ou alfanumérico oficial, verifica compatibilidade com PF/PJ e rejeita documento repetido. A validade matemática e a normalização são garantidas pelo Backend, não pelo tipo da coluna.
 - `isPrimary` identifica telefone/e-mail principal. A regra de garantir no máximo um principal de cada tipo por pessoa precisa ser aplicada pelo serviço em transação; não há restrição parcial correspondente neste esquema.
 - `Equipment.ownerId` representa o titular atual. O serviço que trocar o titular deverá atualizar esse vínculo e inserir o evento de histórico na mesma transação.
 - A regra funcional exige Tipo de Contato Cliente para o proprietário, mas `Equipment.ownerId` apenas referencia `Person` no schema atual e não impõe essa elegibilidade.
 - O histórico de titularidade não substitui o log administrativo nem identifica o usuário que realizou a alteração; autenticação e trilha administrativa ainda serão modeladas.
-- Código interno sequencial exibido ao usuário, OS, estoque, compras, vendas, financeiro, segurança e auditoria completa ainda não fazem parte desta migration.
+- Código interno sequencial exibido ao usuário, OS, estoque, compras, vendas, financeiro, segurança e auditoria completa ainda não fazem parte das migrations aplicadas.
 
-### Regras aprovadas ainda não refletidas no modelo aplicado
+### Regras aprovadas parcialmente refletidas no modelo aplicado
 
-Decisões funcionais aprovadas em 07/10/2026 descrevem uma evolução futura. O schema Prisma e a migration inicial permanecem como a representação do modelo físico atualmente aplicado; esta seção não afirma que as mudanças já foram migradas.
+O recorte de Pessoa básica já foi migrado. As demais decisões funcionais aprovadas em 07/10/2026 descrevem evolução futura e não devem ser interpretadas como módulos já implementados.
 
-- Pessoa deverá contemplar Tipo de Pessoa (PF/PJ), Nome/Razão Social, CPF/CNPJ, Nome Fantasia, Inscrição Estadual, Inscrição Municipal, Tipo de Contribuinte, Tipos de Contato, Observações e Aviso. Tipo de Pessoa e Nome/Razão Social são os campos obrigatórios mínimos; os demais são opcionais no cadastro geral, exceto por exigência específica de fluxo futuro. O modelo físico atual não contempla Tipo de Pessoa nem todos os demais campos e catálogos.
-- CPF/CNPJ é opcional. CPF é numérico, possui 11 dígitos e é matematicamente validado. CNPJ pode ser numérico ou alfanumérico oficial, tem 14 caracteres e é armazenado sem pontuação e em maiúsculas. Ambos devem ser únicos quando informados e compatíveis com PF/PJ. A máscara é apenas visual; normalização e validação cabem ao Backend/API. A coluna atual `document` tem unicidade e comporta os 14 caracteres, mas não impõe essas regras.
+- Pessoa já contempla Tipo de Pessoa (PF/PJ), Nome/Razão Social, CPF/CNPJ, Nome Fantasia, Inscrição Estadual, Inscrição Municipal e Observações. Tipo de Pessoa e Nome/Razão Social são obrigatórios; os demais campos do recorte são opcionais. Tipo de Contribuinte, Tipos de Contato como catálogo próprio e Aviso permanecem pendentes no modelo funcional definitivo.
+- CPF/CNPJ é opcional. CPF possui 11 dígitos canônicos; CNPJ numérico ou alfanumérico oficial possui 14 caracteres canônicos. A API básica valida matematicamente, normaliza e confere compatibilidade com PF/PJ; o banco assegura unicidade de `document` informado, mas não executa essas validações de formato ou cálculo.
 - Nome Fantasia não se aplica a PF e é opcional para PJ; quando não informado, a Razão Social é a referência principal de exibição. Inscrições Estadual e Municipal são opcionais, aplicam-se principalmente a PJ e, nesta etapa, são armazenadas sem validação específica por estado ou município nem interpretação fiscal complexa.
 - Tipo de Contribuinte será um cadastro próprio, opcional no cadastro geral e obrigatório quando houver emissão de nota fiscal. O catálogo inicial contém Contribuinte ICMS (possui inscrição estadual e recolhe ICMS), Contribuinte Isento (não possui inscrição estadual e não recolhe ICMS) e Não Contribuinte (Pessoa que não é contribuinte de ICMS, podendo ou não possuir inscrição estadual no cadastro de contribuintes). Não é exigido para OS sem emissão fiscal nem inicialmente para fornecedor, transportadora ou prestador sem fluxo fiscal específico. Códigos, regras fiscais e validações de NF-e/NFS-e ainda não estão definidos.
 - Tipo de Contato será cadastro próprio para os papéis da Pessoa, que podem coexistir. O catálogo inicial contém Cliente, Fornecedor, Transportadora, Prestador de Serviço e Parceiro, com significados definidos em `docs/02-Regras-de-Negocio.md`. `person_roles` continua sendo a estrutura física existente baseada em enum e não deve ser tratada como solução funcional definitiva.
-- Observações são passivas. Aviso é campo único informativo, com pergunta e mensagens definidas em `docs/02-Regras-de-Negocio.md`; não exibe conteúdo automaticamente nem bloqueia operações. A tabela atual não o contém. Não há log de leitura ou confirmação nesta etapa; a implementação técnica de permissões e eventual auditoria de alteração/apagamento permanecem futuras.
+- Observações são passivas e já estão em `people.observations`. Aviso é campo único informativo futuro, com pergunta e mensagens definidas em `docs/02-Regras-de-Negocio.md`; a tabela atual não o contém. Não há log de leitura ou confirmação; permissões e eventual auditoria de alteração/apagamento permanecem futuras.
 - Cada Pessoa poderá ter múltiplos endereços, inclusive vários do mesmo Tipo de Endereço. Telefones, e-mails e endereços admitem no máximo um principal por coleção, mas principal é opcional; ao marcar outro, o anterior é desmarcado, e remover/inativar o principal pode deixar a coleção sem principal. `person_addresses.person_id UNIQUE` restringe hoje a cardinalidade e deverá ser removido em migration futura; o schema também não garante principalidade única.
 - Catálogos auxiliares podem ser renomeados mesmo após uso; o cadastro exibe o nome atual e o histórico registra valor anterior/novo, data/hora e usuário quando disponível. Opções usadas continuam não podendo ser excluídas fisicamente; inativas não são opções padrão para novos vínculos.
-- Duplicidade de Pessoa: CPF/CNPJ informado repetido bloqueia. Sem documento, compara exatamente nome/Razão Social em caixa alta sem espaços extras, telefone apenas numérico e e-mail em minúsculas após trim; correspondência avisa, mas permite salvar. Busca fuzzy está fora do escopo.
+- Duplicidade de Pessoa: CPF/CNPJ informado repetido bloqueia. Sem documento, a API básica já avisa sem bloquear por nome/Razão Social exatamente igual após normalização. Comparação por telefone numérico ou e-mail em minúsculas após trim permanece para os recortes que implementarem esses contatos. Busca fuzzy está fora do escopo.
 - Cada Pessoa poderá ter zero ou uma Pessoa de Contato, que será outro cadastro completo de Pessoa. A autorrelação atual é conceitualmente compatível com essa cardinalidade; `primary_contact_id` é o nome físico existente e a terminologia funcional passa a ser Pessoa de Contato.
 - Para equipamentos, Marca e Fabricante são o mesmo conceito. `equipment_brands` permanece a referência conceitual única; não deverá ser criado cadastro separado de fabricante.
 
@@ -75,7 +75,7 @@ As decisões abaixo são funcionais e não descrevem o schema Prisma/migration j
 - Transferência é permitida, altera o titular atual e cria evento em `equipment_ownership_events`, sem reescrever OS antigas. Proprietário sem histórico pode ser corrigido sem transferência formal; com histórico, a mudança é transferência. Usuários com permissões correspondentes podem fazer transferências e alterar dados de Pessoa/Equipamento com ou sem histórico, sem justificativa obrigatória; alterações ficam registradas automaticamente. Vínculo da transferência com OS é opcional. A tabela atual não registra usuário executor nem vínculo com OS.
 - Administrador tem poderes máximos; Técnico e Usuário comum não são perfis rígidos. Permissões são atribuídas por usuário/ação e uma permissão equivalente pode autorizar ações administrativas específicas. Master não existe. Implementação técnica, eventos finais e classificação do histórico continuam pendentes.
 
-Nenhuma dessas regras foi aplicada ao schema ou banco nesta atualização documental.
+Os fluxos de Aviso, inativação/reativação, Equipamento, OS, transferência, histórico e permissões permanecem pendentes. `people.is_active` já existe, e a API básica já permite consultar Pessoas inativas diretamente ou incluí-las na listagem por filtro; esta atualização documental não modifica schema ou banco.
 
 ### Regras aprovadas para validação e ciclo de vida de Equipamento ainda não refletidas
 
@@ -101,7 +101,7 @@ Nenhuma dessas regras foi aplicada ao schema ou banco nesta atualização docume
 - Histórico é exibido no contexto da Pessoa, Equipamento ou OS. Permissão para histórico operacional/sensível é individual por ação; Administrador tem poderes máximos. Histórico de Aviso e histórico técnico/auditoria exigem Administrador ou permissão equivalente.
 - Pessoa nunca é apagada fisicamente; `people.is_active` representa a possibilidade de inativação, restrita a Administrador ou usuário com permissão explícita equivalente. Equipamento pode ser excluído apenas por Administrador ou usuário com permissão equivalente sem qualquer registro persistido relacionado; com vínculo, somente inativação/reativação autorizada.
 - Usuários com permissões correspondentes podem criar/alterar Pessoa/Equipamento com ou sem histórico, transferir titularidade e preencher Aviso vazio, sem justificativa obrigatória. Inativar/reativar, excluir Equipamento sem vínculo, alterar/apagar Aviso e acessar histórico sensível exigem permissão explícita; Administrador tem poderes máximos. Técnico e Usuário comum não são perfis rígidos. Alterações geram histórico automaticamente. A interface confirma antes de salvar com “Estas alterações serão registradas no histórico. Deseja continuar?”; cancelar não persiste.
-- O schema Prisma e a migration não possuem histórico geral, tipos de registro de histórico, referência ao usuário, as permissões ou a confirmação de salvamento. Esta documentação não modifica o modelo físico.
+- O schema Prisma e as migrations aplicadas não possuem histórico geral, tipos de registro de histórico, referência ao usuário, permissões ou confirmação de salvamento. Esta documentação não modifica o modelo físico.
 
 ## Próximas áreas de modelagem
 
@@ -120,3 +120,4 @@ Nenhuma dessas regras foi aplicada ao schema ou banco nesta atualização docume
 | 07/10/2026 | Registro das regras aprovadas para Aviso, exclusão/inativação de Pessoa e Equipamento, proprietário elegível, Pessoa informada na abertura da OS, transferência/correção de titularidade e divergências ainda existentes no schema. |
 | 07/10/2026 | Registro das regras aprovadas de serial, campos obrigatórios, status Ativo/Inativo e ciclo de vida de Tipo de Equipamento/Marca, sem alterar o schema ou migration atuais. |
 | 07/10/2026 | Registro dos catálogos iniciais de Tipo de Equipamento e Marca, normalização de dados, pesquisa, alterações permanentes e vínculo opcional de transferência com OS; schema e migration permanecem inalterados. |
+| 07/10/2026 | Aplicação da migration `20261007120000_person_basic` e atualização do modelo físico de Pessoa básica, mantendo as demais decisões funcionais como evolução futura. |
