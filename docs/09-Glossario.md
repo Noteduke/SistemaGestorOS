@@ -89,7 +89,22 @@ Identificador opcional do Equipamento e principal critério de duplicidade quand
 Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo de Contato Cliente.
 
 ## Pessoa informada na abertura da OS
-Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. A OS preserva o retrato histórico desse momento; não há separação obrigatória nesta etapa em relação ao proprietário real do equipamento.
+Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. Não há separação obrigatória em relação ao proprietário real do equipamento. A evolução dos dados cadastrais é consultada pelo histórico; não haverá cópia completa dos dados em cada OS.
+
+## Histórico de alterações e movimentações
+Registro cronológico ligado a uma entidade, que acompanha alterações de campos e eventos relevantes sem duplicar todos os dados cadastrais dentro de cada OS.
+
+## Alteração de campo
+Tipo de registro de histórico que identifica, quando aplicável, entidade, campo, valor anterior, novo valor, data/hora e usuário responsável quando definido.
+
+## Evento ou movimentação
+Tipo de registro de histórico para ação relevante que não é apenas a troca simples de um valor, como abertura de OS, transferência ou entrega de equipamento.
+
+## Histórico operacional básico
+Parte do histórico acessível ao usuário comum, conforme os eventos que forem definidos para essa categoria. A lista final de eventos permanece pendente.
+
+## Histórico sensível ou auditoria
+Registros de acesso restrito a administrador, incluindo histórico de Aviso e histórico técnico/auditoria. A classificação final dos eventos permanece pendente.
 
 ## Transferência de titularidade
 Operação que altera o proprietário atual do equipamento e registra evento de titularidade, sem reescrever OS anteriores. Pode ocorrer fora de OS ou durante uma OS; o vínculo com OS é opcional.
