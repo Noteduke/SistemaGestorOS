@@ -86,3 +86,7 @@ Este documento será ampliado com padrões específicos para React, NestJS, Pris
 - Prisma Client é o acesso padrão ao banco. SQL raw por `$queryRaw` ou `$executeRaw` será excepcional, parametrizado com segurança, identificado e revisável dentro da fronteira de persistência. Módulos não deverão criar clientes MySQL paralelos nem espalhar SQL pela aplicação.
 - Services de negócio decidirão os limites das operações atômicas e usarão `$transaction` do Prisma. `PrismaService` não coordenará regras de negócio.
 - Permanecem válidos ESM, `NodeNext` e a extensão `.js` em imports relativos, inclusive para o Prisma Client gerado.
+
+## 12.1 Seeds de catálogos
+
+Seeds de catálogos iniciais serão idempotentes e executados por comando controlado, não automaticamente a cada inicialização do Backend. Reexecutá-los não deve duplicar registros; devem criar valores ausentes, usar identificadores estáveis quando aplicável e preservar renomeações manuais permitidas. A estratégia técnica para identificar valores após renomeação será definida na implementação do seed.

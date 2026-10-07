@@ -31,6 +31,18 @@ Registro principal utilizado para controlar o atendimento técnico de um equipam
 ## Cliente
 Pessoa física ou jurídica que contrata serviços ou adquire produtos.
 
+## Administrador
+Usuário com poderes máximos do sistema. Técnico e Usuário comum são designações operacionais, não perfis rígidos; permissões são atribuídas individualmente por usuário/ação. Um usuário pode receber permissão explícita equivalente para ação administrativa específica sem se tornar Administrador. O conceito Master não existe no sistema.
+
+## Técnico
+Designação operacional de usuário. Não implica conjunto fixo de permissões; cada ação depende das permissões concedidas ao usuário.
+
+## Usuário comum
+Designação operacional de usuário. Não implica conjunto fixo de permissões; as ações permitidas são determinadas individualmente.
+
+## Permissão por usuário/ação
+Autorização atribuída a um usuário para executar uma ação específica, sem depender de perfil rígido.
+
 ## Fornecedor
 Pessoa física ou jurídica que fornece produtos ou serviços ao Gestor OS.
 
@@ -45,6 +57,9 @@ Classificação de cadastro próprio que representa um papel exercido por uma Pe
 
 ## Pessoa de Contato
 Outra Pessoa, vinculada a um cadastro de Pessoa como contato. Cada Pessoa pode ter zero ou uma Pessoa de Contato; o vínculo não representa um cadastro simplificado nem um papel da Pessoa.
+
+## Registro principal
+Telefone, e-mail ou endereço marcado como principal. Cada Pessoa pode ter no máximo um principal em cada coleção, sem obrigação de possuir um. O principal do endereço é único independentemente do Tipo; vários endereços podem ter o mesmo Tipo.
 
 ## Tipo de Contribuinte
 Classificação de cadastro próprio associada à Pessoa para uso fiscal. Catálogo inicial: Contribuinte ICMS, Contribuinte Isento e Não Contribuinte. Códigos e regras fiscais detalhadas permanecem pendentes.
@@ -62,7 +77,7 @@ Informação passiva registrada no cadastro de Pessoa, sem comportamento obrigat
 Campo único e informativo do cadastro de Pessoa. Nos contextos aprovados, o sistema pergunta se o operador deseja ver o conteúdo; não o exibe automaticamente e não bloqueia operações. As regras de apresentação e permissão estão em `docs/02-Regras-de-Negocio.md`.
 
 ## Marca
-Cadastro único de identificação da marca de um equipamento, representando também seu fabricante para fins do Sistema Gestor OS. Catálogo inicial aprovado: Dell, HP, Lenovo, Samsung, Acer, Asus, Positivo, Apple, Epson, Brother, Canon, Lexmark, Ricoh, Xerox, BenQ, Intelbras, APC, SMS, TS Shara, Zebra, Elgin, D-Link, TP-Link, Ubiquiti, Mikrotik e Outro. Não é enum fixo; novas marcas podem ser adicionadas. A carga inicial ainda está pendente.
+Cadastro único de identificação da marca de um equipamento, representando também seu fabricante para fins do Sistema Gestor OS. Catálogo inicial aprovado: Dell, HP, Lenovo, Samsung, Acer, Asus, Positivo, Apple, Epson, Brother, Canon, Lexmark, Ricoh, Xerox, BenQ, Intelbras, APC, SMS, TS Shara, Zebra, Elgin, D-Link, TP-Link, Ubiquiti, Mikrotik e Outro. Não é enum fixo; novas marcas podem ser adicionadas. A carga será feita por seed idempotente sob comando controlado; sua implementação permanece pendente.
 
 ## Produto
 Item controlado em estoque e comercializado.
@@ -74,10 +89,13 @@ Atividade executada pela empresa, não representando item de estoque.
 Bem cuja titularidade atual é vinculada a uma Pessoa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. A Pessoa informada na OS não precisa ser o proprietário real.
 
 ## Tipo de Equipamento
-Cadastro próprio que classifica o Equipamento. Catálogo inicial aprovado: Notebook, Computador/Desktop, Impressora, Projetor, Monitor, Nobreak, Roteador, Access Point, Switch, Servidor, Scanner, Leitor de Código de Barras, Coletor de Dados, Tablet, Celular/Smartphone e Outro. Não é enum fixo; novos tipos podem ser adicionados. A carga inicial ainda está pendente.
+Cadastro próprio que classifica o Equipamento. Catálogo inicial aprovado: Notebook, Computador/Desktop, Impressora, Projetor, Monitor, Nobreak, Roteador, Access Point, Switch, Servidor, Scanner, Leitor de Código de Barras, Coletor de Dados, Tablet, Celular/Smartphone e Outro. Não é enum fixo; novos tipos podem ser adicionados. A carga será feita por seed idempotente sob comando controlado; sua implementação permanece pendente.
 
 ## Normalização de dados
 Regra de aplicação que converte dados textuais persistidos para MAIÚSCULAS, exceto e-mail. E-mail é salvo em minúsculas; telefone e CEP são salvos somente com números. Máscaras são visuais.
+
+## Seed idempotente
+Carga inicial executada por comando controlado que pode ser repetida sem duplicar dados, cria valores ausentes e preserva renomeações manuais permitidas. Não roda automaticamente na inicialização do Backend.
 
 ## Status do Equipamento
 Estado funcional limitado nesta etapa a Ativo ou Inativo. Equipamento novo inicia Ativo; outros estados não fazem parte do escopo atual.
@@ -92,7 +110,7 @@ Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo d
 Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. Não há separação obrigatória em relação ao proprietário real do equipamento. A evolução dos dados cadastrais é consultada pelo histórico; não haverá cópia completa dos dados em cada OS.
 
 ## Histórico de alterações e movimentações
-Registro cronológico ligado a uma entidade, que acompanha alterações de campos e eventos relevantes sem duplicar todos os dados cadastrais dentro de cada OS.
+Histórico geral conceitualmente ligado a cada entidade, que acompanha alterações de campos e eventos relevantes sem duplicar todos os dados cadastrais dentro de cada OS. A estrutura física ainda será definida.
 
 ## Alteração de campo
 Tipo de registro de histórico que identifica, quando aplicável, entidade, campo, valor anterior, novo valor, data/hora e usuário responsável quando definido.
@@ -104,7 +122,7 @@ Tipo de registro de histórico para ação relevante que não é apenas a troca 
 Parte do histórico acessível ao usuário comum, conforme os eventos que forem definidos para essa categoria. A lista final de eventos permanece pendente.
 
 ## Histórico sensível ou auditoria
-Registros de acesso restrito a administrador, incluindo histórico de Aviso e histórico técnico/auditoria. A classificação final dos eventos permanece pendente.
+Registros que exigem Administrador ou permissão explícita equivalente, incluindo histórico de Aviso e histórico técnico/auditoria. A classificação final dos eventos permanece pendente.
 
 ## Transferência de titularidade
 Operação que altera o proprietário atual do equipamento e registra evento de titularidade, sem reescrever OS anteriores. Pode ocorrer fora de OS ou durante uma OS; o vínculo com OS é opcional.

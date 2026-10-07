@@ -63,6 +63,14 @@ Uploads serão tratados por endpoints específicos.
 
 A API deverá possuir documentação centralizada e atualizada.
 
+## 10.1 Regras de domínio para Cadastros
+
+O Backend/API aplica as regras de duplicidade e normalização aprovadas em `docs/02-Regras-de-Negocio.md`. CPF/CNPJ informado é validado e duplicidade bloqueia. Sem documento, correspondência exata normalizada em nome, telefone ou e-mail retorna aviso não bloqueante. Serial repetido para o mesmo proprietário bloqueia; para proprietário diferente retorna aviso não bloqueante.
+
+A API não permite Pessoa inativa em novos vínculos operacionais. Permissões são avaliadas por usuário/ação; Administrador tem poderes máximos e uma permissão explícita equivalente pode autorizar usuário específico. Mudanças de principalidade devem preservar no máximo um principal em cada coleção, com atualização atômica.
+
+Os contratos, formatos de resposta específicos para avisos, filtros e endpoints de Cadastros serão detalhados antes da implementação. Esta orientação não define rotas nem altera o schema atual.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.

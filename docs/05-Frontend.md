@@ -71,7 +71,7 @@ A pergunta volta a ocorrer em cada ocorrência de um contexto aprovado, sem disp
 
 ## 10.2 Pessoas e equipamentos inativos
 
-Pessoas e equipamentos inativos não devem aparecer como opções padrão em novos lançamentos ou novas OS, respectivamente. A pesquisa deve permitir incluir inativos por filtro, e os registros históricos continuam apresentando as entidades normalmente. Pessoa nunca tem exclusão física; equipamento só pode ser excluído por administrador se não tiver vínculo histórico. O Frontend não deve inferir critérios de vínculo histórico; deve seguir o resultado e as regras fornecidas pela API.
+Pessoas e equipamentos inativos não devem aparecer como opções padrão em novos lançamentos ou novas OS, respectivamente. Pessoa inativa pode ser consultada pelo filtro “incluir inativos”, mas não pode ser usada em novos vínculos de OS, venda ou como proprietária de Equipamento. Os registros históricos continuam apresentando as entidades normalmente. Pessoa nunca tem exclusão física; Equipamento só pode ser excluído por Administrador ou usuário com permissão equivalente quando não houver qualquer registro persistido relacionado. O Frontend não deve inferir vínculos históricos; segue o resultado fornecido pela API.
 
 ## 10.3 Cadastro de Equipamento
 
@@ -81,13 +81,15 @@ Quando houver serial, a API bloqueia repetição para o mesmo proprietário e re
 
 O Frontend pode pesquisar equipamentos por Proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, Número de Série e Status. Modelo aceita busca textual; serial aceita busca exata ou parcial; Status permite Ativo, Inativo ou Todos. Inativos ficam ocultos por padrão e aparecem quando o usuário inclui inativos pelo filtro. Essa pesquisa apenas localiza registros e não deve ser confundida com a validação de duplicidade no cadastro.
 
-Máscaras de telefone e CEP são aplicadas somente na interface; o Backend salva esses valores apenas com números. CEP é opcional. Dados textuais são persistidos em caixa alta, exceto e-mail, que é salvo em minúsculas após remoção de espaços externos. O número de série é convertido para caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; a interface não deve limpar ou ocultar essa diferença. Se a API avisar que o telefone está fora do formato esperado, a interface informa o operador e permite confirmar e continuar.
+Máscaras de telefone e CEP são aplicadas somente na interface; o Backend salva esses valores apenas com números. CEP é opcional. Dados textuais são persistidos em caixa alta, exceto e-mail, que é salvo em minúsculas após remoção de espaços externos. O número de série é convertido para caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; a interface não deve limpar ou ocultar essa diferença. Telefone com 10 dígitos é aceito como fixo; com 11, como celular se o primeiro dígito após o DDD for 9. Fora desses critérios, a API avisa e a interface permite confirmar e continuar.
 
-Usuário comum pode alterar Pessoa e Equipamento mesmo quando já possuem histórico; não é exigida justificativa obrigatória. Proprietário do Equipamento sem histórico pode ser corrigido diretamente; com histórico, a mudança usa transferência formal. A API aplica a matriz de permissões: somente administrador inativa/reativa Pessoa ou Equipamento, exclui Equipamento sem histórico, altera Aviso existente e vê histórico sensível/auditoria. Usuário comum pode criar e alterar cadastros, transferir titularidade, preencher Aviso vazio e consultar histórico operacional básico.
+Permissões são atribuídas por usuário/ação. Técnico e Usuário comum não são perfis rígidos; Administrador tem poderes máximos, e outro usuário pode executar ação administrativa específica se receber permissão equivalente. Usuários com permissão podem alterar Pessoa e Equipamento mesmo com histórico, sem justificativa obrigatória. Proprietário sem histórico pode ser corrigido diretamente; com histórico, a mudança usa transferência formal.
 
-O histórico de Pessoa, Equipamento e OS aparece no contexto do respectivo cadastro/OS. A interface diferencia alteração de campo (valor anterior e novo) de evento/movimentação. Aviso e histórico técnico/auditoria são restritos a administrador. Não se deve presumir snapshot completo dos cadastros dentro da OS; a consulta de dados atuais é complementada pelo histórico de mudanças.
+O histórico geral por entidade de Pessoa, Equipamento e OS aparece no contexto do respectivo cadastro/OS. A interface diferencia alteração de campo (valor anterior e novo) de evento/movimentação. Aviso e histórico técnico/auditoria exigem Administrador ou permissão equivalente. Não se deve presumir snapshot completo dos cadastros dentro da OS; a consulta de dados atuais é complementada pelo histórico de mudanças. A estrutura física continua pendente.
 
 Antes de salvar qualquer alteração de Pessoa ou Equipamento, exibir a confirmação: “Estas alterações serão registradas no histórico. Deseja continuar?”. Confirmar salva e registra a alteração; cancelar não salva. O registro é automático e alteração comum não exige justificativa. Os detalhes finais de exibição, filtros, paginação e eventos permanecem pendentes.
+
+Cada coleção de telefones, e-mails e endereços pode ter no máximo um principal e não precisa ter nenhum. Ao selecionar um registro como principal, desmarcar o anterior da mesma coleção; remover/inativar o principal pode deixar a coleção sem principal. São permitidos vários endereços do mesmo Tipo.
 
 # 11. Evolução
 
