@@ -30,7 +30,11 @@ export class PeopleService {
       };
     } catch (error) {
       if (isPrismaUniqueViolation(error)) {
-        throw new ConflictException({ code: "DUPLICATE_DOCUMENT", message: "Já existe uma Pessoa cadastrada com este documento." });
+        const target = error.meta?.target;
+        if ((Array.isArray(target) && target.length === 1 && target[0] === "document") || target === "people_document_key") {
+          throw new ConflictException({ code: "DUPLICATE_DOCUMENT", message: "Já existe uma Pessoa cadastrada com este documento." });
+        }
+        throw new ConflictException({ code: "UNIQUE_CONFLICT", message: "Conflito de unicidade ao cadastrar Pessoa." });
       }
       throw error;
     }
@@ -58,7 +62,7 @@ export class PeopleService {
     };
     const skip = (query.page - 1) * query.pageSize;
     const [people, total] = await this.prisma.$transaction([
-      this.prisma.person.findMany({ where, orderBy: { name: "asc" }, skip, take: query.pageSize }),
+      this.prisma.person.findMany({ where, orderBy: [{ name: "asc" }, { id: "asc" }], skip, take: query.pageSize }),
       this.prisma.person.count({ where }),
     ]);
 
@@ -74,6 +78,6 @@ export class PeopleService {
   }
 }
 
-function isPrismaUniqueViolation(error: unknown): boolean {
+function isPrismaUniqueViolation(error: unknown): error is { code: "P2002"; meta?: { target?: unknown } } {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }

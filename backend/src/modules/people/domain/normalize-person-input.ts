@@ -17,12 +17,15 @@ export function normalizeGeneralText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLocaleUpperCase("pt-BR");
 }
 
-function optionalText(value: unknown, field: string): string | null {
+function optionalText(value: unknown, field: string, maxLength: number, preserveWhitespace = false): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") {
     throw new BadRequestException({ code: "INVALID_FIELD", message: `${field} deve ser texto.` });
   }
-  const normalized = normalizeGeneralText(value);
+  const normalized = preserveWhitespace ? value.trim().toLocaleUpperCase("pt-BR") : normalizeGeneralText(value);
+  if (normalized.length > maxLength) {
+    throw new BadRequestException({ code: "FIELD_TOO_LONG", message: `${field} não pode exceder ${maxLength} caracteres.` });
+  }
   return normalized || null;
 }
 
@@ -33,7 +36,11 @@ function normalizeDocument(value: unknown, personType: PersonType): string | nul
   }
 
   if (personType === "PF") {
-    const cpf = value.replace(/\D/g, "");
+    const cpfInput = value.trim();
+    if (!/^(?:\d{11}|\d{3}\.\d{3}\.\d{3}-\d{2})$/.test(cpfInput)) {
+      throw new BadRequestException({ code: "INVALID_CPF", message: "CPF inválido." });
+    }
+    const cpf = cpfInput.replace(/[.-]/g, "");
     if (!isValidCpf(cpf)) {
       throw new BadRequestException({ code: "INVALID_CPF", message: "CPF inválido." });
     }
@@ -61,25 +68,26 @@ export function normalizePersonInput(input: Record<string, unknown>): Normalized
   if (typeof input.name !== "string" || !normalizeGeneralText(input.name)) {
     throw new BadRequestException({ code: "NAME_REQUIRED", message: "name é obrigatório." });
   }
+  const name = normalizeGeneralText(input.name);
+  if (name.length > 191) {
+    throw new BadRequestException({ code: "FIELD_TOO_LONG", message: "name não pode exceder 191 caracteres." });
+  }
 
-  const tradeName = optionalText(input.tradeName, "tradeName");
+  const tradeName = optionalText(input.tradeName, "tradeName", 191);
   if (personType === "PF" && tradeName !== null) {
     throw new BadRequestException({ code: "TRADE_NAME_NOT_APPLICABLE", message: "tradeName não se aplica a Pessoa Física." });
   }
 
-  let observations = optionalText(input.observations, "observations");
-  if (observations !== null) {
-    // Observações são texto passivo; preserva as quebras de linha e espaços internos.
-    observations = input.observations!.toString().trim().toLocaleUpperCase("pt-BR") || null;
-  }
+  // Observações são texto passivo; preserva as quebras de linha e espaços internos.
+  const observations = optionalText(input.observations, "observations", 2000, true);
 
   return {
     personType,
-    name: normalizeGeneralText(input.name),
+    name,
     document: normalizeDocument(input.document, personType),
     tradeName,
-    stateRegistration: optionalText(input.stateRegistration, "stateRegistration"),
-    municipalRegistration: optionalText(input.municipalRegistration, "municipalRegistration"),
+    stateRegistration: optionalText(input.stateRegistration, "stateRegistration", 50),
+    municipalRegistration: optionalText(input.municipalRegistration, "municipalRegistration", 50),
     observations,
   };
 }

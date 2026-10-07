@@ -8,7 +8,7 @@ export interface ListPeopleQuery {
 }
 
 function positiveInteger(value: string | undefined, name: string): number {
-  if (!value || !/^\d+$/.test(value) || Number(value) < 1) {
+  if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1) {
     throw new BadRequestException({ code: "INVALID_PAGINATION", message: `${name} deve ser um inteiro positivo.` });
   }
   return Number(value);
@@ -25,6 +25,9 @@ export function parseListPeopleQuery(query: Record<string, unknown>): ListPeople
   const pageSize = positiveInteger(typeof query.pageSize === "string" ? query.pageSize : undefined, "pageSize");
   if (pageSize > 100) {
     throw new BadRequestException({ code: "INVALID_PAGINATION", message: "pageSize não pode exceder 100." });
+  }
+  if (!Number.isSafeInteger((page - 1) * pageSize)) {
+    throw new BadRequestException({ code: "INVALID_PAGINATION", message: "A página excede o intervalo permitido." });
   }
   if (query.search !== undefined && typeof query.search !== "string") {
     throw new BadRequestException({ code: "INVALID_SEARCH", message: "search deve ser texto." });
