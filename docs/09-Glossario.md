@@ -32,16 +32,25 @@ Registro principal utilizado para controlar o atendimento técnico de um equipam
 Etapa atual do fluxo de trabalho da OS, como TRIAGEM ou AGUARDANDO AVALIAÇÃO/ORÇAMENTO. Pode mudar enquanto o status macro permanece ABERTA; é distinta do status macro e do resultado de encerramento.
 
 ## Status macro da OS
-Classificação administrativa geral: ABERTA (na loja, não fechada nem cancelada), FECHADA (entregue e faturada) ou CANCELADA (entregue sem serviço e sem cobrança, encerrada operacionalmente).
+Classificação administrativa geral: ABERTA (na loja, não fechada nem cancelada), FECHADA (entregue e faturada nos fluxos usuais; a OS externa encerrada como Equipamento comprado/Doado também fica FECHADA por exceção aprovada, sem pagamento ao cliente nesta etapa) ou CANCELADA (entregue sem serviço e sem cobrança, encerrada operacionalmente).
 
 ## Resultado de encerramento da OS
-Status/motivo que registra o resultado final da OS: Devolvido sem Reparo, Devolvido Reparado ou Equipamento comprado/Doado. Não substitui a situação operacional nem o status macro.
+Status/motivo que registra o resultado final da OS: Devolvido sem Reparo, Devolvido Reparado ou Equipamento comprado/Doado. Não substitui a situação operacional nem o status macro. Equipamento comprado/Doado fecha a OS externa como FECHADA e gera uma OS interna; a relação dos demais resultados com o status macro ainda será detalhada.
 
 ## Reabertura simples da OS
 Reabertura autorizada para corrigir textos da OS, sem alterar situação operacional, status macro, faturamento ou pagamentos; gera histórico.
 
 ## Reabertura completa da OS
-Reabertura autorizada que retorna a mesma OS para ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos do financeiro ativo com preservação de histórico, reclassifica peças vinculadas como ORÇADA e notifica o dashboard do Administrador. Pode ser aplicada a OS FECHADA ou CANCELADA.
+Reabertura autorizada que retorna a mesma OS para ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos do financeiro ativo com preservação de histórico, reclassifica peças vinculadas como ORÇADA e notifica o dashboard do Administrador. Pode ser aplicada a OS FECHADA ou CANCELADA, exceto à OS externa encerrada como Equipamento comprado/Doado depois de criada sua OS interna; essa origem admite somente reabertura simples textual.
+
+## Pessoa da própria empresa
+Pessoa única configurada por Administrador para representar a empresa como titular de equipamentos e responsável por OS internas. Deve cumprir os critérios vigentes de elegibilidade como titular; a estrutura técnica dessa configuração ainda não foi definida.
+
+## OS interna
+Ordem de Serviço criada automaticamente para a Pessoa da própria empresa quando uma OS externa é encerrada como Equipamento comprado/Doado. Inicia ABERTA/TRIAGEM, é vinculada à OS original e ao mesmo equipamento, mantém informações herdadas em área histórica e segue regras gerais, exceto que não pode gerar outra OS por esse mesmo motivo.
+
+## Informação herdada da OS
+Informação da OS original copiada para consulta histórica na OS interna, identificada separadamente dos dados operacionais novos. Não cria cobrança, pagamento, item ativo nem movimentação de estoque na OS interna.
 
 ## Cliente
 Pessoa física ou jurídica que contrata serviços ou adquire produtos.

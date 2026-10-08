@@ -174,10 +174,10 @@ As atribuições padrão ao Administrador não impedem incluir outros funcionár
 Os três status macro aprovados são:
 
 - **ABERTA:** OS que está na loja e ainda não foi fechada nem cancelada.
-- **FECHADA:** OS entregue e faturada.
+- **FECHADA:** OS entregue e faturada nos fluxos usuais. A OS externa encerrada como Equipamento comprado/Doado também fica FECHADA por regra específica, mesmo sem pagamento ao cliente nesta etapa; o tratamento fiscal/financeiro dessa exceção permanece pendente.
 - **CANCELADA:** OS entregue sem execução do serviço e sem cobrança. É considerada encerrada para fins operacionais, mas mantém o status macro CANCELADA.
 
-Os resultados/status-motivos de encerramento aprovados são **Devolvido sem Reparo**, **Devolvido Reparado** e **Equipamento comprado/Doado**. Eles registram o resultado final no fechamento, cancelamento ou encerramento, conforme a regra operacional que ainda será detalhada; não substituem a situação operacional nem o status macro.
+Os resultados/status-motivos de encerramento aprovados são **Devolvido sem Reparo**, **Devolvido Reparado** e **Equipamento comprado/Doado**. O último encerra a OS externa como FECHADA e aciona o fluxo de transferência e criação automática de OS interna descrito abaixo. A relação dos outros resultados com fechamento/cancelamento ainda será detalhada; nenhum deles substitui a situação operacional nem o status macro.
 
 Cada mudança de situação e de atribuição deve gerar histórico com usuário que alterou, data/hora, OS e situação anterior/nova; registrar também funcionários atribuídos antes/depois quando aplicável. Ao salvar uma das duas situações NÃO AUTORIZADO, a decisão de remover ou manter o orçamento e colocá-lo no histórico deve ser registrada. Essa estrutura e os fluxos permanecem futuros; não implica implementação nesta etapa.
 
@@ -190,7 +190,7 @@ Somente Administrador ou usuário com permissão específica pode alterar o stat
 Há dois tipos distintos de reabertura:
 
 - **Reabertura simples:** permite corrigir texto da OS — como observações, laudo, descrição, anotação interna ou texto administrativo — sem alterar status macro nem situação operacional, cancelar faturamento ou alterar pagamentos. Pode ser realizada por usuário autorizado na OS; gera histórico. Permissão futura sugerida: `os.reopen_text`.
-- **Reabertura completa:** retorna a mesma OS (mesmo número) ao status macro ABERTA e à situação AGUARDANDO AVALIAÇÃO/ORÇAMENTO; não cria nova OS automaticamente. Cancela o faturamento vinculado e retira pagamentos do financeiro ativo por cancelamento, sem apagar seu rastro. Gera histórico e aviso no dashboard do Administrador. Exige Administrador ou permissão específica futura sugerida `os.reopen_full`.
+- **Reabertura completa:** retorna a mesma OS (mesmo número) ao status macro ABERTA e à situação AGUARDANDO AVALIAÇÃO/ORÇAMENTO; não cria nova OS automaticamente. Cancela o faturamento vinculado e retira pagamentos do financeiro ativo por cancelamento, sem apagar seu rastro. Gera histórico e aviso no dashboard do Administrador. Exige Administrador ou permissão específica futura sugerida `os.reopen_full`. Exceção: após gerar a OS interna no fluxo Equipamento comprado/Doado, a OS externa original só permite reabertura simples textual.
 
 A reabertura completa registra no histórico, no mínimo, usuário responsável, data/hora, OS, status macro e situação anteriores/novos e motivo da ação. Os eventos de pagamento e peça mantêm as referências e valores anteriores para auditoria.
 
@@ -198,11 +198,25 @@ Uma OS CANCELADA também pode ser reaberta completamente sob a mesma autorizaç�
 
 Na reabertura completa, todas as peças de estoque vinculadas à OS voltam ao estado ORÇADA, inclusive as que estavam UTILIZADAS ou BAIXADAS, até que um técnico ou usuário autorizado reavalie e atualize os itens. A mudança gera histórico com os estados anterior e novo e o motivo técnico “reabertura completa da OS”. Não se deve apagar movimentos ou históricos anteriores. A reconciliação de quantidade física/financeira para peças anteriormente BAIXADAS ainda precisa de definição técnica; o retorno do status do item a ORÇADA não define sozinho um novo movimento de estoque.
 
-Não são permitidas transições diretas entre FECHADA e CANCELADA em nenhuma direção. Para passar de FECHADA a CANCELADA, é necessário reabrir completamente para ABERTA e então cancelar sob a permissão aplicável. Para passar de CANCELADA a FECHADA, é necessário reabrir completamente para ABERTA, escolher a situação operacional adequada e então fechar normalmente. As permissões e o histórico correspondentes são aplicados em cada ação.
+Não são permitidas transições diretas entre FECHADA e CANCELADA em nenhuma direção. Para OS que admitem reabertura completa, passar de FECHADA a CANCELADA exige reabrir completamente para ABERTA e então cancelar sob a permissão aplicável; passar de CANCELADA a FECHADA exige reabrir completamente para ABERTA, escolher a situação operacional adequada e então fechar normalmente. A OS externa encerrada como Equipamento comprado/Doado, após a criação da interna, é exceção e só admite reabertura simples textual. As permissões e o histórico correspondentes são aplicados em cada ação.
 
 Quando pagamentos tiverem sido registrados antes da reabertura completa, o cancelamento no financeiro ativo deve preservar histórico/auditoria com, no mínimo, usuário responsável, data/hora, OS, valor cancelado, forma de pagamento quando houver, referência do lançamento anterior e motivo técnico “reabertura completa da OS”. Não apagar pagamentos sem rastro. A relação da reabertura com documentos fiscais, estornos/devoluções efetivas e valores já liquidados continua sujeita às regras financeiras específicas ainda pendentes.
 
 Os efeitos acima são regras funcionais aprovadas; permissões citadas são sugestões futuras. Persistência, contratos de API, operações financeiras/estoque, histórico físico e avisos ainda precisam de desenho e implementação próprios.
+
+### Encerramento como Equipamento comprado/Doado e OS interna
+
+Quando uma OS de cliente externo for encerrada com resultado **Equipamento comprado/Doado**, a OS original fica FECHADA e o equipamento passa à Pessoa configurada como representante da própria empresa. Esse resultado define FECHADA para este fluxo específico; nenhum valor pago ao cliente é registrado nesta etapa e o efeito fiscal/financeiro da classificação fica pendente. No mesmo fluxo, o sistema abre automaticamente uma nova OS interna, vinculada ao mesmo equipamento e à Pessoa da empresa, em macrostatus ABERTA e situação TRIAGEM. A OS interna referencia obrigatoriamente a OS original, e a original referencia a OS interna. Encerramento, transferência, criação e vínculo geram histórico com usuário responsável e data/hora.
+
+O sistema permite configurar uma única Pessoa como representante da própria empresa. Somente Administrador pode definir, remover ou trocar essa configuração; cada mudança gera histórico administrativo. A Pessoa escolhida deve estar ativa e atender aos critérios vigentes para titular de equipamento, incluindo Tipo de Contato Cliente. Se não houver Pessoa configurada, o encerramento como Equipamento comprado/Doado é bloqueado com aviso de que a configuração é obrigatória. A configuração pode ser corrigida por Administrador antes de repetir o encerramento.
+
+Não se registra pagamento ao cliente nesse fluxo nesta etapa. Valor pago, forma de pagamento, saída financeira e compra formal do equipamento permanecem futuros; a classificação da OS como FECHADA não autoriza inferir lançamento financeiro ou documento fiscal ainda não especificado.
+
+Após a OS interna ser criada, a original não recebe movimentações técnicas posteriores. Ela conserva o histórico da negociação/encerramento e o vínculo com a OS interna; só admite reabertura simples para correção textual conforme regra geral. A OS interna recebe os trabalhos futuros do equipamento e segue as regras normais de situação, fechamento, cancelamento e reabertura, exceto que não pode ser encerrada novamente com resultado Equipamento comprado/Doado. Esse resultado só se aplica a OS de cliente externo, evitando cadeia de OS internas.
+
+Na OS interna, as informações herdadas ficam identificadas e consultáveis em área histórica separada dos novos campos operacionais. Incluir: número e referência da OS original; cliente original; equipamento; defeito/reclamação; observações internas; laudo técnico; orçamento anterior; peças e serviços orçados; resultado Equipamento comprado/Doado; data/hora e usuário do encerramento. Dados atuais da empresa/equipamento continuam referenciados pelos cadastros, sem transformar os dados herdados em campos operacionais ativos da nova OS.
+
+Não copiar como itens ativos para a OS interna: cobrança, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS ou pendências abertas da OS original. Esses registros podem constar apenas como histórico herdado de consulta e não podem criar cobrança, pagamento, movimento de estoque, pendência financeira ou item ativo na OS interna. A operação deve preservar referências e histórico das duas OS; a garantia contra estado parcial entre fechamento, transferência e criação da OS interna requer definição técnica antes da implementação.
 
 ### Ciclo da peça vinculada à OS
 

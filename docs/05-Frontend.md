@@ -123,9 +123,15 @@ Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, pergunt
 
 ### 10.9 Reabertura e encerramento da OS — interface futura
 
-Exibir separadamente reabertura simples (correção textual, sem mudança de status/situação, faturamento ou pagamentos) e reabertura completa. A reabertura completa deve apresentar os efeitos aprovados: mesma OS/número, retorno a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancelamento do faturamento e dos pagamentos no financeiro ativo com preservação do histórico, retorno das peças vinculadas para ORÇADA e aviso no dashboard do Administrador. Também deve estar disponível para OS CANCELADA.
+Exibir separadamente reabertura simples (correção textual, sem mudança de status/situação, faturamento ou pagamentos) e reabertura completa. A reabertura completa deve apresentar os efeitos aprovados: mesma OS/número, retorno a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancelamento do faturamento e dos pagamentos no financeiro ativo com preservação do histórico, retorno das peças vinculadas para ORÇADA e aviso no dashboard do Administrador. Também deve estar disponível para OS CANCELADA, exceto para a OS externa encerrada como Equipamento comprado/Doado depois de criada a interna; nessa origem, oferecer somente reabertura simples textual.
 
-Não oferecer a mudança direta FECHADA→CANCELADA ou CANCELADA→FECHADA; a interface deve conduzir à reabertura completa para ABERTA antes da outra ação. Alterar status macro para FECHADA/CANCELADA depende de Administrador ou permissão específica; a atribuição de situação operacional segue a autorização da OS. Regras de texto, confirmação e apresentação de exceções financeiras ainda precisam de especificação de UX.
+Não oferecer a mudança direta FECHADA→CANCELADA ou CANCELADA→FECHADA; para OS elegíveis, a interface deve conduzir à reabertura completa para ABERTA antes da outra ação. A OS externa encerrada como Equipamento comprado/Doado, depois de criada a interna, não oferece essa reabertura completa nem mudança técnica posterior; permite somente correção textual pela reabertura simples. Alterar status macro para FECHADA/CANCELADA depende de Administrador ou permissão específica; a atribuição de situação operacional segue a autorização da OS. Regras de texto, confirmação e apresentação de exceções financeiras ainda precisam de especificação de UX.
+
+### 10.10 Pessoa da própria empresa e OS interna — interface futura
+
+Disponibilizar ao Administrador a configuração de uma única Pessoa ativa como representante da própria empresa. Exibir o valor atual e registrar alterações no histórico administrativo. No encerramento Equipamento comprado/Doado, informar e bloquear a operação se essa Pessoa não estiver configurada; após configurada, permitir concluir o fluxo que fecha a OS externa e abre a interna ABERTA/TRIAGEM.
+
+Na OS interna, mostrar claramente uma área histórica de informações herdadas da OS original e separá-la dos novos dados, atribuições e itens operacionais. Exibir o vínculo de origem/destino entre as OS. A origem fechada não oferece novos movimentos técnicos nem reabertura completa; somente reabertura simples para correção textual pode ser apresentada. OS interna não oferece Equipamento comprado/Doado como resultado de encerramento. Não exibir cobrança, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS nem pendências da original como itens ativos da interna. Não solicitar nem registrar valor pago ao cliente nesse fluxo nesta etapa. Os textos e detalhes de interação ainda precisam de especificação de UX.
 
 # 11. Evolução
 

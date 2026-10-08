@@ -207,9 +207,9 @@ Definir as permissões e os efeitos de mudanças de situação/status macro e da
 - Depois da abertura em TRIAGEM, usuários autorizados podem mudar livremente para qualquer situação ativa; não existe sequência rígida. Mudanças geram histórico e não removem bloqueios específicos, como pendência aberta de conferência de estoque.
 - Somente Administrador ou usuário com permissão específica altera o status macro para FECHADA ou CANCELADA. FECHADA↔CANCELADA não é transição direta; é necessário reabrir completamente para ABERTA antes da outra mudança.
 - Reabertura simples permite correção textual, sem alterar situação, status macro, faturamento ou pagamentos, e gera histórico.
-- Reabertura completa mantém a mesma OS/número, retorna a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos no financeiro ativo sem apagar o rastro, retorna peças vinculadas a ORÇADA, registra histórico e avisa o dashboard do Administrador. Também é permitida para OS CANCELADA.
+- Reabertura completa mantém a mesma OS/número, retorna a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos no financeiro ativo sem apagar o rastro, retorna peças vinculadas a ORÇADA, registra histórico e avisa o dashboard do Administrador. Também é permitida para OS CANCELADA, exceto à OS externa encerrada como Equipamento comprado/Doado após a criação da interna, que admite somente reabertura simples textual.
 - Permissões futuras sugeridas: `os.close`, `os.cancel`, `os.reopen_text`, `os.reopen_full` e `stock.pending_review.resolve`.
-- Reconciliação de peças anteriormente BAIXADAS, títulos liquidados/documentos fiscais e mapeamento completo do resultado de encerramento permanecem pendentes. Esta decisão não aprova tabelas, contratos de API ou uma nova arquitetura de persistência.
+- Reconciliação de peças anteriormente BAIXADAS, títulos liquidados/documentos fiscais e o mapeamento dos demais resultados de encerramento permanecem pendentes. Equipamento comprado/Doado fecha a OS externa como FECHADA e dispara o fluxo interno aprovado na DA-020. Esta decisão não aprova tabelas, contratos de API ou uma nova arquitetura de persistência.
 
 ## Justificativa
 O fluxo preserva a distinção entre atualização operacional, correção textual e reversão completa de um encerramento, mantendo auditoria de operações financeiras e de estoque.
@@ -225,6 +225,45 @@ Marcos.
 
 ## Procedência
 Decisões complementares de reabertura de OS aprovadas por Marcos em 08/10/2026.
+
+---
+
+# DA-020
+
+## Título
+Aquisição/doação de equipamento de cliente e geração de OS interna.
+
+## Situação
+Aprovada por Marcos em 08/10/2026. Regras funcionais documentadas; modelo físico, API e implementação ainda não aprovados.
+
+## Contexto
+O resultado Equipamento comprado/Doado passa o equipamento do cliente para a própria empresa, que precisa continuar atendendo o mesmo equipamento em uma nova OS. A operação envolve titularidade, origem entre OS, histórico herdado, financeiro e estoque.
+
+## Problema
+Definir como encerrar a OS externa, identificar a Pessoa da empresa, abrir o novo atendimento interno e impedir cópias indevidas de valores/itens ativos ou cadeia infinita de OS internas.
+
+## Decisão adotada
+- Aplicável apenas a OS de cliente externo: a original fica FECHADA; o equipamento é transferido para a única Pessoa configurada como representante da própria empresa e uma OS interna é criada automaticamente para a mesma Pessoa/equipamento em ABERTA/TRIAGEM.
+- A Pessoa da própria empresa deve estar ativa e cumprir elegibilidade já aprovada para titular, incluindo Tipo de Contato Cliente. Somente Administrador define, remove ou troca a configuração; a mudança gera histórico. Sem Pessoa configurada, bloquear o encerramento e informar a exigência.
+- As OS mantêm referências recíprocas. Encerramento, transferência, criação e vínculo registram usuário e data/hora. A interna separa em histórico herdado os dados enumerados da origem dos campos operacionais próprios.
+- Cobranças, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS e pendências abertas não são copiados como itens ativos na interna. Não registrar pagamento ao cliente nesta etapa; valor, forma, saída financeira e compra formal ficam futuros.
+- Após criação da interna, a OS original não recebe movimentação técnica e somente admite reabertura simples textual. A OS interna segue regras normais, exceto que não pode ser encerrada como Equipamento comprado/Doado; o bloqueio impede cadeia de OS internas.
+- A nova OS interna mantém referência à OS original, cliente original e mesmo equipamento, sem transformar histórico herdado em dados operacionais ou financeiros ativos.
+
+## Justificativa
+O equipamento segue em atendimento sem reabrir ou reescrever a OS que documentou a negociação com o cliente; os vínculos permitem consultar a origem e o histórico sem replicar cobranças, pagamentos ou movimentos.
+
+## Impactos
+A configuração da Pessoa da própria empresa, transferência, relações recíprocas, informação herdada e criação da OS interna ficam para recorte posterior ao primeiro módulo básico de OS. A implementação deverá tratar falhas para evitar fechamento sem transferência/criação, mas a estratégia de atomicidade/recuperação não foi definida. Efeitos fiscais, liquidação financeira e reconciliação física de estoque permanecem pendentes.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Decisões de encerramento Equipamento comprado/Doado e OS interna aprovadas por Marcos em 08/10/2026.
 
 ---
 

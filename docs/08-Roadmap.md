@@ -98,6 +98,8 @@ A estrutura funcional aprovada da OS distingue situação operacional, status ma
 
 Foram aprovadas também as mudanças livres entre situações após TRIAGEM, o controle de FECHADA/CANCELADA, as reaberturas simples e completas, seus efeitos em pagamentos/faturamento/peças, a proibição de transições diretas FECHADA↔CANCELADA e o aviso no dashboard do Administrador. A análise de prontidão em `docs/Especificacoes-Nao-Documentadas.md` recomenda como primeiro recorte a criação em TRIAGEM/ABERTA, vínculos com Pessoa e equipamento, consulta/listagem, atribuição, mudança de situação e histórico — sem fechamento, cancelamento, reabertura, financeiro ou estoque. A decisão sobre número sequencial visível da OS é pré-requisito para fechar o contrato/modelagem. Não há implementação autorizada nesta atualização documental.
 
+O fluxo Equipamento comprado/Doado também está aprovado: fecha a OS externa como FECHADA, transfere o equipamento à Pessoa da própria empresa e cria OS interna ABERTA/TRIAGEM com vínculo/histórico herdado. Ele fica fora do primeiro recorte, junto com configuração da Pessoa da empresa, transferência, encerramento, Financeiro e Estoque. Sua futura implementação depende de modelagem de origem/histórico herdado e estratégia contra estado parcial, além das pendências fiscais/financeiras documentadas.
+
 ---
 
 # FASE 6 — Integrações
