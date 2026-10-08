@@ -6,7 +6,7 @@
 ## 1. Conclusão executiva
 
 - **Correios:** viável com credencial/contrato e autorização para a API Rastro. A consulta oficial não é uma API pública anônima: a documentação informa que objetos vinculados a contratos são consultáveis apenas com as credenciais do remetente.
-- **Dell:** o fluxo público oficial aceita Service Tag, mas a requisição HTTP direta feita nesta prova para uma tag fictícia recebeu **HTTP 403**. Não foi possível observar o HTML de uma consulta válida nem confirmar extração de modelo sem login por requisição simples.
+- **Dell:** confirmado no navegador que o fluxo público oficial aceita Service Tag sem login e mostra o nome/modelo do produto na página. A tag fictícia usada resolveu para `Dell 1600n Multifunction Mono Laser Printer`, então o fluxo foi confirmado, mas não foi validado com um notebook.
 - **Resultado:** não foi criado código experimental. A investigação não usou credenciais reais, navegador automatizado, banco de dados ou uma tag de equipamento real.
 
 ## 2. Correios
@@ -58,21 +58,23 @@ O exemplo usa os dados demonstrativos do manual, não uma consulta atual. Se a c
 
 A página oficial [Manuais Dell Brasil](https://www.dell.com/support/home/pt-br/Products?app=manuals&lwp=rt) apresenta um campo que aceita etiqueta de serviço, ID de produto ou modelo. A página oficial [Localize a etiqueta de serviço do notebook](https://www.dell.com/support/contents/pt-br/article/Product-Support/Self-support-Knowledgebase/locate-service-tag/Notebook) orienta a consulta do identificador no site de suporte.
 
-Caminho de produto usado para a tentativa HTTP direta:
+Caminho de produto observado após a resolução da Service Tag:
 
-`https://www.dell.com/support/home/pt-br/product-support/servicetag/ABC1234/overview`
+`https://www.dell.com/support/product-details/pt-br/servicetag/{serviceTag}/overview`
 
-`ABC1234` foi usado apenas como identificador fictício de teste. Uma única requisição HTTP, com timeout de 20 segundos e um User-Agent comum, foi bloqueada pelo site com **HTTP 403**. Assim, não foi possível confirmar se a página redireciona, exige JavaScript ou headers específicos, inspecionar payload de consulta válida, verificar sem login numa sessão comum, nem extrair somente o modelo. A resposta 403 demonstra apenas o bloqueio dessa requisição automatizada; não prova que o uso público interativo exija login.
+`ABC1234` foi usado apenas como identificador fictício de teste. A navegação interativa no site público chegou à página do produto sem solicitar login e apresentou o modelo `Dell 1600n Multifunction Mono Laser Printer` junto à Service Tag. Essa confirmação demonstra que o modelo pode ser obtido do fluxo público no navegador; como o identificador de teste retornou uma impressora, ainda falta confirmar o resultado para um notebook.
+
+Uma chamada HTTP direta fora do navegador para a rota `/support/home/pt-br/product-support/servicetag/ABC1234/overview`, com timeout de 20 segundos e User-Agent comum, recebeu **HTTP 403**. O site redirecionou a navegação do browser para o caminho canônico `/support/product-details/pt-br/servicetag/ABC1234/overview`. O 403, portanto, é uma limitação do acesso HTTP automatizado usado na prova e não indica que o fluxo público em navegador exija login.
 
 ### Parser e riscos
 
-Não foi implementado parser. Se uma próxima verificação autorizada obtiver a página de produto por HTTP, a estratégia preferida é extrair um campo de modelo explícito de JSON-LD ou de payload estruturado embutido no HTML e normalizar para `{ serviceTag, model, source }`. Evitar selecionar por posição ou texto genérico: a página contém também informações de garantia, suporte e outros dados que estão fora do escopo.
+Não foi implementado parser nesta spike documental. A estratégia recomendada agora é simples: consultar a rota pública de produto, identificar o elemento de título/nome do produto (`hero-product-image`/`dep_showDeviceDetails` eram sinais visíveis na página observada), validar que o conteúdo corresponde ao identificador consultado e normalizar para `{ serviceTag, model, source: "dell_public_site" }`. Extrair somente o nome/modelo; não coletar garantia, suporte, proprietário ou demais dados.
 
-Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecionamento, proteção anti-bot/limites, conteúdo renderizado por JavaScript e variação por país/idioma. Revalidar o parser com respostas mínimas, sem armazenar cookies, tokens, dados pessoais ou conteúdo de garantia. Fazer poucas requisições e definir timeout.
+Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecionamento, proteção anti-bot/limites, conteúdo renderizado por JavaScript e variação por país/idioma. O navegador carregou a página com seu comportamento normal, mas não foi verificado se a requisição direta devolve o mesmo campo sem execução de JavaScript. Revalidar o parser com respostas mínimas, sem armazenar cookies, tokens, dados pessoais ou conteúdo de garantia. Fazer poucas requisições e definir timeout.
 
 ## 4. Automação, credenciais e execução
 
-- Navegador automatizado/Playwright: **não utilizado**. Deve ser considerado somente após uma avaliação separada do fluxo interativo e das dependências/licenças; esta prova não confirma que seja necessário ou que contorne o bloqueio.
+- Consulta Dell no navegador: **realizada manualmente pela superfície de navegação**, sem Playwright ou automação de navegador. A página pública exibiu o nome/modelo sem login. Ainda não se concluiu se o parser poderá operar com HTTP simples ou se precisará renderizar JavaScript.
 - Correios: integração oficial requer token e acesso CWS autorizado; nenhuma variável ou credencial foi criada nesta spike. Na implementação futura, usar variáveis/secrets fora do repositório, conforme os escopos e ambiente aprovados pelos Correios.
 - Dell: nenhuma credencial foi identificada como necessária para visualizar a página pública, mas não foi possível verificar o acesso com tag válida por HTTP. Nenhuma variável de ambiente foi necessária.
 - Não houve gravação em banco, alteração de schema, migration, endpoint, alteração do módulo OS ou requisição repetida.
@@ -80,7 +82,7 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 ## 5. Recomendação e próximos passos
 
 1. **Correios — precisa de credencial:** confirmar no CWS contrato, chave, escopo Rastro, ambiente e host de produção; então validar uma consulta de homologação a objeto autorizado e mapear os eventos mínimos.
-2. **Dell — viável ainda não confirmado; avaliar parser simples primeiro:** em uma etapa futura, com um Service Tag de teste autorizado, observar manualmente a consulta no site Dell e identificar o HTML/payload público. Repetir uma requisição simples controlada se permitido. Só considerar Playwright se a página depender comprovadamente de JavaScript e após revisão da abordagem.
+2. **Dell — viável com parser simples como primeira opção:** confirmar com uma Service Tag de notebook de teste autorizada se o modelo é apresentado na mesma rota pública. Inspecionar o HTML/payload e extrair somente o nome do modelo. Se a extração via HTTP simples não capturar o elemento porque ele é renderizado por JavaScript, avaliar navegador automatizado em spike separada.
 3. Implementar cada consulta em módulo experimental isolado, com timeout, tratamento de 403/429/timeout e saída mínima; remover dados de resposta não necessários.
 4. Fazer revisão técnica antes de integrar à OS. Esta spike não altera regras de negócio nem recomenda automação periódica ainda.
 
@@ -88,4 +90,4 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 
 Arquivo criado: `docs/integracoes/Prova-Tecnica-Correios-Dell.md`.
 
-Somente documentação foi criada. Não há comandos de execução de código experimental. O teste de Dell foi limitado a uma requisição HTTP bloqueada usando identificador fictício; o resultado não determina o comportamento com um Service Tag válido em navegador normal. Correios foi avaliado pela documentação oficial, sem chamada autenticada.
+Somente documentação foi criada. Não há comandos de execução de código experimental. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript. Correios foi avaliado pela documentação oficial, sem chamada autenticada.
