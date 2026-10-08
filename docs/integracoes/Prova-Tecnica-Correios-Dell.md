@@ -1,13 +1,13 @@
 # Prova técnica: rastreamento Correios e identificação de modelo Dell
 
 **Data da pesquisa:** 2026-10-08  
-**Tipo:** spike documental, sem integração de produção
+**Tipo:** spike isolada, sem integração de produção
 
 ## 1. Conclusão executiva
 
 - **Correios:** viável com credencial/contrato e autorização para a API Rastro. A consulta oficial não é uma API pública anônima: a documentação informa que objetos vinculados a contratos são consultáveis apenas com as credenciais do remetente.
 - **Dell:** confirmado no navegador que o fluxo público oficial aceita Service Tag sem login e mostra o nome/modelo do produto na página. A tag fictícia usada resolveu para `Dell 1600n Multifunction Mono Laser Printer`, então o fluxo foi confirmado, mas não foi validado com um notebook.
-- **Resultado:** não foi criado código experimental. A investigação não usou credenciais reais, navegador automatizado, banco de dados ou uma tag de equipamento real.
+- **Resultado:** foi criado um cliente experimental isolado para a API Rastro. Ainda não foi executada uma chamada autenticada; as credenciais devem ser configuradas localmente pelo usuário. Não há integração com banco, OS ou endpoints do sistema.
 
 ## 2. Correios
 
@@ -35,7 +35,7 @@ Accept: application/json
 Authorization: Bearer <token obtido pelos meios oficiais>
 ```
 
-O manual mostra resposta com `objetos[].eventos[]`, incluindo `dtHrCriado`, `descricao` e dados de `unidade`/endereço do evento. A implementação futura deve projetar somente o mínimo necessário, como último evento (status/descrição, horário e local) e uma lista resumida. Não há chamada realizada nesta spike; o código acima e a forma de saída são exemplos derivados da documentação.
+O manual mostra resposta com `objetos[].eventos[]`, incluindo `dtHrCriado`, `descricao` e dados de `unidade`/endereço do evento. O cliente experimental criado projeta somente uma lista resumida de eventos, status/descrição, horário e local. Ainda não há chamada autenticada realizada; a forma de saída abaixo é ilustrativa, baseada no manual.
 
 Exemplo de saída normalizada esperada:
 
@@ -56,7 +56,7 @@ Exemplo de saída normalizada esperada:
 }
 ```
 
-O exemplo usa os dados demonstrativos do manual, não uma consulta atual. Se a chamada não tiver credencial autorizada, a integração futura deve apresentar uma mensagem clara indicando que o serviço requer credencial e vínculo/autorização do objeto com o contrato.
+O exemplo usa os dados demonstrativos do manual, não uma consulta atual. Se a chamada não tiver credencial autorizada, o cliente retorna uma mensagem clara indicando que o serviço requer credencial e vínculo/autorização do objeto com o contrato.
 
 ## 3. Dell
 
@@ -81,19 +81,29 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 ## 4. Automação, credenciais e execução
 
 - Consulta Dell no navegador: **realizada manualmente pela superfície de navegação**, sem Playwright ou automação de navegador. A página pública exibiu o nome/modelo sem login. Ainda não se concluiu se o parser poderá operar com HTTP simples ou se precisará renderizar JavaScript.
-- Correios: integração oficial requer token e acesso CWS autorizado; nenhuma variável ou credencial foi criada nesta spike. Na implementação futura, usar variáveis/secrets fora do repositório, conforme os escopos e ambiente aprovados pelos Correios.
+- Correios: o código lê credenciais somente do ambiente do processo e não as imprime. Configure-as localmente fora do repositório. O manual usa `idCorreios` mais o código de acesso às APIs criado no CWS para Basic Auth; esse código não é necessariamente a senha de login do site Meu Correios. Variáveis esperadas:
+  - `CORREIOS_ID`: idCorreios da pessoa jurídica.
+  - `CORREIOS_API_CODE`: código de acesso às APIs criado no CWS.
+  - `CORREIOS_AUTH_MODE`: `contract` ou `posting-card`.
+  - `CORREIOS_CONTRACT_NUMBER`: número do contrato para `contract`; opcional para `posting-card`.
+  - `CORREIOS_POSTING_CARD`: número do cartão quando `posting-card`.
+  - `CORREIOS_DR`: diretoria regional numérica, opcional se não exigida.
+  - `CORREIOS_ENV`: `homologation` (padrão) ou `production`; produção deve ser escolhida explicitamente.
+- A autenticação obtém um token via API Token e então chama Rastro com Bearer token. O manual orienta que homologação requer primeiro o acesso em produção e replicação/liberação do contrato no ambiente de homologação.
+- Com Node.js 24, executar da raiz do projeto: `node --experimental-strip-types backend/src/integrations/_spikes/correios-tracking.ts <codigo-rastreio>`.
+- O cliente valida formato de código de 13 caracteres, aplica timeout de 15 segundos e retorna no máximo dez eventos resumidos. Não grava respostas nem tokens.
 - Dell: nenhuma credencial foi identificada como necessária para visualizar a página pública, mas não foi possível verificar o acesso com tag válida por HTTP. Nenhuma variável de ambiente foi necessária.
 - Não houve gravação em banco, alteração de schema, migration, endpoint, alteração do módulo OS ou requisição repetida.
 
 ## 5. Recomendação e próximos passos
 
-1. **Correios — precisa de credencial:** confirmar no CWS contrato, chave, escopo Rastro, ambiente e host de produção; então validar uma consulta de homologação a objeto autorizado e mapear os eventos mínimos.
+1. **Correios — preparado para validação autenticada:** usuário configurar as variáveis locais acima, confirmar no CWS o acesso à API Rastro e fornecer um código de objeto associado ao contrato/ambiente. Então executar uma única consulta e revisar o formato real da resposta.
 2. **Dell — viável com parser simples como primeira opção:** confirmar com uma Service Tag de notebook de teste autorizada se o modelo é apresentado na mesma rota pública. Inspecionar o HTML/payload e extrair somente o nome do modelo. Se a extração via HTTP simples não capturar o elemento porque ele é renderizado por JavaScript, avaliar navegador automatizado em spike separada.
-3. Implementar cada consulta em módulo experimental isolado, com timeout, tratamento de 403/429/timeout e saída mínima; remover dados de resposta não necessários.
+3. Validar o comportamento de timeout, credenciais sem permissão, objeto não disponível e respostas sem eventos antes de qualquer evolução do spike.
 4. Fazer revisão técnica antes de integrar à OS. Esta spike não altera regras de negócio nem recomenda automação periódica ainda.
 
 ## 6. Arquivos e limitações desta spike
 
-Arquivo criado: `docs/integracoes/Prova-Tecnica-Correios-Dell.md`.
+Arquivos criados: `docs/integracoes/Prova-Tecnica-Correios-Dell.md` e `backend/src/integrations/_spikes/correios-tracking.ts`.
 
-Somente documentação foi criada. Não há comandos de execução de código experimental. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript. Correios foi avaliado pela documentação oficial, sem chamada autenticada.
+O código Correios foi validado quanto à sintaxe, mas ainda não foi executado contra os Correios porque as credenciais não foram configuradas no ambiente desta sessão e nenhum código de rastreio válido vinculado ao contrato foi fornecido. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript.
