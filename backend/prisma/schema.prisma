@@ -28,29 +28,31 @@ enum PersonContactEventType {
 }
 
 model Person {
-  id                      Int                    @id @default(autoincrement())
-  publicId                String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
-  personType              PersonType             @map("person_type")
-  name                    String                 @db.VarChar(191)
-  document                String?                @unique @db.VarChar(14)
-  tradeName               String?                @map("trade_name") @db.Text
-  stateRegistration       String?                @map("state_registration") @db.Text
-  municipalRegistration   String?                @map("municipal_registration") @db.Text
-  observations            String?                @db.Text
-  isActive                Boolean                @default(true) @map("is_active")
-  createdAt               DateTime               @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt               DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
-  roles                   PersonRoleAssignment[]
-  phones                  PersonPhone[]
-  emails                  PersonEmail[]
-  contactEvents           PersonContactEvent[]
-  address                 PersonAddress?
-  primaryContactFor       Person[]               @relation("PersonPrimaryContact")
-  primaryContact          Person?                @relation("PersonPrimaryContact", fields: [primaryContactId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  primaryContactId        Int?                   @map("primary_contact_id")
-  equipment               Equipment[]
-  previousOwnershipEvents EquipmentOwnership[]   @relation("PreviousEquipmentOwner")
-  newOwnershipEvents      EquipmentOwnership[]   @relation("NewEquipmentOwner")
+  id                           Int                    @id @default(autoincrement())
+  publicId                     String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
+  personType                   PersonType             @map("person_type")
+  name                         String                 @db.VarChar(191)
+  document                     String?                @unique @db.VarChar(14)
+  tradeName                    String?                @map("trade_name") @db.Text
+  stateRegistration            String?                @map("state_registration") @db.Text
+  municipalRegistration        String?                @map("municipal_registration") @db.Text
+  observations                 String?                @db.Text
+  isActive                     Boolean                @default(true) @map("is_active")
+  createdAt                    DateTime               @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                    DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
+  roles                        PersonRoleAssignment[]
+  phones                       PersonPhone[]
+  emails                       PersonEmail[]
+  contactEvents                PersonContactEvent[]
+  address                      PersonAddress?
+  primaryContactFor            Person[]               @relation("PersonPrimaryContact")
+  primaryContact               Person?                @relation("PersonPrimaryContact", fields: [primaryContactId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  primaryContactId             Int?                   @map("primary_contact_id")
+  equipment                    Equipment[]
+  previousOwnershipEvents      EquipmentOwnership[]   @relation("PreviousEquipmentOwner")
+  newOwnershipEvents           EquipmentOwnership[]   @relation("NewEquipmentOwner")
+  serviceOrderCustomers        ServiceOrder[]         @relation("ServiceOrderCustomer")
+  serviceOrderOpeningCustomers ServiceOrderOpening[]  @relation("OpeningCustomer")
 
   @@index([name])
   @@map("people")
@@ -118,23 +120,32 @@ model PersonContactEvent {
 }
 
 model User {
-  id                          Int                  @id @default(autoincrement())
-  publicId                    String               @unique @default(uuid()) @map("public_id") @db.Char(36)
-  username                    String               @unique @db.VarChar(50)
-  passwordHash                String               @map("password_hash") @db.VarChar(255)
-  isAdmin                     Boolean              @default(false) @map("is_admin")
-  isActive                    Boolean              @default(true) @map("is_active")
-  consecutiveFailedLoginCount Int                  @default(0) @map("consecutive_failed_login_count")
-  lastLoginAt                 DateTime?            @map("last_login_at") @db.DateTime(3)
-  inactivatedAt               DateTime?            @map("inactivated_at") @db.DateTime(3)
-  createdAt                   DateTime             @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt                   DateTime             @updatedAt @map("updated_at") @db.DateTime(3)
-  permissions                 UserPermission[]     @relation("PermissionRecipient")
-  permissionsGranted          UserPermission[]     @relation("PermissionGrantor")
-  sessions                    UserSession[]
-  auditActions                AdminAuditLog[]      @relation("AuditActor")
-  auditTargets                AdminAuditLog[]      @relation("AuditTarget")
-  contactEvents               PersonContactEvent[]
+  id                            Int                      @id @default(autoincrement())
+  publicId                      String                   @unique @default(uuid()) @map("public_id") @db.Char(36)
+  username                      String                   @unique @db.VarChar(50)
+  passwordHash                  String                   @map("password_hash") @db.VarChar(255)
+  isAdmin                       Boolean                  @default(false) @map("is_admin")
+  isActive                      Boolean                  @default(true) @map("is_active")
+  consecutiveFailedLoginCount   Int                      @default(0) @map("consecutive_failed_login_count")
+  lastLoginAt                   DateTime?                @map("last_login_at") @db.DateTime(3)
+  inactivatedAt                 DateTime?                @map("inactivated_at") @db.DateTime(3)
+  createdAt                     DateTime                 @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                     DateTime                 @updatedAt @map("updated_at") @db.DateTime(3)
+  permissions                   UserPermission[]         @relation("PermissionRecipient")
+  permissionsGranted            UserPermission[]         @relation("PermissionGrantor")
+  sessions                      UserSession[]
+  auditActions                  AdminAuditLog[]          @relation("AuditActor")
+  auditTargets                  AdminAuditLog[]          @relation("AuditTarget")
+  contactEvents                 PersonContactEvent[]
+  initiatedServiceOrderOpenings ServiceOrderOpening[]    @relation("OpeningInitiator")
+  activeServiceOrderOpening     ServiceOrderOpening?     @relation("OpeningActiveUser")
+  requestedOpeningTransfers     ServiceOrderOpening[]    @relation("OpeningTransferRequester")
+  createdServiceOrders          ServiceOrder[]           @relation("ServiceOrderCreator")
+  serviceOrderAssignments       ServiceOrderAssignment[] @relation("AssignmentUser")
+  serviceOrderAssignmentsMade   ServiceOrderAssignment[] @relation("AssignmentActor")
+  serviceOrderEvents            ServiceOrderEvent[]      @relation("ServiceOrderEventActor")
+  initiatedServiceOrderEvents   ServiceOrderEvent[]      @relation("ServiceOrderEventInitiator")
+  equipmentOwnershipChanges     EquipmentOwnership[]     @relation("EquipmentOwnershipActor")
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -261,19 +272,22 @@ model EquipmentBrand {
 }
 
 model Equipment {
-  id              Int                  @id @default(autoincrement())
-  publicId        String               @unique @default(uuid()) @map("public_id") @db.Char(36)
-  ownerId         Int                  @map("owner_id")
-  typeId          Int                  @map("type_id")
-  brandId         Int?                 @map("brand_id")
-  model           String?              @db.VarChar(191)
-  serialNumber    String?              @map("serial_number") @db.VarChar(191)
-  createdAt       DateTime             @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime             @updatedAt @map("updated_at") @db.DateTime(3)
-  owner           Person               @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  type            EquipmentType        @relation(fields: [typeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  brand           EquipmentBrand?      @relation(fields: [brandId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  ownershipEvents EquipmentOwnership[]
+  id                   Int                   @id @default(autoincrement())
+  publicId             String                @unique @default(uuid()) @map("public_id") @db.Char(36)
+  ownerId              Int                   @map("owner_id")
+  typeId               Int                   @map("type_id")
+  brandId              Int                   @map("brand_id")
+  model                String                @db.VarChar(191)
+  isActive             Boolean               @default(true) @map("is_active")
+  serialNumber         String?               @map("serial_number") @db.VarChar(191)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.DateTime(3)
+  owner                Person                @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  type                 EquipmentType         @relation(fields: [typeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  brand                EquipmentBrand        @relation(fields: [brandId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownershipEvents      EquipmentOwnership[]
+  serviceOrders        ServiceOrder[]
+  serviceOrderOpenings ServiceOrderOpening[]
 
   @@index([ownerId])
   @@index([serialNumber])
@@ -281,15 +295,203 @@ model Equipment {
 }
 
 model EquipmentOwnership {
-  id              Int       @id @default(autoincrement())
-  equipmentId     Int       @map("equipment_id")
-  previousOwnerId Int?      @map("previous_owner_id")
-  newOwnerId      Int       @map("new_owner_id")
-  changedAt       DateTime  @default(now()) @map("changed_at") @db.DateTime(3)
-  equipment       Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  previousOwner   Person?   @relation("PreviousEquipmentOwner", fields: [previousOwnerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  newOwner        Person    @relation("NewEquipmentOwner", fields: [newOwnerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id              Int           @id @default(autoincrement())
+  equipmentId     Int           @map("equipment_id")
+  previousOwnerId Int?          @map("previous_owner_id")
+  newOwnerId      Int           @map("new_owner_id")
+  serviceOrderId  Int?          @map("service_order_id")
+  changedByUserId Int?          @map("changed_by_user_id")
+  changedAt       DateTime      @default(now()) @map("changed_at") @db.DateTime(3)
+  equipment       Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  previousOwner   Person?       @relation("PreviousEquipmentOwner", fields: [previousOwnerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  newOwner        Person        @relation("NewEquipmentOwner", fields: [newOwnerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder    ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  changedBy       User?         @relation("EquipmentOwnershipActor", fields: [changedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([equipmentId, changedAt])
+  @@index([serviceOrderId])
+  @@index([changedByUserId, changedAt])
   @@map("equipment_ownership_events")
+}
+
+enum ServiceOrderOpeningStatus {
+  IN_PROGRESS
+  CONFIRMED
+  CANCELED
+
+  @@map("service_order_opening_status")
+}
+
+enum SerialIdentificationStatus {
+  IDENTIFIED
+  NOT_IDENTIFIED
+
+  @@map("serial_identification_status")
+}
+
+enum ServiceOrderNumberAllocationStatus {
+  RESERVED
+  CONFIRMED
+  CONSUMED
+  RELEASED
+
+  @@map("service_order_number_allocation_status")
+}
+
+enum ServiceOrderMacroStatus {
+  OPEN @map("ABERTA")
+
+  @@map("service_order_macro_status")
+}
+
+enum ServiceOrderOperationalSituation {
+  TRIAGE                        @map("TRIAGEM")
+  AWAITING_EVALUATION_BUDGET    @map("AGUARDANDO AVALIAÇÃO/ORÇAMENTO")
+  AWAITING_BUDGET_APPROVAL      @map("AGUARDANDO APROVAÇÃO DO ORÇAMENTO")
+  REPAIR_AUTHORIZED             @map("AUTORIZADO REPARO")
+  AWAITING_PART_PURCHASE        @map("AGUARDANDO COMPRA DE PEÇA")
+  AWAITING_PART_ARRIVAL         @map("AGUARDANDO CHEGADA DE PEÇA")
+  READY_TO_NOTIFY_CUSTOMER      @map("PRONTO AVISAR CLIENTE")
+  READY_CUSTOMER_NOTIFIED       @map("PRONTO CLIENTE AVISADO")
+  NOT_AUTHORIZED_REASSEMBLE     @map("NÃO AUTORIZADO - REMONTAR EQUIPAMENTO")
+  NOT_AUTHORIZED_READY_DELIVERY @map("NÃO AUTORIZADO - PRONTO PRA ENTREGA")
+
+  @@map("service_order_operational_situation")
+}
+
+model ServiceOrderNumberControl {
+  id                    Int      @id
+  nextNumber            BigInt   @default(1) @map("next_number")
+  highestReservedNumber BigInt   @default(0) @map("highest_reserved_number")
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("service_order_number_control")
+}
+
+model ServiceOrderNumberAllocation {
+  numberValue BigInt                             @id @map("number_value")
+  status      ServiceOrderNumberAllocationStatus
+  openingId   Int?                               @unique @map("opening_id")
+  createdAt   DateTime                           @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime                           @updatedAt @map("updated_at") @db.DateTime(3)
+
+  opening      ServiceOrderOpening? @relation(fields: [openingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder ServiceOrder?
+
+  @@index([status, updatedAt])
+  @@map("service_order_number_allocations")
+}
+
+model ServiceOrderOpening {
+  id                        Int                       @id @default(autoincrement())
+  publicId                  String                    @unique @default(uuid()) @map("public_id") @db.Char(36)
+  status                    ServiceOrderOpeningStatus @default(IN_PROGRESS)
+  initiatedByUserId         Int                       @map("initiated_by_user_id")
+  activeForUserId           Int?                      @unique @map("active_for_user_id")
+  attemptedNumberValue      BigInt                    @map("attempted_number_value")
+  customerId                Int?                      @map("customer_id")
+  equipmentId               Int?                      @map("equipment_id")
+  equipmentDraftJson        Json?                     @map("equipment_draft_json")
+  equipmentDraftVersion     Int?                      @map("equipment_draft_version")
+  transferRequested         Boolean                   @default(false) @map("transfer_requested")
+  transferRequestedByUserId Int?                      @map("transfer_requested_by_user_id")
+  transferRequestedAt       DateTime?                 @map("transfer_requested_at") @db.DateTime(3)
+  complaint                 String?                   @db.Text
+  resumedAt                 DateTime?                 @map("resumed_at") @db.DateTime(3)
+  confirmedAt               DateTime?                 @map("confirmed_at") @db.DateTime(3)
+  canceledAt                DateTime?                 @map("canceled_at") @db.DateTime(3)
+  createdAt                 DateTime                  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                 DateTime                  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  initiator         User                          @relation("OpeningInitiator", fields: [initiatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  activeForUser     User?                         @relation("OpeningActiveUser", fields: [activeForUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  transferRequester User?                         @relation("OpeningTransferRequester", fields: [transferRequestedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer          Person?                       @relation("OpeningCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  equipment         Equipment?                    @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  numberAllocation  ServiceOrderNumberAllocation?
+  serviceOrder      ServiceOrder?
+  events            ServiceOrderEvent[]
+
+  @@index([initiatedByUserId, status, updatedAt])
+  @@index([status, createdAt])
+  @@index([customerId])
+  @@index([equipmentId])
+  @@index([attemptedNumberValue])
+  @@map("service_order_openings")
+}
+
+model ServiceOrder {
+  id                                     Int                              @id @default(autoincrement())
+  publicId                               String                           @unique @default(uuid()) @map("public_id") @db.Char(36)
+  openingId                              Int                              @unique @map("opening_id")
+  numberValue                            BigInt                           @unique @map("number_value")
+  customerId                             Int                              @map("customer_id")
+  equipmentId                            Int                              @map("equipment_id")
+  createdByUserId                        Int                              @map("created_by_user_id")
+  macroStatus                            ServiceOrderMacroStatus          @default(OPEN) @map("macro_status")
+  operationalSituation                   ServiceOrderOperationalSituation @default(TRIAGE) @map("operational_situation")
+  complaint                              String?                          @db.Text
+  intakeObservations                     String?                          @map("intake_observations") @db.Text
+  newEquipmentSerialIdentificationStatus SerialIdentificationStatus?      @map("new_equipment_serial_identification_status")
+  customerSnapshotJson                   Json                             @map("customer_snapshot_json")
+  equipmentSnapshotJson                  Json                             @map("equipment_snapshot_json")
+  snapshotVersion                        Int                              @default(1) @map("snapshot_version")
+  snapshotCapturedAt                     DateTime                         @map("snapshot_captured_at") @db.DateTime(3)
+  openedAt                               DateTime                         @default(now()) @map("opened_at") @db.DateTime(3)
+  createdAt                              DateTime                         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                              DateTime                         @updatedAt @map("updated_at") @db.DateTime(3)
+
+  opening          ServiceOrderOpening          @relation(fields: [openingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  numberAllocation ServiceOrderNumberAllocation @relation(fields: [numberValue], references: [numberValue], onDelete: Restrict, onUpdate: Cascade)
+  customer         Person                       @relation("ServiceOrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  equipment        Equipment                    @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy        User                         @relation("ServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignments      ServiceOrderAssignment[]
+  events           ServiceOrderEvent[]
+  ownershipEvents  EquipmentOwnership[]
+
+  @@index([macroStatus, operationalSituation, openedAt])
+  @@index([customerId, openedAt])
+  @@index([equipmentId, openedAt])
+  @@index([createdByUserId, openedAt])
+  @@map("service_orders")
+}
+
+model ServiceOrderAssignment {
+  serviceOrderId   Int      @map("service_order_id")
+  userId           Int      @map("user_id")
+  assignedByUserId Int      @map("assigned_by_user_id")
+  assignedAt       DateTime @default(now()) @map("assigned_at") @db.DateTime(3)
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user         User         @relation("AssignmentUser", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignedBy   User         @relation("AssignmentActor", fields: [assignedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([serviceOrderId, userId])
+  @@index([userId, serviceOrderId])
+  @@index([assignedByUserId, assignedAt])
+  @@map("service_order_assignments")
+}
+
+model ServiceOrderEvent {
+  id               Int      @id @default(autoincrement())
+  serviceOrderId   Int?     @map("service_order_id")
+  openingId        Int?     @map("opening_id")
+  actorUserId      Int      @map("actor_user_id")
+  initiatingUserId Int?     @map("initiating_user_id")
+  eventType        String   @map("event_type") @db.VarChar(80)
+  numberValue      BigInt   @map("number_value")
+  occurredAt       DateTime @default(now()) @map("occurred_at") @db.DateTime(3)
+  payload          Json?    @map("payload_json")
+
+  serviceOrder   ServiceOrder?        @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  opening        ServiceOrderOpening? @relation(fields: [openingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor          User                 @relation("ServiceOrderEventActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  initiatingUser User?                @relation("ServiceOrderEventInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([serviceOrderId, occurredAt])
+  @@index([openingId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@map("service_order_events")
 }
