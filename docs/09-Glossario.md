@@ -145,8 +145,17 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 ## Produto
 Item controlado em estoque e comercializado.
 
+## Peça de estoque
+Peça vinculada ao cadastro de estoque e sujeita ao ciclo DISPONÍVEL, ORÇADA, UTILIZADA e BAIXADA na OS. O lançamento ORÇADO pode representar peça física ou previsão de compra vinculada ao estoque; não inclui peça avulsa.
+
+## Peça avulsa
+Item lançado manualmente na OS para descrição, orçamento e cobrança, sem vínculo com o cadastro, saldo ou movimentações de estoque. Não segue o ciclo da peça de estoque, não gera pendência de conferência e não pode ser convertida em peça de estoque.
+
 ## Peça ORÇADA
-Lançamento de peça em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça em estoque ou previsão de compra, de estoque ou avulsa. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico.
+Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça física ou previsão de compra vinculada ao estoque. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico. Peça avulsa não usa este status.
+
+## Custo interno da peça avulsa
+Valor pago ou estimado pela empresa para a peça avulsa, distinto do valor cobrado ao cliente. Informar ou alterar é restrito ao Administrador ou a usuário com permissão financeira; a permissão futura sugerida é `finance.os_costs.manage`. A diferença entre custo e valor cobrado poderá apoiar cálculo futuro de margem/lucro.
 
 ## Peça UTILIZADA
 Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.

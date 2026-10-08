@@ -155,7 +155,7 @@ Deverá permitir anexos, fotos e evolução cronológica.
 ### Ciclo da peça vinculada à OS
 
 - **DISPONÍVEL:** peça parada no estoque, sem previsão de uso.
-- **ORÇADA:** lançamento de peça em orçamento de uma OS. Não altera o estoque nem reduz disponibilidade. Pode representar peça existente no estoque ou previsão de compra, peça de estoque ou peça avulsa.
+- **ORÇADA:** lançamento de peça de estoque em orçamento de uma OS. Não altera o estoque nem reduz disponibilidade. Pode representar peça física existente ou previsão de compra vinculada ao estoque. Peça avulsa não integra este ciclo e segue regra própria.
 - **UTILIZADA:** peça retirada do estoque, instalada ou em processo de instalação. Fica imediatamente indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
 - **BAIXADA:** baixa definitiva quando a OS é encerrada; a peça não está mais na empresa e representa consumo/venda na OS.
 
@@ -165,9 +165,17 @@ Uma peça ORÇADA que permaneça nesse estado quando orçamento, item ou OS for 
 
 Peça UTILIZADA não volta automaticamente a DISPONÍVEL. Se não for usada, se for removida da OS ou se serviço/OS for cancelado, desfeito ou recusado, deve ser criada uma pendência de conferência de estoque. O técnico ou usuário operacional pode informar que a peça não foi usada, mas não pode resolver a pendência sozinho. Somente Administrador ou usuário com permissão específica de conferência pode resolvê-la. Após conferência, a peça pode voltar a DISPONÍVEL, permanecer UTILIZADA ou ser BAIXADA por motivo administrativo. A permissão futura sugerida é `stock.pending_review.resolve`.
 
-Ao encerrar uma OS, todas as peças vinculadas que estiverem UTILIZADAS passam automaticamente para BAIXADA; peças ORÇADAS não são baixadas. O encerramento fica bloqueado enquanto houver qualquer pendência de conferência de estoque aberta vinculada à OS.
+Ao encerrar uma OS, todas as peças de estoque vinculadas que estiverem UTILIZADAS passam automaticamente para BAIXADA; peças ORÇADAS não são baixadas. Peças avulsas não geram baixa. O encerramento fica bloqueado enquanto houver qualquer pendência de conferência de estoque aberta vinculada à OS.
 
 Essas regras funcionais não aprovam ainda tabelas, histórico físico, movimentações, endpoints, telas ou implementação de estoque; permanecem futuros.
+
+### Peça avulsa na OS
+
+Peça avulsa é lançada manualmente na OS para descrição, orçamento e cobrança. Não pertence ao cadastro de estoque, não tem saldo, não reserva nem reduz disponibilidade, não gera movimentação, baixa ou pendência de conferência e não percorre o ciclo DISPONÍVEL/ORÇADA/UTILIZADA/BAIXADA. É um item financeiro/descritivo da OS, de natureza diferente da peça vinculada ao estoque.
+
+A peça avulsa permanece avulsa e não pode ser convertida em peça de estoque. Se a empresa comprar uma peça para controlá-la no estoque, deverá cadastrá-la separadamente e lançá-la na OS como peça de estoque.
+
+A peça avulsa pode ter custo interno separado do valor cobrado ao cliente. O custo interno representa o valor pago ou estimado pela empresa; o valor cobrado integra o orçamento/cobrança da OS. A diferença poderá apoiar futuramente o cálculo de margem/lucro. Somente Administrador ou usuário com permissão financeira pode informar ou alterar o custo interno; usuários autorizados na OS podem lançar o valor cobrado conforme permissões futuras. A permissão futura sugerida para gestão dos custos da OS é `finance.os_costs.manage`; ela não está implementada nem aprovada como permissão técnica nesta etapa.
 
 Os demais fluxos e estados da OS serão detalhados posteriormente neste documento.
 
