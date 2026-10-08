@@ -24,7 +24,7 @@ A API deverá suportar versionamento (ex.: /api/v1).
 Será centralizada no backend.
 O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. A sessão expira após 8 horas de inatividade: cada requisição autenticada válida atualiza `last_used_at` e renova o prazo a partir do último uso. Não há limite absoluto no primeiro recorte. Logout revoga somente a sessão atual. JWT e OIDC ficam fora do recorte atual. O sistema é considerado somente de uso interno e o Backend não está pronto para exposição externa operacional; não se deve confiar em `X-Forwarded-For`, headers de proxy, IP público ou origem informada por cabeçalhos. Acesso externo é proibido até 2FA e fronteira confiável estarem implementados. Proxy reverso, VPN, túnel ou publicação externa futura exige nova decisão documental.
 
-Como a autenticação usa cookie, métodos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão exigir proteção CSRF. Requisições `GET` não exigem token CSRF. A forma técnica ainda será definida durante a implementação.
+Como a autenticação usa cookie, métodos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) exigirão proteção CSRF, inclusive `POST /api/v1/auth/login`; `GET` não exige token. Antes do login, o cliente obterá contexto temporário pela rota pública futura `GET /api/v1/auth/csrf`, que retorna o token e grava identificador opaco temporário em cookie `HttpOnly`, com validade de 15 minutos. O cliente enviará o token em `X-CSRF-Token`. Após login bem-sucedido, o contexto pré-login será descartado e a sessão autenticada passará a usar seu próprio controle CSRF. A estrutura física do contexto será definida na modelagem futura.
 
 As rotas atuais de Pessoas não possuem autenticação nem guards e não estão prontas para exposição operacional ou produção. No primeiro recorte de Auth, todas exigirão autenticação e autorização por ação. Ausência de permissão nega acesso; uma rota protegida sem política explícita deve falhar fechada. O Backend decide autorização. O Frontend não concede acesso nem substitui essa verificação.
 
@@ -38,7 +38,7 @@ As rotas atuais de Pessoas não possuem autenticação nem guards e não estão 
 | `POST /api/v1/people/:publicId/emails` | `people.contacts.add` |
 | `GET /api/v1/people/:publicId/emails` | `people.contacts.read` |
 
-Rotas futuras de autenticação, como login, logout e consulta da sessão atual (me), ainda não têm caminhos nem contratos aprovados; logout encerra somente a sessão atual. Rotas públicas deverão ser explicitamente identificadas; não se presume pública nenhuma rota de negócio.
+No primeiro recorte de Auth, estão previstas `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout` e `GET /api/v1/auth/me`. A rota de CSRF e o login são públicas, mas login exige token CSRF; respostas de falha não distinguem username existente de inexistente. Logout exige autenticação e CSRF e encerra somente a sessão atual; `/me` exige autenticação. Rotas públicas deverão ser explicitamente identificadas; não se presume pública nenhuma rota de negócio. O primeiro recorte não terá CRUD HTTP de usuários: o uso inicial será restrito ao Administrador bootstrapado. Criação e gestão de usuários por API ficam para recorte posterior.
 
 # 5. Padrão de Endpoints
 

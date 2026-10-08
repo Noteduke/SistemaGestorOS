@@ -103,7 +103,7 @@ O Backend já implementa inclusão e listagem de telefones/e-mails como sub-recu
 
 ### 10.6 Autenticação e autorização
 
-O Frontend deverá usar a sessão autenticada conforme o contrato futuro da API, lidar com expiração por 8 horas de inatividade, logout da sessão atual e respostas de autorização negada, e refletir as permissões devolvidas pelo Backend. Pode ocultar ou desabilitar ações indisponíveis, mas não duplica regras nem é autoridade de autorização. Chamadas mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão incluir a proteção CSRF definida pela API; `GET` não exige token CSRF. O sistema é considerado somente de uso interno neste momento; acesso externo segue proibido até 2FA e fronteira confiável implementados. A implementação do Frontend de autenticação permanece futura.
+O Frontend deverá obter o token pré-login por `GET /api/v1/auth/csrf` antes de enviar credenciais. O contexto pré-login tem validade de 15 minutos; o token será enviado em `X-CSRF-Token` no `POST /api/v1/auth/login`. Após autenticar, o Frontend usará o controle CSRF próprio da sessão nas chamadas mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`); `GET` não exige token. A sessão expira após 8 horas de inatividade e o logout encerra a sessão atual. O Frontend deverá lidar com respostas de autorização negada e refletir as permissões fornecidas pelo Backend, sem decidir autorização. O primeiro uso será somente pelo Administrador bootstrapado; gestão de usuários por tela fica para recorte posterior. O sistema é considerado somente de uso interno; acesso externo segue proibido até 2FA e fronteira confiável implementados. A implementação do Frontend de autenticação permanece futura.
 
 # 11. Evolução
 

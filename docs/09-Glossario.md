@@ -65,7 +65,7 @@ Acesso externo é proibido neste momento. Só poderá ser liberado depois que 2F
 Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards ainda não foram implementados no projeto.
 
 ## CSRF
-Falsificação de requisição entre sites. Com sessão autenticada por cookie, métodos mutáveis `POST`, `PUT`, `PATCH` e `DELETE` exigirão proteção CSRF; `GET` não exige token. A forma técnica ainda será definida na implementação.
+Falsificação de requisição entre sites. Métodos mutáveis `POST`, `PUT`, `PATCH` e `DELETE`, inclusive login, exigem proteção CSRF; `GET` não exige token. Antes do login, o token é obtido por `GET /api/v1/auth/csrf`, enviado em `X-CSRF-Token` e associado a contexto temporário de 15 minutos; depois do login, a sessão autenticada usa controle CSRF próprio.
 
 ## Sessão atual
 Sessão autenticada usada na requisição corrente. O logout aprovado revoga somente essa sessão; encerrar todas as sessões de um usuário poderá ser considerado futuramente.
@@ -113,16 +113,16 @@ Outra Pessoa, vinculada a um cadastro de Pessoa como contato. Cada Pessoa pode t
 Telefone, e-mail ou endereço marcado como principal. Cada Pessoa pode ter no máximo um principal em cada coleção, sem obrigação de possuir um. O principal do endereço é único independentemente do Tipo; vários endereços podem ter o mesmo Tipo.
 
 ## Telefone da Pessoa
-Sub-recurso do cadastro de Pessoa, com número persistido somente em dígitos. No recorte aprovado para implementação futura, aceita de 1 a 32 dígitos: formato brasileiro de dez dígitos ou celular de onze com 9 após o DDD passa sem aviso; demais comprimentos dentro do limite exigem aviso e confirmação explícita antes da gravação. Valor sem dígitos ou acima de 32 é bloqueado. Pode ser principal, independentemente do e-mail principal.
+Sub-recurso implementado de Pessoa, com número persistido somente em dígitos. A API aceita de 1 a 32 dígitos: formato brasileiro de dez dígitos ou celular de onze com 9 após o DDD passa sem aviso; demais comprimentos dentro do limite exigem aviso e confirmação explícita antes da gravação. Valor sem dígitos ou acima de 32 é bloqueado. Pode ser principal, independentemente do e-mail principal. A API permite adicionar e listar; edição e remoção estão fora do recorte.
 
 ## E-mail da Pessoa
-Sub-recurso do cadastro de Pessoa, salvo em minúsculas após `trim`, com formato básico válido e até 254 caracteres. No recorte aprovado para implementação futura, repetição na mesma Pessoa bloqueia; entre Pessoas distintas permite com aviso não bloqueante. Pode ser principal, independentemente do telefone principal.
+Sub-recurso implementado de Pessoa, salvo em minúsculas após `trim`, validado pela gramática ASCII da API e limitado a 254 caracteres. Repetição na mesma Pessoa bloqueia; entre Pessoas distintas é permitida com aviso não bloqueante. Pode ser principal, independentemente do telefone principal. A API permite adicionar e listar; edição e remoção estão fora do recorte.
 
 ## Histórico mínimo de contatos
-Registro especializado planejado em `person_contact_events`, tabela ainda inexistente, para as futuras inclusões de telefone/e-mail em Pessoa existente. Todo `POST` bem-sucedido registra `PHONE_CREATED` ou `EMAIL_CREATED`; `PHONE_PRIMARY_CHANGED` ou `EMAIL_PRIMARY_CHANGED` registra também a mudança do principal efetivo, inclusive de nenhum para o primeiro. Dados, troca de principal e eventos devem ser atômicos. Não há rota pública de consulta neste recorte. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
+Registro implementado em `person_contact_events` pela migration `20261007183000_person_contacts`, para inclusão de telefone/e-mail em Pessoa existente e mudança efetiva de principal. Todo `POST` bem-sucedido registra `PHONE_CREATED` ou `EMAIL_CREATED`; `PHONE_PRIMARY_CHANGED` ou `EMAIL_PRIMARY_CHANGED` registra também a mudança do principal efetivo, inclusive de nenhum para o primeiro. Dados, troca de principal e eventos são atômicos. Não há rota pública de consulta neste recorte e os eventos atuais não têm autor. No primeiro recorte de Auth, será acrescentado vínculo opcional com o usuário executor, mantendo registros atuais com `NULL`. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
 
 ## Confirmação de alteração da Pessoa
-Declaração `confirmPersonChange: true` exigida pelo contrato técnico futuro de todo `POST` de telefone/e-mail. Não substitui autenticação nem comprova sozinha a exibição da mensagem ao operador. Telefone fora do padrão exige adicionalmente `confirmNonstandardPhone: true` após aviso da API.
+Declaração `confirmPersonChange: true` exigida pelo contrato atual em todo `POST` de telefone/e-mail para Pessoa existente. Não substitui autenticação nem comprova sozinha a exibição da mensagem ao operador. Telefone fora do padrão exige adicionalmente `confirmNonstandardPhone: true` após aviso da API.
 
 ## Tipo de Contribuinte
 Classificação de cadastro próprio associada à Pessoa para uso fiscal. Catálogo inicial: Contribuinte ICMS, Contribuinte Isento e Não Contribuinte. Códigos e regras fiscais detalhadas permanecem pendentes.
@@ -204,6 +204,24 @@ Interface de comunicação entre Frontend, Backend e integrações externas.
 
 ## Migration
 Alteração versionada da estrutura do banco de dados realizada pelo Prisma.
+
+## Username
+Identificador obrigatório e único de login. É normalizado com `trim`, armazenado em minúsculas, aceita de 3 a 50 caracteres e deve corresponder a `^[a-z0-9._-]{3,50}$`. Não é o e-mail de contato de Pessoa.
+
+## CSRF pré-login
+Contexto temporário obtido antes do login pela futura rota `GET /api/v1/auth/csrf`. O servidor retorna o token e grava identificador opaco em cookie `HttpOnly`; o token é enviado em `X-CSRF-Token`, expira em 15 minutos e é descartado após login bem-sucedido. A sessão autenticada passa a usar controle CSRF próprio.
+
+## Administrador bootstrapado
+Primeiro Administrador criado por comando interno controlado, fora de auto-registro e das rotas HTTP de usuários. O primeiro uso do sistema fica restrito a essa conta até a gestão de usuários ser implementada.
+
+## `isAdmin`
+Indicador conceitual de que a conta tem nível máximo de Administrador. Não é a permissão `admin.full` ou `system.admin` e não substitui a política explícita de cada rota.
+
+## Cinco falhas consecutivas
+Sequência de falhas de autenticação contada pelo username normalizado, inclusive quando não existe usuário. A quinta gera evento no Log Administrativo, sem bloquear a conta nem impedir novas tentativas; autenticação bem-sucedida zera o contador do usuário existente.
+
+## Log Administrativo
+Registro único para eventos administrativos e de segurança. No primeiro recorte, também é o único canal de notificação para o evento de cinco falhas consecutivas; envio de e-mail fica fora.
 
 ---
 
