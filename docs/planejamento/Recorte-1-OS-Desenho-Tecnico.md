@@ -9,11 +9,9 @@
 
 ## 1. Conclusão executiva
 
-O desenho fecha uma estratégia técnica recomendada para número global, reserva transacional, reuso da última reserva, limite de uma abertura em andamento por usuário, eventos e confirmação atômica. Ele é suficiente para iniciar a implementação do núcleo de numeração, abertura, confirmação, consulta e situação, após revisão do desenho.
+As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. A proposta separada de schema abaixo materializa essas decisões sem alterar o schema real.
 
-Há uma decisão de ciclo de vida que precisa de aprovação explícita antes de implementar criação de Equipamento em rascunho: a recomendação é persistir o Equipamento como cadastro normal e não apagá-lo automaticamente quando a abertura for cancelada. Uma transferência de titularidade de equipamento existente deve permanecer apenas como intenção no rascunho e só produzir efeito na confirmação da OS. Se essa recomendação não for aprovada, a criação do equipamento precisa ser adiada até a confirmação ou receber outra regra explícita.
-
-O documento também fixa uma interpretação operacional para “número maior usado”: número é considerado usado assim que a reserva é confirmada no banco e o número é exposto ao usuário. Essa interpretação decorre da emissão prévia do número para atendimento/etiqueta. Se Marcos entender “usado” como apenas OS oficialmente confirmada, a regra de reuso deverá ser ajustada antes da migration.
+O Recorte 1 fica tecnicamente pronto para iniciar a implementação após revisão da proposta de schema e dos contratos/permissões ainda candidatos. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
 ## 2. Escopo funcional
 
@@ -23,7 +21,7 @@ O documento também fixa uma interpretação operacional para “número maior u
 - Reservar o número visível durante o início da abertura.
 - Limitar cada usuário a uma abertura em andamento.
 - Confirmar cliente e equipamento e criar OS `ABERTA`/`TRIAGEM`.
-- Criar Equipamento durante a abertura, condicionado à decisão de ciclo de vida acima.
+- Guardar dados temporários de um novo Equipamento durante a abertura e criá-lo como cadastro definitivo apenas ao confirmar a OS.
 - Tratar divergência de titularidade com escolha explícita e transferência autorizada.
 - Capturar snapshots cadastrais JSON uma única vez na confirmação.
 - Registrar eventos básicos, listar e consultar OS confirmadas, e alterar livremente situação operacional.
@@ -43,24 +41,24 @@ Uma única linha de controle global, inicializada em `id = 1` na migration do m�
 | Campo candidato | Uso |
 | --- | --- |
 | `id` (`Int`, PK fixa `1`) | Identifica a linha singleton que serializa operações de numeração. |
-| `nextNumber` (`Int`) | Próximo número inteiro disponível para reserva. Inicia em `1`. |
-| `highestIssuedNumber` (`Int`) | Maior número já reservado e exposto; inicia em `0` e nunca diminui. |
+| `nextNumber` (`BigInt`) | Próximo número inteiro disponível para reserva. Inicia em `1`. |
+| `highestReservedNumber` (`BigInt`) | Maior número já reservado; inicia em `0` e não diminui, mesmo quando a reserva de ponta for liberada. |
 | `updatedAt` (`DateTime(3)`) | Auditoria operacional da última alteração do controle. |
 
-A linha singleton é bloqueada com `SELECT ... FOR UPDATE` dentro de uma transação InnoDB/Prisma. Não calcular número com `MAX(number) + 1` nem usar somente `AUTO_INCREMENT`: o número precisa ser reservado antes da OS oficial e pode haver reuso apenas do último número.
+A linha singleton é bloqueada com `SELECT ... FOR UPDATE` dentro de uma transação InnoDB/Prisma. Não calcular número com `MAX(number) + 1` nem usar somente `AUTO_INCREMENT`: o número precisa ser reservado antes da OS oficial e pode haver reuso apenas do último número se nenhum número maior tiver sido reservado, confirmado ou consumido. Reserva em abertura ativa não é uso definitivo.
 
 ### 3.2 `ServiceOrderNumberAllocation`
 
-Registro único para cada número já emitido; funciona como reserva/registro central para impedir duplicidade entre aberturas, OS confirmadas e números cancelados que não podem ser reaproveitados.
+Registro único para cada número já reservado; funciona como reserva/registro central para impedir duplicidade entre aberturas, OS confirmadas e números consumidos que não podem ser reaproveitados.
 
 | Campo candidato | Uso |
 | --- | --- |
-| `numberValue` (`Int`, PK) | Número inteiro global; formato visual é derivado na API. |
-| `status` (`Enum`) | `RESERVED`, `CONFIRMED`, `CANCELED` ou `RELEASED`. |
+| `numberValue` (`BigInt`, PK) | Número inteiro global; formato visual é derivado na API. |
+| `status` (`Enum`) | `RESERVED`, `CONFIRMED`, `CONSUMED` ou `RELEASED`. |
 | `openingId` (`Int?`, unique, FK) | Abertura proprietária da reserva atual ou da reserva consumida. Nulo para número liberado. |
 | `createdAt`, `updatedAt` | Datas do registro e de sua situação atual. |
 
-Na liberação, a linha permanece com estado `RELEASED`, sem `openingId`; uma nova abertura pode reativar essa linha com o mesmo número. A trilha anterior permanece nos eventos da abertura cancelada. Na confirmação, a linha muda para `CONFIRMED` e fica relacionada à OS pelo campo `ServiceOrder.numberValue`, que será FK para `ServiceOrderNumberAllocation.numberValue` e também `@unique`; a relação inversa é 1:0..1. A alocação mantém `openingId` para a tentativa que obteve a reserva. Assim, a OS não precisa de um segundo FK circular nem de duplicar a chave do número. Cardinalidade e nomes finais devem ser validados no schema Prisma e migration.
+Na liberação, a linha permanece `RELEASED`, sem `openingId`; a sequência pode reativar essa linha com o mesmo número. A trilha da reserva anterior permanece nos eventos da abertura cancelada. Cancelamento que não permite reuso muda o estado para `CONSUMED`, preservando a abertura. Na confirmação, muda para `CONFIRMED` e fica relacionada à OS pelo campo `ServiceOrder.numberValue`, FK para `ServiceOrderNumberAllocation.numberValue` e também `@unique`; a relação inversa é 1:0..1. A alocação mantém `openingId` para a abertura que obteve a reserva.
 
 ### 3.3 `ServiceOrderOpening`
 
@@ -70,29 +68,34 @@ Na liberação, a linha permanece com estado `RELEASED`, sem `openingId`; uma no
 | `status` | `IN_PROGRESS`, `CONFIRMED` ou `CANCELED`. |
 | `initiatedByUserId` | Usuário autenticado que iniciou; não muda quando Admin assume. FK restritiva. |
 | `activeForUserId` (`Int?`, unique) | Igual ao iniciador somente enquanto `IN_PROGRESS`; nulo em estado terminal. Garante a unicidade de rascunho por usuário. |
-| `attemptedNumberValue` (`Int`) | Número recebido pela abertura para consulta histórica. Não é unique porque uma reserva liberada pode ser reutilizada por outra tentativa. |
-| `customerId`, `equipmentId` (`Int?`) | Referências temporárias opcionais. A confirmação exige ambas. |
+| `attemptedNumberValue` (`BigInt`) | Número recebido pela abertura para consulta histórica. Não é unique porque uma reserva liberada pode ser reutilizada por outra tentativa. |
+| `customerId`, `equipmentId` (`Int?`) | Referências opcionais escolhidas na abertura; a confirmação exige cliente e equipamento. Para equipamento novo, o vínculo definitivo é preenchido na confirmação. |
 | `complaint` (`String?`/`Text?`) | Reclamação temporária, opcional e vazia por padrão. |
-| `transferRequested` (`Boolean`) | Intenção explícita de transferir titularidade existente na confirmação; não muda o proprietário durante o rascunho. |
+| `equipmentDraftJson` (`Json?`) | Dados temporários de equipamento novo, sem linha em `equipment` enquanto a abertura estiver em andamento. |
+| `equipmentDraftVersion` (`Int?`) | Versão do formato validado dos dados temporários de equipamento. |
+| `transferRequested` (`Boolean`) | Intenção temporária explícita de transferir titularidade na confirmação; não muda o proprietário durante o rascunho. |
+| `transferRequestedByUserId` (`Int?`) | Usuário que registrou a intenção explícita de transferência. |
+| `transferRequestedAt` (`DateTime(3)?`) | Instante em que a intenção temporária foi registrada. |
 | `resumedAt`, `confirmedAt`, `canceledAt` (`DateTime(3)?`) | Instantes de retomada/terminalidade; evento continua sendo trilha canônica. |
 | `createdAt`, `updatedAt` | Persistência e retomada após reinício. |
 
-`activeForUserId` é um marcador nullable com unique index, não um índice parcial. Usuários comuns consultam/alteram somente suas linhas; Admin ou `os.opening.manage` pode atuar sobre outra abertura. `attemptedNumberValue` não define o número oficial depois de liberado; o evento conserva o número e o resultado da tentativa.
+`activeForUserId` é um marcador nullable com unique index, não um índice parcial. Usuários comuns consultam/alteram somente suas linhas; Admin ou `os.opening.manage` pode atuar sobre outra abertura. `attemptedNumberValue` aponta para o número reservado pela tentativa, mesmo que depois seja liberado; eventos preservam o resultado. Dados de equipamento novo ficam em `equipmentDraftJson` e só geram cadastro definitivo no commit da confirmação.
 
 ### 3.4 `ServiceOrder`
 
 | Campo candidato | Uso |
 | --- | --- |
 | `id`, `publicId` | Chave interna e identificador público. |
-| `numberValue` (`Int`, unique) | Número visível armazenado como inteiro, relacionado à alocação `CONFIRMED`. |
+| `numberValue` (`BigInt`, unique) | Número visível armazenado como inteiro de 64 bits, relacionado à alocação `CONFIRMED`. |
 | `customerId`, `equipmentId` (`Int`, FKs) | Vínculos operacionais atuais com Pessoa e Equipamento. |
 | `macroStatus` | No Recorte 1, único valor gravável: `ABERTA`. |
 | `operationalSituation` | Enum aprovado; inicia `TRIAGEM` e pode mudar para as demais situações operacionais aprovadas. |
+| `intakeObservations` (`Text?`) | Observações de entrada pertencem ao atendimento/OS, não ao cadastro permanente do Equipamento. |
 | `complaint` (`String?`/`Text?`) | Reclamação opcional. |
 | `customerSnapshotJson`, `equipmentSnapshotJson` (`Json`) | Snapshots históricos da confirmação; obrigatórios na OS oficial e imutáveis. |
 | `createdByUserId`, `createdAt`, `updatedAt`, `openedAt` | Autoria e datas geradas pelo servidor. |
 
-O número visual será formatado como `OS-` + inteiro com seis dígitos (`String(numberValue).padStart(6, '0')`). Valores acima de `999999` não podem sofrer wraparound; a API deve bloquear nova reserva e exigir decisão de evolução.
+O número visível será formatado como `OS-` + número decimal com no mínimo seis dígitos, por exemplo `OS-000001`, `OS-999999` e `OS-1000000`. Usar `BigInt` no banco e string decimal na API, sem wraparound nem limite funcional em seis dígitos. O fragmento Prisma proposto está em `docs/planejamento/Recorte-1-OS-Schema-Proposto.md`.
 
 ### 3.5 `ServiceOrderAssignment`
 
@@ -108,7 +111,7 @@ Uma linha por funcionário atribuído à OS, com `serviceOrderId`, `userId`, `as
 | `actorUserId` (`Int`, FK) | Usuário autenticado que executou a ação; sempre derivado da sessão, nunca do payload. |
 | `initiatingUserId` (`Int?`, FK) | Iniciador original quando a ação é de Admin/gestor. |
 | `eventType` (`Enum` ou catálogo) | Tipo técnico do evento. |
-| `numberValue` (`Int`) | Número relacionado, preservado mesmo se a reserva for liberada. |
+| `numberValue` (`BigInt`) | Número relacionado, preservado mesmo se a reserva for liberada. |
 | `occurredAt` (`DateTime(3)`) | Data/hora do servidor. |
 | `payload` (`Json`) | Campos alterados, decisão de titularidade, estado anterior/novo e resultado de reuso quando aplicável. Não incluir segredos. |
 
@@ -117,10 +120,10 @@ Eventos são append-only na aplicação. FKs de usuários são restritivas porqu
 ### 3.6 Enumerações
 
 - `ServiceOrderOpeningStatus`: `IN_PROGRESS`, `CONFIRMED`, `CANCELED`.
-- `ServiceOrderNumberAllocationStatus`: `RESERVED`, `CONFIRMED`, `CANCELED`, `RELEASED`.
+- `ServiceOrderNumberAllocationStatus`: `RESERVED`, `CONFIRMED`, `CONSUMED`, `RELEASED`.
 - `ServiceOrderMacroStatus`: apenas `ABERTA` no primeiro recorte. Não implementar `FECHADA` ou `CANCELADA` como ações do módulo nesta etapa.
 - `ServiceOrderOperationalSituation`: dez valores documentados em `docs/02-Regras-de-Negocio.md`; inicial `TRIAGEM`. A mudança é livre entre as situações aprovadas por usuário autorizado. Não implementar efeitos de orçamento/encerramento associados a recortes futuros.
-- `ServiceOrderEventType` (códigos propostos): `ABERTURA_EM_ANDAMENTO_CRIADA`, `ABERTURA_RETOMADA`, `ABERTURA_RETOMADA_POR_ADMIN`, `ABERTURA_CONFIRMADA`, `ABERTURA_CANCELADA`, `ABERTURA_CANCELADA_POR_ADMIN`, `SITUACAO_OPERACIONAL_ALTERADA`, `ATRIBUICOES_ALTERADAS`, `EQUIPAMENTO_CRIADO_DURANTE_ABERTURA`, `TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA`.
+- `ServiceOrderEventType` (códigos propostos): `ABERTURA_EM_ANDAMENTO_CRIADA`, `ABERTURA_RETOMADA`, `ABERTURA_RETOMADA_POR_ADMIN`, `ABERTURA_CONFIRMADA`, `ABERTURA_CANCELADA`, `ABERTURA_CANCELADA_POR_ADMIN`, `SITUACAO_OPERACIONAL_ALTERADA`, `ATRIBUICOES_ALTERADAS`, `EQUIPAMENTO_CRIADO_NA_CONFIRMACAO`, `TITULARIDADE_TRANSFERIDA_NA_CONFIRMACAO`.
 
 Os códigos de eventos são proposta de implementação e podem ser enum Prisma ou strings controladas pelo domínio; manter compatibilidade com o Log Administrativo sem duplicar eventos do módulo no `admin_audit_log` quando forem eventos operacionais comuns.
 
@@ -131,23 +134,23 @@ Os códigos de eventos são proposta de implementação e podem ser enum Prisma 
 1. Abrir transação interativa Prisma com isolamento `READ COMMITTED` para as operações de alocação/reuso.
 2. Bloquear a linha única de `ServiceOrderNumberControl` por PK com `SELECT ... FOR UPDATE`, via `tx.$queryRaw` parametrizado. Esse é o ponto global de serialização.
 3. Consultar `activeForUserId` do iniciador. Se já existir abertura, não consumir número; concluir sem escrita e responder `409 OPENING_ALREADY_EXISTS`, incluindo somente o `publicId` e número visível da abertura atual.
-4. Ler `nextNumber`. Se exceder `999999`, interromper com `409 OS_NUMBER_LIMIT_REACHED`.
+4. Ler `nextNumber` como inteiro de 64 bits. Não bloquear no valor `999999`; o formato visual mantém no mínimo seis dígitos e cresce naturalmente. Como `nextNumber` precisa avançar após cada reserva, falhar fechado quando `nextNumber` alcançar o máximo de `BIGINT` assinado (`9223372036854775807`), antes de criar a reserva, para não causar overflow. Esse limite técnico não é um teto funcional de seis dígitos.
 5. Criar abertura `IN_PROGRESS`, `activeForUserId = initiatedByUserId`, com número tentado. Criar alocação `RESERVED` para o número; se houver linha `RELEASED` nesse valor, reativá-la e associá-la à nova abertura.
-6. Atualizar `nextNumber = n + 1` e `highestIssuedNumber = max(highestIssuedNumber, n)`.
+6. Atualizar `nextNumber = n + 1` e `highestReservedNumber = max(highestReservedNumber, n)`. A reserva impede duplicidade, mas ainda não é uso definitivo. A checagem do limite ocorre antes de qualquer escrita da reserva.
 7. Inserir `ABERTURA_EM_ANDAMENTO_CRIADA` e confirmar a transação. Falha em qualquer escrita reverte abertura, alocação e contador em conjunto.
 
 Todas as ações que mudam alocação de número — iniciar, cancelar/liberar, confirmar — usam a mesma ordem de bloqueio: linha de controle, abertura, alocação, usuário/equipamento/pessoa e OS. Isso reduz deadlocks. A unique key em `activeForUserId`, PK da alocação e unique de `ServiceOrder.numberValue` são defesa final; o service traduz conflito de unicidade para erro de domínio.
 
 ### 4.2 Reuso e `ABERTURA CANCELADA`
 
-“Número maior usado” significa maior número cuja reserva foi confirmada e exposta ao usuário, não uma tentativa que falhou antes do commit. `highestIssuedNumber` é monotônico e não diminui.
+Uma reserva de abertura em andamento não é uso definitivo. Porém, para decidir se uma tentativa cancelada pode liberar seu número, considera-se se já foi reservado, confirmado ou consumido algum número maior. `highestReservedNumber` registra a maior reserva commitada até então e não diminui; uma tentativa que falhou antes de commitar não avança esse contador.
 
 - Ao cancelar uma abertura com número `n`, bloquear controle e alocação.
-- Se `n == highestIssuedNumber`, não existe número maior já emitido: marcar abertura `CANCELED`, limpar `activeForUserId`, marcar alocação `RELEASED`, remover sua associação ativa com a abertura e definir `nextNumber = n`. Gerar `ABERTURA_CANCELADA` com `numberReleased: true`; manter a tentativa consultável no histórico.
-- Se `n < highestIssuedNumber`, já houve número maior emitido: marcar abertura `CANCELED`, limpar `activeForUserId`, manter alocação `CANCELED` e associada à tentativa. O número não poderá ser reservado novamente. Gerar `ABERTURA_CANCELADA` com `numberReleased: false`.
+- Se `n == highestReservedNumber`, não existe número maior anteriormente reservado: marcar abertura `CANCELED`, limpar `activeForUserId`, marcar alocação `RELEASED`, remover sua associação ativa com a abertura e definir `nextNumber = n`. Gerar `ABERTURA_CANCELADA` com `numberReleased: true`; manter a tentativa consultável no histórico.
+- Se `n < highestReservedNumber`, já existiu reserva maior commitada: marcar abertura `CANCELED`, limpar `activeForUserId`, marcar alocação `CONSUMED` e mantê-la associada à tentativa. O número não poderá ser reservado novamente. Gerar `ABERTURA_CANCELADA` com `numberReleased: false`.
 - A abertura cancelada nunca aparece na listagem comum de OS. O número de OS confirmada continua único; tentativas cujo número foi liberado permanecem em eventos e não são registros de OS.
 
-Esse critério permite reusar apenas a ponta atual da sequência. Não recua high-water mark. Uma reserva maior já exposta consome a possibilidade de reusar números menores, mesmo que depois a própria abertura maior seja cancelada.
+Esse critério permite reusar apenas a ponta atual da sequência. Não recua o high-water mark. Uma reserva maior commitada consome a possibilidade de reusar números menores, mesmo que depois a abertura maior seja cancelada e seu próprio número seja liberado.
 
 ### 4.3 Duas pessoas e falhas/reinícios
 
@@ -195,16 +198,15 @@ Estrutura mínima sugerida para equipamento:
 {
   "snapshotVersion": 1,
   "capturedAt": "timestamp ISO 8601 do servidor",
-  "type": "tipo ou null",
-  "brand": "marca ou null",
-  "model": "modelo textual ou null",
+  "type": "tipo obrigatório",
+  "brand": "marca obrigatória",
+  "model": "modelo textual obrigatório",
   "serialNumber": "serial ou null",
-  "observations": "observações/campos principais do equipamento disponíveis ou null",
   "mainIdentification": "identificação textual legível"
 }
 ```
 
-O conjunto exato de valores opcionais é montado dos dados principais disponíveis e definidos em `docs/02-Regras-de-Negocio.md`. Não copiar `id`, FK ou depender do cadastro atual para resolver o snapshot. Capturar ambos, dentro da transação de confirmação, no instante da confirmação — não usar somente `createdAt`, pois ele pode anteceder a confirmação. O serviço bloqueia leituras pertinentes ou usa leitura consistente na mesma transação para não compor um objeto com dados de momentos diferentes. Depois da gravação, nenhuma edição, correção de vínculos ou reabertura recria/edita os JSONs. Não indexar propriedades JSON no Recorte 1 sem consulta aprovada.
+O conjunto exato de valores opcionais é montado dos dados principais disponíveis e definidos em `docs/02-Regras-de-Negocio.md`. Observações de entrada pertencem à OS/atendimento e devem ser persistidas em campo próprio da OS, não no cadastro ou snapshot de Equipamento. Não copiar `id`, FK ou depender do cadastro atual para resolver o snapshot. Capturar ambos, dentro da transação de confirmação, no instante da confirmação — não usar somente `createdAt`, pois ele pode anteceder a confirmação. O serviço bloqueia leituras pertinentes ou usa leitura consistente na mesma transação para não compor um objeto com dados de momentos diferentes. Depois da gravação, nenhuma edição, correção de vínculos ou reabertura recria/edita os JSONs. Não indexar propriedades JSON no Recorte 1 sem consulta aprovada.
 
 ## 7. Eventos/histórico mínimos
 
@@ -218,8 +220,8 @@ O conjunto exato de valores opcionais é montado dos dados principais disponíve
 | `ABERTURA_CANCELADA_POR_ADMIN` | Evento adicional quando Admin/gestor cancela a abertura de outra pessoa | iniciador, ator, número e `numberReleased`. O evento canônico `ABERTURA_CANCELADA` também é gravado para todo cancelamento. |
 | `SITUACAO_OPERACIONAL_ALTERADA` | Situação muda | situação anterior/nova, ator, OS/número. |
 | `ATRIBUICOES_ALTERADAS` | Conjunto de funcionários atribuídos muda | IDs públicos dos atribuídos anteriores/novos, ator, OS/número. |
-| `EQUIPAMENTO_CRIADO_DURANTE_ABERTURA` | Equipamento é criado | opening, número, equipamento público, ator, proprietário. |
-| `TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA` | Transferência aplicada na confirmação | equipamento, proprietário anterior/novo, ator, abertura/OS, número e confirmação explícita. |
+| `EQUIPAMENTO_CRIADO_NA_CONFIRMACAO` | Rascunho de equipamento é convertido em cadastro definitivo na confirmação | opening/OS, número, equipamento público, ator, proprietário. |
+| `TITULARIDADE_TRANSFERIDA_NA_CONFIRMACAO` | Transferência aplicada na confirmação | equipamento, proprietário anterior/novo, ator, abertura/OS, número e confirmação explícita. |
 
 Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visível e payload JSON. Eventos administrativos incluem também usuário iniciador e ator que assumiu/cancelou. `ABERTURA_CONFIRMADA` relaciona evento à abertura e à OS. História é inserida na mesma transação da mudança que descreve; falha de evento reverte a operação. Não registrar edição campo a campo durante o rascunho.
 
@@ -229,14 +231,14 @@ Todos exigem sessão autenticada e CSRF em métodos mutáveis, conforme `docs/04
 
 | Método e rota candidata | Objetivo e permissão | Entrada mínima | Sucesso | Erros principais |
 | --- | --- | --- | --- | --- |
-| `POST /api/v1/service-order-openings` | Iniciar abertura e reservar número. Permissão candidata `os.open`. | Sem user ID; corpo vazio ou dados temporários opcionais. | `201` com `openingPublicId`, `visibleNumber`, estado e timestamps. | `409 OPENING_ALREADY_EXISTS`, `409 OS_NUMBER_LIMIT_REACHED`, `401`, `403`, conflito técnico de sequência. |
+| `POST /api/v1/service-order-openings` | Iniciar abertura e reservar número. Permissão candidata `os.open`. | Sem user ID; corpo vazio ou dados temporários opcionais. | `201` com `openingPublicId`, `visibleNumber`, estado e timestamps. | `409 OPENING_ALREADY_EXISTS`, `409 NUMBER_STORAGE_CAPACITY_EXHAUSTED` somente no limite técnico de `BIGINT`, `401`, `403`, conflito técnico de sequência. |
 | `GET /api/v1/service-order-openings/current` | Consultar abertura própria persistida. Permissão candidata `os.read`. | Nenhuma. | `200` com abertura ou `404 OPENING_NOT_FOUND`. | `401`, `403`. Não escreve evento; retomada explícita usa rota abaixo. |
 | `GET /api/v1/service-order-openings/:publicId` | Consultar a própria ou, com gestão, de outro usuário. `os.read`; além de ownership, `os.opening.manage` aprovado para gestão. | `publicId`. | `200` com abertura e número. | `404 OPENING_NOT_FOUND` para inexistente; `403 FORBIDDEN` para existente sem acesso (ou política uniforme `404`, a alinhar ao padrão de segurança). |
 | `GET /api/v1/service-order-openings` | Listar aberturas pendentes administrativamente. `os.opening.manage`. | Filtros/paginação padrão. | `200` paginado; somente aberturas em andamento. | `401`, `403`, `400 INVALID_PAGINATION`. Não aparece na lista de OS. |
 | `POST /api/v1/service-order-openings/:publicId/resume` | Retomar própria ou assumir abertura alheia. `os.read` para própria; `os.opening.manage` para outra. | `publicId`. | `200` com estado atualizado; gera evento de retomada/assunção. | `404`, `403`, `409 OPENING_NOT_IN_PROGRESS`. |
 | `PATCH /api/v1/service-order-openings/:publicId` | Alterar dados temporários/cliente/equipamento e decisão explícita de titularidade. `os.open`; `os.opening.manage` para alheia. | Campos temporários opcionais e `ownershipDecision` quando houver divergência. | `200` com resumo da abertura. Não gera histórico detalhado de cada campo. | `400 VALIDATION_ERROR`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`, `409 OWNERSHIP_DECISION_REQUIRED`. |
-| `POST /api/v1/service-order-openings/:publicId/equipment` | Criar equipamento vinculado ao cliente da abertura. `equipment.create` e acesso à abertura. | DTO mínimo de cadastro de Equipamento aprovado. | `201` com `equipmentPublicId`; registra evento de criação. | `400`, `403`, `404`, `409 PERSON_INACTIVE` e erros de duplicidade atuais. Ciclo de vida após desistência requer decisão da seção 14. |
-| `POST /api/v1/service-order-openings/:publicId/confirm` | Confirmar e criar OS, snapshot, histórico e eventual transferência em uma transação. `os.open`; `os.opening.manage` para abertura alheia; `equipment.transfer_ownership` se transferência. | `customerPublicId`, `equipmentPublicId`, decisão explícita de titularidade quando necessária. | `201` com `publicId`, `visibleNumber`, `macroStatus: ABERTA`, `operationalSituation: TRIAGEM`; snapshot não precisa ser devolvido integralmente. | `400`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`, `409 CUSTOMER_REQUIRED`, `409 EQUIPMENT_REQUIRED`, `409 OWNERSHIP_DECISION_REQUIRED`, `409 TRANSFER_PERMISSION_REQUIRED`, conflito transacional. |
+| `PUT /api/v1/service-order-openings/:publicId/equipment-draft` | Guardar ou substituir os dados temporários de um equipamento novo. `equipment.create` e acesso à abertura. | DTO validado como rascunho, armazenado em `equipmentDraftJson`; não cria linha em `equipment`. | `200` com indicação de dados temporários salvos. | `400`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`. |
+| `POST /api/v1/service-order-openings/:publicId/confirm` | Confirmar e criar OS, equipamento novo se houver, snapshot, histórico e eventual transferência em uma transação. `os.open`; `os.opening.manage` para abertura alheia; `equipment.create` se houver rascunho novo; `equipment.transfer_ownership` se transferência. | `customerPublicId` e uma opção: `equipmentPublicId` existente ou confirmar `equipmentDraftJson`; decisão explícita de titularidade quando necessária. | `201` com `publicId`, `visibleNumber`, `macroStatus: ABERTA`, `operationalSituation: TRIAGEM`; snapshot não precisa ser devolvido integralmente. | `400`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`, `409 CUSTOMER_REQUIRED`, `409 EQUIPMENT_REQUIRED`, `409 OWNERSHIP_DECISION_REQUIRED`, `409 TRANSFER_PERMISSION_REQUIRED`, conflito transacional. |
 | `POST /api/v1/service-order-openings/:publicId/cancel` | Cancelar/desistir da abertura. `os.open`; `os.opening.manage` para outra. | Sem motivo obrigatório. | `200` com estado, número e `numberReleased` boolean. | `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`; erro de conflito/retry limitado. |
 | `GET /api/v1/service-orders` | Listar somente OS confirmadas. `os.read`. | `page`, `pageSize` obrigatórios; filtros futuros não obrigatórios. | `200` paginado, ordenação estável por número. | `400 INVALID_PAGINATION`, `401`, `403`. Nunca inclui rascunho ou abertura cancelada. |
 | `GET /api/v1/service-orders/:publicId` | Consultar OS confirmada. `os.read`. | `publicId`. | `200` com número, dados atuais, status/situação e referência de consulta ao snapshot. | `404 SERVICE_ORDER_NOT_FOUND`, `401`, `403`. |
@@ -271,24 +273,24 @@ Todas usam `PrismaService.$transaction` interativa. SQL raw é limitado a lockin
 ### Cancelar abertura
 
 **Lê/bloqueia:** controle, abertura e alocação na mesma ordem. Confere ownership ou permissão.
-**Escreve:** status terminal, remove marcador ativo, libera o número somente quando `attemptedNumberValue == highestIssuedNumber`; caso contrário marca alocação `CANCELED`; registra `ABERTURA_CANCELADA` sempre e `ABERTURA_CANCELADA_POR_ADMIN` adicionalmente quando aplicável.
+**Escreve:** status terminal, remove marcador ativo, libera o número somente quando `attemptedNumberValue == highestReservedNumber`; caso contrário marca alocação `CONSUMED`; registra `ABERTURA_CANCELADA` sempre e `ABERTURA_CANCELADA_POR_ADMIN` adicionalmente quando aplicável.
 **Rollback:** nenhum cancelamento ou reuso parcial. Falha transitória de lock/deadlock admite retry limitado da transação inteira.
 
 ### Confirmar abertura
 
-**Lê/bloqueia:** controle; abertura/alocação; Pessoa e Equipamento; titularidade; telefone/e-mail/endereço/tipo/marca usados nos snapshots. Validar ativo/elegível e permissão. Para transferência, bloquear equipamento e revalidar `equipment.transfer_ownership`.
-**Escreve:** OS `ABERTA/TRIAGEM`; snapshots JSON; alocação `CONFIRMED`; abertura `CONFIRMED` e marcador ativo nulo; eventual mudança de proprietário e `equipment_ownership_events`; evento de confirmação, transferência e demais eventos necessários.
-**Rollback:** qualquer falha cancela tudo, mantendo a abertura/reserva em andamento e sem OS, snapshot, transferência ou evento parcial.
+**Lê/bloqueia:** controle; abertura/alocação; Pessoa e equipamento existente, se selecionado; titularidade; dados de tipo/marca e contatos para snapshots. Validar ativo/elegível e permissões. Para transferência, bloquear equipamento e revalidar `equipment.transfer_ownership`; para equipamento novo, validar o JSON temporário e `equipment.create`.
+**Escreve:** se houver equipamento novo, cria então o cadastro definitivo e o vínculo com o cliente; cria OS `ABERTA/TRIAGEM`; snapshots JSON a partir dos cadastros finais; alocação `CONFIRMED`; abertura `CONFIRMED` e marcador ativo nulo; eventual transferência e `equipment_ownership_events`; eventos de confirmação/criação/transferência.
+**Rollback:** qualquer falha cancela tudo, mantendo a abertura e reserva em andamento; não persiste OS, equipamento novo, snapshot, transferência ou evento parcial.
 
-### Criar Equipamento durante abertura
+### Guardar equipamento temporário durante abertura
 
-**Lê/bloqueia:** abertura, cliente e regras de cadastro/serial já existentes.
-**Escreve:** Equipamento como cadastro válido, com cliente como proprietário, mais evento de equipamento criado durante abertura.
-**Rollback:** cadastro e evento juntos. Se abertura for cancelada depois, recomendação é manter Equipamento; não apagar automaticamente. Este ponto depende da decisão da seção 14.
+**Lê/bloqueia:** abertura e autorização para cadastrar equipamento.
+**Escreve:** valida e guarda apenas os campos temporários versionados em `equipmentDraftJson`; não cria registro definitivo em `equipment` nem evento de criação de Equipamento.
+**Rollback:** falha deixa intacta a versão anterior do rascunho. Se a abertura for cancelada, os dados temporários são retidos somente conforme a política de retenção da abertura/eventos, sem equipamento ativo criado.
 
 ### Transferir titularidade durante abertura
 
-Registrar escolha explícita no rascunho, sem alterar `Equipment.ownerId` ainda. Na confirmação, bloquear Equipamento, validar proprietário atual e permissão, atualizar `ownerId`, inserir `equipment_ownership_events` e evento OS na mesma transação da confirmação. Cancelar a abertura antes de confirmar não transfere titularidade. Falha reverte a confirmação inteira.
+Registrar escolha explícita como intenção temporária no rascunho, sem alterar `Equipment.ownerId`. Na confirmação, bloquear Equipamento existente, validar proprietário atual e permissão, atualizar `ownerId`, inserir `equipment_ownership_events` e evento OS na mesma transação da confirmação. Cancelar a abertura não transfere titularidade. Falha reverte a confirmação inteira.
 
 ### Alterar situação operacional
 
@@ -324,8 +326,8 @@ Registrar escolha explícita no rascunho, sem alterar `Equipment.ownerId` ainda.
 
 ### Unidade
 
-- formatação de inteiro em `OS-000001` e limite `999999`;
-- algoritmo de reserva, reuso da ponta e número consumido quando maior foi emitido;
+- formatação com mínimo de seis dígitos: `OS-000001`, `OS-999999`, `OS-1000000`, usando valor acima da faixa segura de Number como string na API;
+- algoritmo de reserva, reuso da ponta e número consumido quando maior foi reservado;
 - política de estados/retomada/cancelamento;
 - composição/versionamento/captura temporal dos snapshots;
 - autorização própria/Admin/`os.opening.manage`/transferência.
@@ -336,11 +338,11 @@ Registrar escolha explícita no rascunho, sem alterar `Equipment.ownerId` ainda.
 - requisições simultâneas do mesmo usuário deixam somente uma abertura e traduzem a outra para `OPENING_ALREADY_EXISTS`;
 - unique `activeForUserId`, `CHECK`, PK/unique da alocação e unique do número da OS são enforced;
 - queda/reinício não perde abertura nem reserva;
-- cancelar a última reserva libera o número e um número maior emitido impede liberação de anterior;
+- cancelar a última reserva libera o número e qualquer reserva maior commitada torna definitiva a tentativa cancelada anterior;
 - duas confirmações da mesma abertura não criam OS duplicada;
 - número da OS referencia exatamente uma alocação confirmada, sem ciclo de FKs;
 - falha no histórico, snapshot ou transferência reverte OS inteira;
-- equipamento criado e evento ficam consistentes;
+- antes da confirmação não existe linha definitiva para equipamento novo; cancelar a abertura deixa zero equipamento ativo criado por ela; confirmar cria equipamento, OS e eventos atomicamente;
 - rascunhos e canceladas não aparecem na listagem comum;
 - mudança de situação gera evento com estado anterior/novo;
 - cancelamento sempre gera evento, inclusive quando o número é liberado; cancelamento administrativo também identifica ator e iniciador;
@@ -374,34 +376,33 @@ Esses caminhos são previsões, não arquivos criados nesta tarefa. SQL raw fica
 
 ## 14. Riscos e decisões para revisar
 
-1. **Reuso depende do significado de “usado”.** Proposta: reserva commitada e mostrada ao operador conta como emissão; high-water mark nunca diminui. Isso protege etiquetas e evita reutilizar número já visto em atendimento. Confirmar interpretação antes de codificar.
-2. **Equipamento criado e rascunho cancelado.** Recomendação: manter o Equipamento como cadastro normal; cancelamento não o apaga. Aprovar essa consequência antes de habilitar criação de Equipamento em abertura persistida.
-3. **Transferência efetiva.** Recomendação: registrar intenção no rascunho, mas mudar titularidade somente junto da confirmação da OS. Isso evita transferência órfã se abertura for cancelada. Confirmar se está de acordo com a decisão de “transferência durante abertura”.
+1. **Reserva temporária.** Reserva impede duplicidade durante abertura, mas não é uso definitivo. Confirmação torna o número definitivo; cancelamento só consome a tentativa se já houver reserva maior commitada.
+2. **Equipamento novo.** Dados temporários ficam na abertura; cadastro ativo definitivo só nasce na confirmação. Cancelamento não deixa Equipamento ativo criado por essa abertura.
+3. **Transferência.** A intenção pode ser registrada durante abertura, mas mudança de titularidade e evento só ocorrem na confirmação. Cancelamento não transfere.
 4. **Unique nullable e marcador de usuário.** MySQL permite vários `NULL` em unique index, então é possível ter um marcador `activeForUserId` único sem índice parcial. Garantir que todos os caminhos terminais limpem o marcador; CHECK customizado protege correlação com estado.
 5. **Prisma/DDL customizada.** Prisma não deve ser presumido como capaz de representar todo CHECK customizado na versão fixada. Verificar suporte durante implementação e manter SQL da constraint no arquivo versionado da migration se necessário.
 6. **Lock global.** A linha singleton serializa início/cancelamento/confirmação para preservar sequência; é simples e seguro para o volume inicial, mas pode virar gargalo se a carga aumentar. Transações devem ser curtas e não fazer chamadas de rede.
 7. **Deadlocks/timeout.** Lock order fixo, índices adequados, timeout limitado e retry curto somente para deadlock/conflito transitório conhecido. Não repetir operações arbitrárias de modo automático.
 8. **Prisma + raw SQL.** `$queryRaw` só para `SELECT ... FOR UPDATE`, dentro do `tx` e com tagged template; evitar interpolação de nomes e quaisquer métodos `Unsafe`.
-9. **Limite numérico.** Ao chegar ao teto de seis dígitos, falhar fechado. Aumentar o formato requer decisão e compatibilidade de impressão/etiqueta.
-10. **JSON.** Banco garante tipo JSON, não o contrato interno; validação e evolução por `snapshotVersion` pertencem ao domínio. Snapshots contêm dados pessoais, então respostas/lista devem expor somente o necessário e respeitar permissão de leitura.
+9. **Precisão numérica.** Usar `BigInt` e string decimal na API para crescer além de seis dígitos sem perda de precisão JSON. Existe limite técnico de `BIGINT` assinado no MySQL; ele não é o limite funcional de seis dígitos e seu tratamento deve falhar fechado se algum dia se tornar alcançável.
+10. **JSON.** Banco garante tipo JSON, não o contrato interno; validação e evolução por `snapshotVersion` pertencem ao domínio. Snapshots contêm dados pessoais, então respostas/lista devem expor somente o necessário e respeitar permissão de leitura. Dados temporários de equipamento também precisam de retenção compatível com o ciclo da abertura.
 11. **Histórico como dado obrigatório.** Evento ausente não pode deixar OS/transferência/situação parcialmente atualizadas; todos ficam no mesmo commit transacional.
 12. **Índices.** Índices propostos devem acompanhar filtros e FKs. Locking reads precisam usar PK/índices adequados; tabela sem índice em consulta bloqueante pode ampliar locks.
 13. **Schema atual não tem OS.** Não aplicar `db push` nem migration até schema proposto, DDL customizada, auditoria e testes em shadow serem revisados e autorizados.
 
 ## 15. Sequência recomendada para implementar
 
-1. Marcos aprova a interpretação de número “usado”, a consequência do Equipamento criado em rascunho cancelado e o momento da transferência efetiva.
-2. Revisar nomes de permissões e envelopes HTTP com Auth/API existentes; aprovar estados/eventos.
-3. Converter tabelas propostas em schema Prisma compilável, incluindo relações a Person/Equipment/User, nullable unique, CHECK customizada e alocação central.
-4. Revisar SQL final e constraints; criar migration somente após aprovação do schema e da migration.
-5. Testar primeira migration e constraints em banco isolado MySQL 8.0.46; nunca usar o banco principal nessa validação.
-6. Implementar serviço de sequência/reserva e testes concorrentes do mesmo usuário e usuários distintos.
-7. Implementar ciclo de abertura persistida, consulta/retomada/cancelamento e eventos.
-8. Implementar criação opcional de Equipamento e decisão de titularidade conforme as aprovações, sem transferência prematura.
-9. Implementar confirmação atômica, OS, snapshots JSON, eventos e listagem/detalhe.
-10. Implementar alteração de situação e de atribuições com eventos.
-11. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
-12. Revisar status/diff/migration e solicitar autorização separada antes de qualquer aplicação no banco principal.
+1. Revisar a proposta de schema Prisma e fechar nomes finais de campos, relações, permissões e envelopes HTTP.
+2. Converter a proposta em alteração do schema real, incluindo relações a Person/Equipment/User, nullable unique, CHECK customizada, campos temporários de equipamento e alocação BigInt.
+3. Revisar SQL final e constraints; criar migration somente após aprovação do schema e da migration.
+4. Testar primeira migration e constraints em banco isolado MySQL 8.0.46; nunca usar o banco principal nessa validação.
+5. Implementar serviço de sequência/reserva e testes concorrentes do mesmo usuário e usuários distintos.
+6. Implementar ciclo de abertura persistida, consulta/retomada/cancelamento e eventos.
+7. Implementar salvamento temporário do novo equipamento e da intenção de transferência, sem efetivar cadastro/transferência antes da confirmação.
+8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
+9. Implementar alteração de situação e de atribuições com eventos.
+10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
+11. Revisar status/diff/migration e solicitar autorização separada antes de qualquer aplicação no banco principal.
 
 ## Referências técnicas oficiais
 
