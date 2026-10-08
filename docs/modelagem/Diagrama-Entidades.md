@@ -2,15 +2,15 @@
 
 ## Objetivo
 
-Apresentar os relacionamentos do modelo atualmente implementado no Prisma. Este diagrama cobre apenas o primeiro recorte de cadastros e equipamentos.
+Apresentar os relacionamentos presentes no schema Prisma. O banco principal ainda não recebeu a migration de Auth, portanto o diagrama distingue o núcleo já aplicado das entidades Auth pendentes.
 
 ## Status
 
-Diagrama físico correspondente ao schema Prisma após as migrations `20261006120000_initial_core`, `20261007120000_person_basic` e `20261007183000_person_contacts`, aplicadas no banco `gestor_os`, em MySQL Community Server 8.0.46. Prisma Migrate controla o histórico pela tabela `_prisma_migrations`; `prisma migrate status` confirmou que não há migration pendente. O diagrama inclui contatos e eventos mínimos de Pessoa; demais decisões funcionais continuam identificadas abaixo como pendências.
+O banco principal `gestor_os` em MySQL Community Server 8.0.46 tem aplicadas as migrations `20261006120000_initial_core`, `20261007120000_person_basic` e `20261007183000_person_contacts`. A migration `20261008120000_auth_foundation` foi criada e está pendente no principal. O SQL foi executado diretamente no banco isolado `gestor_os_shadow` para validação, sem registro em `_prisma_migrations` do shadow. Assim, o diagrama de Auth abaixo representa o schema Prisma criado, não tabelas já existentes no banco principal.
 
 ## Última atualização
 
-07/10/2026.
+08/10/2026.
 
 ## Diagrama
 
@@ -65,6 +65,7 @@ erDiagram
   PERSON_CONTACT_EVENT {
     int id PK
     int person_id FK
+    int user_id FK "optional; Auth migration pending in main database"
     enum event_type
     int phone_id FK
     int email_id FK
@@ -108,9 +109,9 @@ erDiagram
   }
 ```
 
-## Modelo conceitual futuro de autenticação e autorização
+## Schema Prisma de autenticação e autorização — migration pendente no banco principal
 
-O diagrama abaixo representa somente o desenho conceitual aprovado em 08/10/2026. `USER`, `PERMISSION`, `USER_PERMISSION`, `USER_SESSION` e `ADMIN_AUDIT_LOG` não existem no schema Prisma nem no banco aplicado. Não é modelo físico definitivo e não autoriza migration nesta etapa. `USER_SESSION` permitirá controlar timeout de 8 horas por inatividade, renovado em cada requisição autenticada válida via `last_used_at`, sem limite absoluto no primeiro recorte; também registra hash do segredo e estado de revogação. `ADMIN_AUDIT_LOG` terá retenção inicialmente indefinida e sem exclusão automática. Usuários devem ser inativados, não excluídos fisicamente. A ligação opcional de `PERSON_CONTACT_EVENT` ao usuário executor preserva eventos históricos; se exclusão física vier a existir, a preferência aprovada é FK equivalente a `ON DELETE SET NULL`.
+O primeiro recorte Auth foi implementado no Backend, ainda não versionado. O schema Prisma e a migration `20261008120000_auth_foundation` criada definem as entidades abaixo, mas essa migration ainda não foi aplicada ao banco principal. A validação funcional ocorreu em banco isolado/shadow por SQL direto, sem registrar a migration em `_prisma_migrations` do shadow. `USER_SESSION` controla timeout de 8 horas por inatividade, renovado a cada requisição autenticada válida via `last_used_at`, sem limite absoluto; guarda apenas hash do segredo e estado de revogação. `ADMIN_AUDIT_LOG` tem retenção inicialmente indefinida e sem exclusão automática. Usuários devem ser inativados, não excluídos fisicamente. A FK opcional de `PERSON_CONTACT_EVENT` usa `ON DELETE SET NULL`.
 
 ```mermaid
 erDiagram
@@ -118,14 +119,64 @@ erDiagram
   PERMISSION ||--o{ USER_PERMISSION : grants
   USER ||--o{ USER_SESSION : opens
   USER o|--o{ ADMIN_AUDIT_LOG : actor
+  USER o|--o{ ADMIN_AUDIT_LOG : target
   USER o|--o{ PERSON_CONTACT_EVENT : "optional executor"
+
+  USER {
+    int id PK
+    string public_id UK
+    string username UK
+    string password_hash
+    boolean is_admin
+    boolean is_active
+    int consecutive_failed_login_count
+    datetime last_login_at
+    datetime inactivated_at
+    datetime created_at
+    datetime updated_at
+  }
+  PERMISSION {
+    int id PK
+    string code UK
+    string description
+    datetime created_at
+  }
+  USER_PERMISSION {
+    int user_id PK,FK
+    int permission_id PK,FK
+    int granted_by_user_id FK
+    datetime created_at
+  }
+  USER_SESSION {
+    int id PK
+    int user_id FK
+    string token_hash UK
+    string csrf_token_hash
+    datetime last_used_at
+    datetime expires_at
+    datetime revoked_at
+  }
+  PRE_AUTH_CSRF_CONTEXT {
+    int id PK
+    string identifier_hash UK
+    string csrf_token_hash
+    datetime expires_at
+    datetime used_at
+  }
+  ADMIN_AUDIT_LOG {
+    int id PK
+    int actor_user_id FK
+    int target_user_id FK
+    string event_code
+    datetime occurred_at
+  }
 ```
 
-O contexto temporário de CSRF pré-login é uma entidade conceitual possível, sem relação com `USER` e sem tabela aprovada. Será associado ao identificador opaco em cookie `HttpOnly`, terá validade de 15 minutos e será descartado após login bem-sucedido. O token será entregue pela futura rota `GET /api/v1/auth/csrf`; o login o valida em `X-CSRF-Token` e, após sucesso, a sessão autenticada usa controle CSRF próprio. A decisão de persistência física ainda depende da modelagem e migration futuras.
+`PreAuthCsrfContext` é o armazenamento físico temporário do contexto CSRF pré-login, sem vínculo com `USER`: contém hashes do identificador e token, timestamps de criação/expiração/uso e metadados técnicos. `PERSON_CONTACT_EVENT.user_id` é opcional; eventos anteriores permanecem com `NULL`. A migration pendente estabelece a FK com `ON DELETE SET NULL`.
 
-O username será obrigatório e único, normalizado por `trim`, armazenado em minúsculas, com 3 a 50 caracteres e regex `^[a-z0-9._-]{3,50}$`; e-mail de Pessoa não é login. O conceito `USER` inclui `isAdmin` como nível máximo e contador de falhas consecutivas para contas existentes. Senhas terão mínimo de 10 caracteres, serão processadas com Argon2id pelo pacote `argon2` e não terão troca periódica obrigatória; parâmetros iniciais seguem defaults seguros da biblioteca, sujeitos a validação/ajuste no ambiente. O primeiro recorte não tem CRUD HTTP de usuários e o uso inicial fica restrito ao Administrador bootstrapado. Sessões são opacas, revogáveis e expiram após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`, sem limite absoluto; somente o hash do segredo será persistido. Logout revoga apenas a sessão atual. Permissões são diretas por usuário, sem perfis rígidos; `isAdmin` representa autoridade máxima, sem `admin.full`, `system.admin` ou Master, e o último Administrador ativo é protegido. O Log Administrativo conta falhas por username normalizado, inclusive inexistente: ao atingir cinco registra evento sem bloquear a conta; sucesso zera o contador existente e username inexistente não cria usuário/contador persistente. A notificação inicial é somente pelo Log Administrativo, sem e-mail. O bootstrap aborta se já houver Administrador ativo, não promove conta existente, usa transação com controle efetivo de concorrência para impedir execuções simultâneas e registra evento. Esses atributos são decisões conceituais, não colunas ou constraints aprovadas.
+O username é obrigatório e único, normalizado por `trim`, armazenado em minúsculas, com 3 a 50 caracteres e regex `^[a-z0-9._-]{3,50}$`; e-mail de Pessoa não é login. Os campos mostrados em `USER` correspondem ao schema Prisma; senhas têm mínimo de 10 caracteres e são processadas com Argon2id via `argon2`. O primeiro recorte não tem CRUD HTTP de usuários e o uso inicial fica restrito ao Administrador bootstrapado. Sessões são opacas, revogáveis e expiram após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`, sem limite absoluto; somente o hash do segredo é persistido. Logout revoga apenas a sessão atual. Permissões são diretas por usuário, sem perfis rígidos; `isAdmin` representa autoridade máxima, sem `admin.full`, `system.admin` ou Master. Falhas são contadas por username normalizado, inclusive inexistente: ao atingir cinco registra evento sem bloquear a conta; sucesso zera o contador existente e username inexistente não cria usuário/contador persistente. A notificação inicial é somente pelo Log Administrativo, sem e-mail. O bootstrap aborta se já houver Administrador ativo, não promove conta existente, usa transação com controle de concorrência no código e registra evento. O comando ainda não foi testado em terminal interativo real nem sua concorrência exercitada. Essas regras comportamentais são políticas de aplicação, não todas constraints físicas. Não há endpoints de inativação/rebaixamento de Administrador neste recorte; a proteção do último Administrador precisa ser validada quando essas operações forem implementadas.
 
-`PERSON_CONTACT_EVENT` terá vínculo opcional com o usuário executor no primeiro recorte de Auth; eventos antigos permanecem sem usuário e a gravação do ator será atômica com a alteração de contato. O modelo não existe no Prisma/banco atual e depende de migration futura.
+`PERSON_CONTACT_EVENT.user_id` está no schema Prisma e na migration Auth criada, com vínculo opcional ao usuário executor; eventos antigos permanecem sem usuário e a gravação do ator é atômica com a alteração do contato. A migration ainda não foi aplicada no banco principal.
 
 ## Observações
 
@@ -144,7 +195,7 @@ O username será obrigatório e único, normalizado por `trim`, armazenado em mi
 - `equipment_ownership_events` existe para eventos de titularidade. Transferência altera titular atual, registra evento e não reescreve OS antigas; pode ocorrer fora ou durante OS, com associação opcional à OS. Usuários autorizados podem alterar cadastros e transferir mesmo com histórico, sem justificativa obrigatória; as mudanças devem gerar histórico automaticamente. O modelo atual não registra tipos de histórico, usuário executor, justificativa ou vínculo com OS.
 - O sistema terá histórico geral por entidade, conceitualmente com alteração de campo e evento/movimentação, valores anterior/novo quando aplicável, entidade, data/hora e usuário quando disponível. A estrutura física, lista final de eventos, classificação de acesso e filtros permanecem pendentes. O vínculo opcional de transferência a OS está aprovado funcionalmente, mas não existe entidade OS nem chave de vínculo no schema.
 - Telefone, e-mail e endereço admitem no máximo um principal por Pessoa e coleção, sem exigir que exista principal; marcar outro desmarca o anterior. Índices funcionais aplicados garantem principalidade única para telefones e e-mails. Vários endereços do mesmo Tipo são permitidos funcionalmente, mas o schema ainda restringe endereço a zero ou um por Pessoa.
-- **Contatos implementados:** a migration `20261007183000_person_contacts` adiciona `public_id` único a telefones/e-mails, unicidade de e-mail por Pessoa, índices funcionais de principalidade e a tabela `person_contact_events`. As rotas diretas de `POST`/`GET` são descritas em `docs/04-API.md`; `label` permanece fora da API, sem edição/remoção/inativação e sem rota de histórico. A inclusão exige confirmação cadastral; telefone não padrão até 32 dígitos exige confirmação específica. E-mail segue a gramática ASCII documentada na API. As operações persistem contato, principalidade e eventos na mesma transação. A tabela de eventos não possui CHECK físico para XOR entre `phone_id`/`email_id` ou coerência de `event_type`; o service valida essas combinações. Autenticação e guards continuam pendentes, portanto as rotas não estão prontas para produção.
+- **Contatos implementados:** a migration `20261007183000_person_contacts` adiciona `public_id` único a telefones/e-mails, unicidade de e-mail por Pessoa, índices funcionais de principalidade e a tabela `person_contact_events`. As rotas diretas de `POST`/`GET` são descritas em `docs/04-API.md`; `label` permanece fora da API, sem edição/remoção/inativação e sem rota de histórico. A inclusão exige confirmação cadastral; telefone não padrão até 32 dígitos exige confirmação específica. E-mail segue a gramática ASCII documentada na API. As operações persistem contato, principalidade e eventos na mesma transação. A tabela de eventos não possui CHECK físico para XOR entre `phone_id`/`email_id` ou coerência de `event_type`; o service valida essas combinações. As rotas estão protegidas por Auth no código, mas a migration pendente no banco principal impede liberação operacional.
 - Catálogos iniciais serão carregados por seed idempotente sob comando controlado, sem execução automática ao iniciar o Backend; a estratégia técnica de identificadores e preservação de alterações será definida na implementação.
 - Regra de serial aprovada: repetição para o mesmo proprietário atual bloqueia; para proprietário diferente avisa e permite cadastro, sem sugerir transferência. Sem serial, salva sem busca automática por proprietário + Tipo + Marca + Modelo. Serial é armazenado em caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; `ABC-123` e `ABC123` são diferentes. Pesquisa de equipamentos é independente de duplicidade: localiza por proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, serial e Status; Modelo aceita texto, serial aceita busca exata ou parcial, Status permite Ativo/Inativo/Todos e inativos ficam ocultos por padrão. Detalhes de pesquisa avançada/filtros combinados permanecem pendentes.
 - Equipamento exige funcionalmente Proprietário, Tipo de Equipamento, Marca, Modelo e Status; serial é opcional. O schema atual deixa `brand_id` e `model` opcionais e não tem status de Equipamento. Status funcionais são apenas Ativo/Inativo, com novo Equipamento Ativo; estados adicionais estão fora desta etapa.
@@ -155,7 +206,7 @@ O username será obrigatório e único, normalizado por `trim`, armazenado em mi
 - `document` é opcional e unique no modelo físico. A API básica valida CPF numérico e CNPJ numérico ou alfanumérico oficial, normaliza o valor canônico, confere compatibilidade com PF/PJ e bloqueia duplicidade. `VARCHAR(14)` comporta os 14 caracteres do CNPJ. A coluna por si só não impõe cálculo dos dígitos, normalização ou compatibilidade; essas validações são realizadas no Backend.
 - Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
 - As migrations inicial, de Pessoa básica e de contatos foram aplicadas. As demais decisões funcionais descritas neste documento continuam pendentes.
-- O desenho conceitual de Auth aprovado não representa tabelas implementadas; as sete rotas de Pessoas permanecem sem proteção e não estão prontas para produção.
+- Auth está implementado no Backend, mas a migration `20261008120000_auth_foundation` está pendente no banco principal. O bootstrap foi revisado, mas ainda não executado em terminal interativo real; concorrência real de bootstrap também não foi testada. As sete rotas de Pessoas estão protegidas no código, mas dependem de migration, seed, bootstrap e validações no principal para operação real. Frontend e CRUD HTTP de usuários seguem fora do recorte. O backend escuta somente em `127.0.0.1`; acesso externo segue proibido até 2FA e fronteira confiável. `npm install` reportou quatro vulnerabilidades high ainda pendentes de avaliação.
 
 ## Histórico de alterações
 
@@ -173,3 +224,4 @@ O username será obrigatório e único, normalizado por `trim`, armazenado em mi
 | 08/10/2026 | Inclusão do diagrama conceitual futuro de autenticação/autorização, separado do modelo físico implementado. |
 | 08/10/2026 | Complemento conceitual DA-018 para username, falhas, CSRF pré-login, Administrador bootstrapado e autoria opcional de contatos; sem declarar tabelas implementadas. |
 | 08/10/2026 | Complemento dos detalhes conceituais de sessão, retenção do Log Administrativo, inativação de usuário e FK opcional para autoria de contatos. |
+| 08/10/2026 | Atualização do diagrama e do estado da migration Auth: schema Prisma criado, migration pendente no principal, incluindo `PreAuthCsrfContext` e autoria opcional de eventos. |
