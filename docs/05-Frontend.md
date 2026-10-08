@@ -121,6 +121,12 @@ A interface deve apresentar separadamente situação operacional, status macro e
 
 Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo. Registrar a escolha e todas as mudanças de situação/atribuição no histórico, incluindo usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. A UI ainda não está implementada.
 
+### 10.9 Reabertura e encerramento da OS — interface futura
+
+Exibir separadamente reabertura simples (correção textual, sem mudança de status/situação, faturamento ou pagamentos) e reabertura completa. A reabertura completa deve apresentar os efeitos aprovados: mesma OS/número, retorno a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancelamento do faturamento e dos pagamentos no financeiro ativo com preservação do histórico, retorno das peças vinculadas para ORÇADA e aviso no dashboard do Administrador. Também deve estar disponível para OS CANCELADA.
+
+Não oferecer a mudança direta FECHADA→CANCELADA ou CANCELADA→FECHADA; a interface deve conduzir à reabertura completa para ABERTA antes da outra ação. Alterar status macro para FECHADA/CANCELADA depende de Administrador ou permissão específica; a atribuição de situação operacional segue a autorização da OS. Regras de texto, confirmação e apresentação de exceções financeiras ainda precisam de especificação de UX.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.

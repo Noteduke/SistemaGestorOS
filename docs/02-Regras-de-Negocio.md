@@ -181,6 +181,29 @@ Os resultados/status-motivos de encerramento aprovados são **Devolvido sem Repa
 
 Cada mudança de situação e de atribuição deve gerar histórico com usuário que alterou, data/hora, OS e situação anterior/nova; registrar também funcionários atribuídos antes/depois quando aplicável. Ao salvar uma das duas situações NÃO AUTORIZADO, a decisão de remover ou manter o orçamento e colocá-lo no histórico deve ser registrada. Essa estrutura e os fluxos permanecem futuros; não implica implementação nesta etapa.
 
+### Alteração de situação, status macro e reabertura
+
+Depois de abrir em TRIAGEM, usuários autorizados na OS podem mudar livremente sua situação operacional para qualquer outra situação ativa disponível. Não há sequência rígida entre situações; toda mudança gera histórico. Essa liberdade não remove validações específicas: o encerramento continua bloqueado enquanto houver pendência aberta de conferência de estoque.
+
+Somente Administrador ou usuário com permissão específica pode alterar o status macro para FECHADA ou CANCELADA. São permissões futuras sugeridas `os.close` e `os.cancel`. Mudanças de situação operacional continuam sujeitas às permissões de acesso à OS, sem exigir que o usuário tenha uma dessas permissões de status macro.
+
+Há dois tipos distintos de reabertura:
+
+- **Reabertura simples:** permite corrigir texto da OS — como observações, laudo, descrição, anotação interna ou texto administrativo — sem alterar status macro nem situação operacional, cancelar faturamento ou alterar pagamentos. Pode ser realizada por usuário autorizado na OS; gera histórico. Permissão futura sugerida: `os.reopen_text`.
+- **Reabertura completa:** retorna a mesma OS (mesmo número) ao status macro ABERTA e à situação AGUARDANDO AVALIAÇÃO/ORÇAMENTO; não cria nova OS automaticamente. Cancela o faturamento vinculado e retira pagamentos do financeiro ativo por cancelamento, sem apagar seu rastro. Gera histórico e aviso no dashboard do Administrador. Exige Administrador ou permissão específica futura sugerida `os.reopen_full`.
+
+A reabertura completa registra no histórico, no mínimo, usuário responsável, data/hora, OS, status macro e situação anteriores/novos e motivo da ação. Os eventos de pagamento e peça mantêm as referências e valores anteriores para auditoria.
+
+Uma OS CANCELADA também pode ser reaberta completamente sob a mesma autorização. Se houver lançamento financeiro vinculado, deve ser cancelado/retirado do financeiro ativo, preservando o histórico; o dashboard do Administrador recebe aviso.
+
+Na reabertura completa, todas as peças de estoque vinculadas à OS voltam ao estado ORÇADA, inclusive as que estavam UTILIZADAS ou BAIXADAS, até que um técnico ou usuário autorizado reavalie e atualize os itens. A mudança gera histórico com os estados anterior e novo e o motivo técnico “reabertura completa da OS”. Não se deve apagar movimentos ou históricos anteriores. A reconciliação de quantidade física/financeira para peças anteriormente BAIXADAS ainda precisa de definição técnica; o retorno do status do item a ORÇADA não define sozinho um novo movimento de estoque.
+
+Não são permitidas transições diretas entre FECHADA e CANCELADA em nenhuma direção. Para passar de FECHADA a CANCELADA, é necessário reabrir completamente para ABERTA e então cancelar sob a permissão aplicável. Para passar de CANCELADA a FECHADA, é necessário reabrir completamente para ABERTA, escolher a situação operacional adequada e então fechar normalmente. As permissões e o histórico correspondentes são aplicados em cada ação.
+
+Quando pagamentos tiverem sido registrados antes da reabertura completa, o cancelamento no financeiro ativo deve preservar histórico/auditoria com, no mínimo, usuário responsável, data/hora, OS, valor cancelado, forma de pagamento quando houver, referência do lançamento anterior e motivo técnico “reabertura completa da OS”. Não apagar pagamentos sem rastro. A relação da reabertura com documentos fiscais, estornos/devoluções efetivas e valores já liquidados continua sujeita às regras financeiras específicas ainda pendentes.
+
+Os efeitos acima são regras funcionais aprovadas; permissões citadas são sugestões futuras. Persistência, contratos de API, operações financeiras/estoque, histórico físico e avisos ainda precisam de desenho e implementação próprios.
+
 ### Ciclo da peça vinculada à OS
 
 - **DISPONÍVEL:** peça parada no estoque, sem previsão de uso.

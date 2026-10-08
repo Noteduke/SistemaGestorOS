@@ -96,6 +96,8 @@ Valores cobrados de qualquer item da OS (peça de estoque, peça avulsa, serviç
 
 A estrutura funcional aprovada da OS distingue situação operacional, status macro e resultado/status-motivo de encerramento. A situação inicial é TRIAGEM; as dez situações, atribuições padrão e status macro/encerramento estão descritos na documentação oficial. Mudanças de situação e atribuições geram histórico. As duas situações NÃO AUTORIZADO perguntam se o orçamento existente deve ser removido e guardado no histórico. Schema, API, UI, regras técnicas de transição e migrations permanecem futuros.
 
+Foram aprovadas também as mudanças livres entre situações após TRIAGEM, o controle de FECHADA/CANCELADA, as reaberturas simples e completas, seus efeitos em pagamentos/faturamento/peças, a proibição de transições diretas FECHADA↔CANCELADA e o aviso no dashboard do Administrador. A análise de prontidão em `docs/Especificacoes-Nao-Documentadas.md` recomenda como primeiro recorte a criação em TRIAGEM/ABERTA, vínculos com Pessoa e equipamento, consulta/listagem, atribuição, mudança de situação e histórico — sem fechamento, cancelamento, reabertura, financeiro ou estoque. A decisão sobre número sequencial visível da OS é pré-requisito para fechar o contrato/modelagem. Não há implementação autorizada nesta atualização documental.
+
 ---
 
 # FASE 6 — Integrações

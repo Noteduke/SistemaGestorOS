@@ -189,6 +189,45 @@ Este complemento atualiza a decisão adotada acima com as regras operacionais de
 
 ---
 
+# DA-019
+
+## Título
+Transições de status e reabertura de Ordem de Serviço.
+
+## Situação
+Aprovada por Marcos em 08/10/2026. Regras funcionais documentadas; modelo físico, API e implementação ainda não aprovados.
+
+## Contexto
+A OS já distingue situação operacional, status macro e resultado de encerramento. O fluxo também envolve itens de estoque, faturamento, pagamentos e trilha histórica, que não devem ser confundidos nem apagados em uma reabertura.
+
+## Problema
+Definir as permissões e os efeitos de mudanças de situação/status macro e das duas modalidades de reabertura, preservando o mesmo atendimento e rastreabilidade.
+
+## Decisão adotada
+- Depois da abertura em TRIAGEM, usuários autorizados podem mudar livremente para qualquer situação ativa; não existe sequência rígida. Mudanças geram histórico e não removem bloqueios específicos, como pendência aberta de conferência de estoque.
+- Somente Administrador ou usuário com permissão específica altera o status macro para FECHADA ou CANCELADA. FECHADA↔CANCELADA não é transição direta; é necessário reabrir completamente para ABERTA antes da outra mudança.
+- Reabertura simples permite correção textual, sem alterar situação, status macro, faturamento ou pagamentos, e gera histórico.
+- Reabertura completa mantém a mesma OS/número, retorna a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos no financeiro ativo sem apagar o rastro, retorna peças vinculadas a ORÇADA, registra histórico e avisa o dashboard do Administrador. Também é permitida para OS CANCELADA.
+- Permissões futuras sugeridas: `os.close`, `os.cancel`, `os.reopen_text`, `os.reopen_full` e `stock.pending_review.resolve`.
+- Reconciliação de peças anteriormente BAIXADAS, títulos liquidados/documentos fiscais e mapeamento completo do resultado de encerramento permanecem pendentes. Esta decisão não aprova tabelas, contratos de API ou uma nova arquitetura de persistência.
+
+## Justificativa
+O fluxo preserva a distinção entre atualização operacional, correção textual e reversão completa de um encerramento, mantendo auditoria de operações financeiras e de estoque.
+
+## Impactos
+Os contratos futuros deverão manter número e histórico da OS, coordenar alterações de faturamento, pagamentos e peças e notificar o Administrador. O primeiro recorte não precisa implementar fechamento, cancelamento, reabertura, Financeiro ou Estoque.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Decisões complementares de reabertura de OS aprovadas por Marcos em 08/10/2026.
+
+---
+
 # Lacunas da numeração histórica
 
 DA-007 a DA-016 ainda não estão registradas neste documento. Decisões históricas correspondentes, se existirem, precisam ser recuperadas e consolidadas. DA-001 a DA-006 e DA-017 preservam seus identificadores; as lacunas não foram preenchidas nem as decisões existentes renumeradas.

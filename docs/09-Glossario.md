@@ -37,6 +37,12 @@ Classificação administrativa geral: ABERTA (na loja, não fechada nem cancelad
 ## Resultado de encerramento da OS
 Status/motivo que registra o resultado final da OS: Devolvido sem Reparo, Devolvido Reparado ou Equipamento comprado/Doado. Não substitui a situação operacional nem o status macro.
 
+## Reabertura simples da OS
+Reabertura autorizada para corrigir textos da OS, sem alterar situação operacional, status macro, faturamento ou pagamentos; gera histórico.
+
+## Reabertura completa da OS
+Reabertura autorizada que retorna a mesma OS para ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos do financeiro ativo com preservação de histórico, reclassifica peças vinculadas como ORÇADA e notifica o dashboard do Administrador. Pode ser aplicada a OS FECHADA ou CANCELADA.
+
 ## Cliente
 Pessoa física ou jurídica que contrata serviços ou adquire produtos.
 

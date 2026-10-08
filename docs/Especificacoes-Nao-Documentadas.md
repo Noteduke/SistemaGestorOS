@@ -35,16 +35,31 @@
 ### Ordem de Serviço
 
 - **Alteração de valor após aprovação — decisão aprovada:** o valor cobrado de peça de estoque, peça avulsa, serviço/mão de obra ou qualquer item da OS pode ser corrigido/alterado por usuário autorizado mesmo após a aprovação do orçamento. Não se exige nova aprovação do cliente, não há bloqueio automático e não se exige motivo obrigatório. Cada mudança gera histórico com usuário, data/hora, OS, item, tipo do item, campo e valores anterior/novo. A aprovação do orçamento não congela automaticamente os valores. O fluxo operacional e a auditoria técnica permanecem futuros.
-- **Situações/status macro/resultado de encerramento — estrutura inicial aprovada:** a lista de dez situações operacionais iniciais, status macro ABERTA/FECHADA/CANCELADA e três resultados de encerramento está definida na especificação. Permanecem pendentes o grafo completo de transições além das regras já documentadas, as propriedades técnicas finais do catálogo e a relação operacional detalhada entre status macro e resultado de encerramento.
+- **Situações, status macro, encerramento e reabertura — decisões aprovadas:** a lista de dez situações, mudança livre entre situações por usuário autorizado, controle de FECHADA/CANCELADA por Administrador/permissão, reabertura simples e completa e proibição de transições diretas FECHADA↔CANCELADA estão definidos na especificação e em `docs/02-Regras-de-Negocio.md`. Permissões futuras sugeridas: `os.close`, `os.cancel`, `os.reopen_text` e `os.reopen_full`.
 - O nome/status final do lançamento de peça que permaneça ORÇADO quando orçamento/item/OS for recusado ou cancelado ainda não foi definido. Modelar o status do lançamento separadamente da disponibilidade física do produto; não presumir um enum único para os dois conceitos.
-- Critérios de cancelamento, reabertura e encerramento excepcional de OS encerrada; quais papéis podem realizá-los; quando exigir justificativa; e efeitos financeiros/estoque associados não estão integralmente definidos.
-- O texto de RN-030 (encerramento) e RN-035 (alteração após encerramento) deve ser cotejado para estabelecer precisamente edição, reabertura e correção. Está aprovado preservar trilha de auditoria, mas a sequência operacional não está completa.
-- Tratamento financeiro quando uma OS for encerrada sem cobrança, mas houver valores orçados ou recebimentos antecipados, ainda precisa ser detalhado. Os efeitos de estoque das peças seguem os status aprovados neste documento.
+- **Pendências da reabertura completa:** definir tratamento de documento fiscal, títulos a receber, pagamentos já liquidados e eventual devolução/estorno ao cliente; se o resultado/motivo anterior é preservado, limpo ou substituído; como resolver/reter pendências de conferência já abertas; e como reconciliar quantidade física/financeira de peças antes BAIXADAS que retornam a ORÇADA. Cancelar um lançamento no financeiro ativo não implica apagar sua trilha ou realizar estorno bancário automaticamente.
+- **Número de OS:** o uso do mesmo número na reabertura está aprovado, mas escopo do contador (global/por empresa/ano), formato, lacunas permitidas, concorrência e regras após cancelamento ainda não foram definidos.
+- O encerramento sem cobrança, orçamento existente e recebimento antecipado requer regras financeiras detalhadas além do cancelamento do lançamento no financeiro ativo previsto para a reabertura completa.
 - Regra de data de aprovação: há confirmação/crítica ao alterá-la, mas não foi definido quem pode alterar, se a data original fica imutável em todos os casos e como corrigir erro de registro.
 - O fluxo para autorização por telefone, e-mail, WhatsApp ou presencial está descrito; não foram definidos os campos obrigatórios por meio, evidências ou autenticação do autorizador.
 - Critérios para atendimento sem orçamento, avaliação posterior, recusa de orçamento, orçamento parcial e mudança de laboratório/setor não estão todos formalizados como transições.
 - O texto menciona um ou dois campos personalizados, mas não fixa nomes, tipos, obrigatoriedade, pesquisa, auditoria ou configuração por tipo de equipamento.
-- Número sequencial: escopo do contador (global/por empresa/ano), formato, lacunas permitidas, concorrência e regras após cancelamento não estão definidos.
+
+### Análise de prontidão — primeiro recorte de OS
+
+Esta análise orienta a próxima etapa de modelagem; não aprova nomes finais de tabelas, campos, constraints, rotas ou migrations.
+
+**Regras suficientemente definidas para iniciar modelagem conceitual:** abertura obrigatória em TRIAGEM e macro ABERTA; vínculo da OS com a Pessoa informada e o equipamento sem snapshot completo; alterações livres de situação por usuário autorizado, sempre com histórico; atribuição a funcionários; distinção entre situação, macrostatus e resultado; permissões para ações finais; regras de reabertura simples/completa; transições proibidas FECHADA↔CANCELADA; e os efeitos funcionais de reabertura em faturamento, pagamentos, peças, histórico e dashboard.
+
+**Entidades/conceitos prováveis no primeiro recorte, sem constituir modelo físico aprovado:** registro principal da OS e sua referência/número; relações com Pessoa, Equipamento e Usuários; catálogo de situações e atribuições de funcionários; eventos/histórico da OS para criação e mudanças de situação operacional. A mudança de status macro fica fora desse primeiro recorte. Não fixar nomes finais, campos, cardinalidades ou constraints nesta análise.
+
+**Conceitos adicionais para os recortes posteriores de encerramento/reabertura:** eventos/histórico de mudança macro e reabertura; relação com itens/peças e movimentos de estoque; referências a faturamento, títulos/pagamentos e lançamentos cancelados; e avisos do dashboard. Esses dados podem pertencer a entidades próprias ou integrar módulos existentes; sua forma e fronteiras ainda não estão definidas.
+
+**Permissões futuras citadas:** `os.close`, `os.cancel`, `os.reopen_text`, `os.reopen_full` e `stock.pending_review.resolve`. Os quatro identificadores `os.*` são sugestões documentais, não catálogo cadastrado ou autorização implementada.
+
+**Primeiro recorte recomendado:** criação básica de OS em TRIAGEM e macro ABERTA, vínculo com Pessoa ativa e equipamento elegível, consulta/listagem, atribuição de funcionário, alteração livre entre situações ativas e histórico de criação/alteração. Deixar fechamento, cancelamento, reaberturas, faturamento, pagamentos, itens de OS e efeitos de estoque fora desse recorte. Antes de fixar contrato/modelagem, decidir a numeração sequencial visível da OS ou aprovar explicitamente o uso inicial de um identificador público existente sem número sequencial.
+
+**Pendências que bloqueiam partes da implementação completa:** formato/escopo/concorrência da numeração; relação entre resultado “Equipamento comprado/Doado” e entrega/status macro; faturamento fiscal, recebíveis, pagamentos liquidados e estornos; reconciliação física de peças BAIXADAS que voltam a ORÇADA; destino de resultado de encerramento e pendências de conferência após reabertura; e detalhes de histórico/notificação, autorização e UX. Essas pendências não impedem modelar e implementar o primeiro recorte sem fechamento, Financeiro ou Estoque, desde que a decisão de numeração seja resolvida.
 
 ### Pessoas, contatos e equipamentos
 

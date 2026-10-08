@@ -144,6 +144,14 @@ A API futura deve tratar separadamente situação operacional, status macro ABER
 
 Ao salvar NÃO AUTORIZADO - REMONTAR EQUIPAMENTO ou NÃO AUTORIZADO - PRONTO PRA ENTREGA, se houver orçamento, o contrato deve permitir perguntar se ele será removido e colocado no histórico ou mantido. A escolha gera histórico. Mudanças de situação/atribuição também registram usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. Não há endpoints nem modelo de persistência aprovados nesta etapa.
 
+### 10.6 Reabertura e mudanças de status macro — contrato futuro
+
+Após a abertura, usuários autorizados na OS podem alterar livremente a situação operacional para qualquer situação ativa; não existe sequência rígida. Encerramento continua bloqueado por pendência aberta de conferência de estoque. Alterar o status macro para FECHADA ou CANCELADA exige Administrador ou permissão específica futura (`os.close` ou `os.cancel`); não permitir transição direta FECHADA→CANCELADA nem CANCELADA→FECHADA.
+
+A reabertura simples (`os.reopen_text`) permite correções textuais sem alterar situação, status macro, faturamento ou pagamentos, e gera histórico. A reabertura completa (`os.reopen_full`) mantém a mesma OS/número, retorna a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e retira pagamentos do financeiro ativo por cancelamento auditável. Aplica-se também a OS CANCELADA. Deve preservar histórico, registrar o motivo “reabertura completa da OS”, cancelar lançamentos financeiros vinculados sem exclusão física de seus rastros, reclassificar peças vinculadas como ORÇADA e notificar o dashboard do Administrador.
+
+Para pagamento previamente registrado, o evento deve referenciar usuário, data/hora, OS, valor, forma quando houver e lançamento anterior. Para peças antes UTILIZADAS/BAIXADAS, preservar estado anterior e registrar retorno a ORÇADA. Operações sobre faturamento, financeiro, itens de estoque, OS e histórico precisarão de consistência transacional; o contrato técnico, tratamento de títulos liquidados/documento fiscal e movimentos físicos de peças baixadas ainda não estão definidos. Nenhum endpoint, tabela ou migration está aprovado por esta documentação.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.
