@@ -177,6 +177,12 @@ A peça avulsa permanece avulsa e não pode ser convertida em peça de estoque. 
 
 A peça avulsa pode ter custo interno separado do valor cobrado ao cliente. O custo interno representa o valor pago ou estimado pela empresa; o valor cobrado integra o orçamento/cobrança da OS. Usuários autorizados na OS podem visualizar, informar e alterar o custo interno e alterar o valor cobrado, inclusive depois da aprovação do orçamento pelo cliente. A aprovação não trava esses valores. Cada alteração deve gerar histórico com, no mínimo, usuário, data/hora, OS, item/peça avulsa, campo alterado e valores anterior e novo. A diferença entre custo e valor cobrado poderá apoiar futuramente o cálculo de margem/lucro. `finance.os_costs.manage` poderá ser avaliada futuramente para relatórios gerenciais, fechamento financeiro ou controle mais restrito, mas não é requisito para visualizar ou alterar os valores do item avulso na OS.
 
+### Alteração de valores após aprovação do orçamento
+
+A aprovação do orçamento não congela automaticamente os valores cobrados dos itens da OS. Usuário autorizado na OS, conforme permissões do módulo, pode corrigir ou alterar o valor cobrado de peça de estoque, peça avulsa, serviço/mão de obra ou qualquer outro item cobrado, mesmo após a aprovação do cliente. A alteração não exige nova aprovação do cliente, não é bloqueada pela aprovação anterior e não exige motivo obrigatório.
+
+Toda alteração de valor cobrado deve gerar histórico com, no mínimo, usuário, data/hora, OS, item alterado, tipo do item (peça de estoque, peça avulsa, serviço/mão de obra ou outro), campo alterado, valor anterior e valor novo. O controle dessa mudança é feito pela rastreabilidade, sem aprovação adicional obrigatória.
+
 Os demais fluxos e estados da OS serão detalhados posteriormente neste documento.
 
 # 6. Financeiro

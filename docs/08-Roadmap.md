@@ -92,6 +92,8 @@ Decisão funcional aprovada para peças controladas pelo estoque: DISPONÍVEL, O
 
 Peça avulsa é item manual financeiro/descritivo da OS, fora do cadastro e do ciclo de estoque: não tem saldo, não movimenta/reserva/baixa estoque, não gera pendência de conferência e não pode ser convertida em item de estoque. Usuários autorizados na OS podem visualizar e alterar custo interno e valor cobrado, inclusive após aprovação do orçamento. Toda alteração gera histórico com usuário, data/hora, OS, item, campo e valor anterior/novo. `finance.os_costs.manage` é apenas possibilidade futura para relatórios gerenciais, fechamento financeiro ou controle mais restrito, não requisito para alteração do item avulso. A diferença poderá apoiar cálculo futuro de margem/lucro. Modelo, histórico técnico, endpoints, controle, painel de conferência, apresentação visual e cálculo permanecem futuros.
 
+Valores cobrados de qualquer item da OS (peça de estoque, peça avulsa, serviço/mão de obra ou outro) podem ser alterados por usuário autorizado mesmo após aprovação do orçamento, sem nova aprovação do cliente e sem motivo obrigatório. O histórico deve registrar usuário, data/hora, OS, item, tipo do item, campo alterado e valores anterior/novo. A aprovação do orçamento não congela automaticamente os valores; implementação e interface permanecem futuras.
+
 ---
 
 # FASE 6 — Integrações

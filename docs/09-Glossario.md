@@ -157,6 +157,9 @@ Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem red
 ## Custo interno da peça avulsa
 Valor pago ou estimado pela empresa para a peça avulsa, distinto do valor cobrado ao cliente. Usuários autorizados na OS podem visualizar e alterar esse valor, inclusive após aprovação do orçamento; cada alteração gera histórico. `finance.os_costs.manage` pode ser avaliada futuramente para relatórios gerenciais, fechamento financeiro ou controle mais restrito, mas não é requisito para editar o item na OS. A diferença entre custo e valor cobrado poderá apoiar cálculo futuro de margem/lucro.
 
+## Alteração de valor após aprovação
+Alteração do valor cobrado de qualquer item da OS depois da aprovação do orçamento. Usuário autorizado na OS pode realizar a mudança sem nova aprovação do cliente, sem bloqueio automático e sem motivo obrigatório. O histórico registra usuário, data/hora, OS, item, tipo do item, campo alterado e valores anterior/novo.
+
 ## Peça UTILIZADA
 Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
 
