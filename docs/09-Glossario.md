@@ -155,7 +155,7 @@ Item lançado manualmente na OS para descrição, orçamento e cobrança, sem v�
 Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça física ou previsão de compra vinculada ao estoque. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico. Peça avulsa não usa este status.
 
 ## Custo interno da peça avulsa
-Valor pago ou estimado pela empresa para a peça avulsa, distinto do valor cobrado ao cliente. Informar ou alterar é restrito ao Administrador ou a usuário com permissão financeira; a permissão futura sugerida é `finance.os_costs.manage`. A diferença entre custo e valor cobrado poderá apoiar cálculo futuro de margem/lucro.
+Valor pago ou estimado pela empresa para a peça avulsa, distinto do valor cobrado ao cliente. Usuários autorizados na OS podem visualizar e alterar esse valor, inclusive após aprovação do orçamento; cada alteração gera histórico. `finance.os_costs.manage` pode ser avaliada futuramente para relatórios gerenciais, fechamento financeiro ou controle mais restrito, mas não é requisito para editar o item na OS. A diferença entre custo e valor cobrado poderá apoiar cálculo futuro de margem/lucro.
 
 ## Peça UTILIZADA
 Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
