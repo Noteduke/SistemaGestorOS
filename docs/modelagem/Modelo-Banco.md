@@ -122,11 +122,11 @@ Os fluxos de Aviso, inativação/reativação, Equipamento, OS, transferência, 
 
 As entidades conceituais previstas são `users`, `permissions`, `user_permissions`, `user_sessions` e um único `admin_audit_log`. Os nomes e relações abaixo não são schema definitivo, não existem no Prisma nem no banco aplicado e dependem de modelagem física e migration futuras.
 
-- `users`: conta do sistema separada de Pessoa, com nome de usuário único para login; criação somente por Administrador, sem auto-registro público. O sistema deve impedir que uma operação deixe zero Administradores ativos.
+- `users`: conta do sistema separada de Pessoa, com nome de usuário único para login e senha armazenada por hash Argon2id; criação somente por Administrador, sem auto-registro público. Usuários são inativados, não excluídos fisicamente. O sistema deve impedir que uma operação deixe zero Administradores ativos.
 - `permissions`: catálogo conceitual de permissões por ação. `user_permissions` associa diretamente usuários às permissões, sem perfis rígidos obrigatórios.
-- `user_sessions`: sessões opacas mantidas no servidor, expiráveis e revogáveis. O banco guarda somente hash do segredo; sessões simultâneas são permitidas e auditadas.
-- `admin_audit_log`: único registro conceitual para eventos administrativos e de segurança.
-- `person_contact_events` poderá ter relação opcional com `users` para identificar o executor, preservando eventos sistêmicos, legados ou anteriores à autenticação. Retenção e comportamento da FK devem ser aprovados antes da migration.
+- `user_sessions`: sessões opacas mantidas no servidor e com duração de 8 horas. O banco guarda somente hash do segredo, expiração, revogação e `last_used_at`, atualizado a cada uso relevante; sessões simultâneas são permitidas e auditadas. Logout revoga apenas a sessão atual.
+- `admin_audit_log`: único registro conceitual para eventos administrativos e de segurança, com retenção inicialmente indefinida e sem exclusão automática neste primeiro desenho.
+- `person_contact_events` poderá ter relação opcional com `users` para identificar o executor, preservando eventos sistêmicos, legados ou anteriores à autenticação. Usuários não devem ser excluídos fisicamente; se exclusão vier a existir, a preferência é FK equivalente a `ON DELETE SET NULL`, preservando o evento. Essa FK depende de migration futura.
 
 1. Ordem de Serviço e estrutura de histórico de alterações/eventos para OS, Pessoa, Equipamento e entidades relacionadas; não adotar snapshot cadastral completo por OS.
 2. Estoque por movimentações e compras.
@@ -144,3 +144,4 @@ As entidades conceituais previstas são `users`, `permissions`, `user_permission
 | 07/10/2026 | Registro dos catálogos iniciais de Tipo de Equipamento e Marca, normalização de dados, pesquisa, alterações permanentes e vínculo opcional de transferência com OS; schema e migration permanecem inalterados. |
 | 07/10/2026 | Aplicação da migration `20261007120000_person_basic` e atualização do modelo físico de Pessoa básica, mantendo as demais decisões funcionais como evolução futura. |
 | 08/10/2026 | Registro do modelo conceitual aprovado de autenticação/autorização; tabelas, FK opcional de autoria e migration permanecem futuras. |
+| 08/10/2026 | Complemento operacional Auth: sessão de 8 horas, hash/uso/revogação, Log Administrativo sem exclusão automática, bootstrap/admin ativo e autoria opcional futura em contatos. |

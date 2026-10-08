@@ -22,7 +22,9 @@ A API deverá suportar versionamento (ex.: /api/v1).
 # 4. Autenticação
 
 Será centralizada no backend.
-O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. JWT e OIDC ficam fora do recorte atual. O acesso externo é proibido até 2FA estar implementado. Detalhes de contrato de login, logout e consulta da sessão atual serão definidos antes da implementação.
+O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. A sessão expira após 8 horas, atualiza `last_used_at` a cada uso relevante e pode ser revogada. Logout revoga somente a sessão atual. JWT e OIDC ficam fora do recorte atual. O sistema é considerado de uso interno neste momento; acesso externo é proibido até 2FA implementado e regra de rede confiável documentada/aprovada.
+
+Como a autenticação usa cookie, métodos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão exigir proteção CSRF. Requisições `GET` não exigem token CSRF. A forma técnica ainda será definida durante a implementação.
 
 As rotas atuais de Pessoas não possuem autenticação nem guards e não estão prontas para exposição operacional ou produção. No primeiro recorte de Auth, todas exigirão autenticação e autorização por ação. Ausência de permissão nega acesso; uma rota protegida sem política explícita deve falhar fechada. O Backend decide autorização. O Frontend não concede acesso nem substitui essa verificação.
 
@@ -36,7 +38,7 @@ As rotas atuais de Pessoas não possuem autenticação nem guards e não estão 
 | `POST /api/v1/people/:publicId/emails` | `people.contacts.add` |
 | `GET /api/v1/people/:publicId/emails` | `people.contacts.read` |
 
-Rotas futuras de autenticação, como login, logout e consulta da sessão atual, ainda não têm caminhos nem contratos aprovados. Rotas públicas deverão ser explicitamente identificadas; não se presume pública nenhuma rota de negócio.
+Rotas futuras de autenticação, como login, logout e consulta da sessão atual (me), ainda não têm caminhos nem contratos aprovados; logout encerra somente a sessão atual. Rotas públicas deverão ser explicitamente identificadas; não se presume pública nenhuma rota de negócio.
 
 # 5. Padrão de Endpoints
 

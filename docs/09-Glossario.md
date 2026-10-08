@@ -47,22 +47,43 @@ Autorização atribuída a um usuário para executar uma ação específica, sem
 Conta individual usada para autenticar uma pessoa no Gestor OS. É separada do cadastro de Pessoa usado em operações comerciais. O login usa nome de usuário único; contas são criadas somente por Administrador e não há auto-registro público. A implementação permanece pendente.
 
 ## Sessão opaca
-Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. É o modelo aprovado para o aplicativo web; ainda não implementado.
+Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. Expira após 8 horas; `last_used_at` é atualizado a cada uso relevante. É o modelo aprovado para o aplicativo web; ainda não implementado.
 
 ## Log Administrativo
-Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. Estrutura, retenção e acesso ainda serão definidos.
+Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. A retenção inicial é indefinida e não haverá exclusão automática neste primeiro desenho; detalhes de campos e acesso permanecem por definir.
 
 ## 2FA
-Autenticação em dois fatores. É obrigatória para acesso externo; acesso externo é proibido até que o 2FA esteja implementado. Método e recuperação do segundo fator permanecem pendentes.
+Autenticação em dois fatores. É obrigatória para acesso externo; o acesso externo permanece proibido até que o 2FA esteja implementado e exista regra confiável de rede documentada/aprovada. Método e recuperação do segundo fator permanecem pendentes.
 
 ## Acesso interno
-Acesso dentro da fronteira interna que vier a ser documentada e aprovada. A fronteira e a forma de identificação ainda não estão definidas; não presumir confiança em IP, headers ou proxies.
+Acesso considerado interno neste momento. A fronteira e a forma técnica de identificação ainda não estão definidas; não presumir confiança em IP, headers ou proxies. Acesso externo continua proibido até 2FA e regra de rede confiável documentada/aprovada.
 
 ## Acesso externo
-Acesso fora da fronteira interna aprovada. É proibido até que 2FA esteja implementado.
+Acesso fora da fronteira interna aprovada. É proibido até que 2FA esteja implementado e exista regra confiável de rede documentada/aprovada.
 
 ## Guard
 Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards ainda não foram implementados no projeto.
+
+## CSRF
+Falsificação de requisição entre sites. Com sessão autenticada por cookie, métodos mutáveis `POST`, `PUT`, `PATCH` e `DELETE` exigirão proteção CSRF; `GET` não exige token. A forma técnica ainda será definida na implementação.
+
+## Sessão atual
+Sessão autenticada usada na requisição corrente. O logout aprovado revoga somente essa sessão; encerrar todas as sessões de um usuário poderá ser considerado futuramente.
+
+## Revogação de sessão
+Invalidação de uma sessão antes de sua expiração. Sessões podem ser revogadas; a revogação deve gerar evento no Log Administrativo.
+
+## Argon2id
+Algoritmo aprovado para armazenar senhas por hash. A senha terá mínimo de 10 caracteres; troca periódica obrigatória não será exigida.
+
+## Primeiro Administrador
+Conta inicial de autoridade máxima, criada manualmente por comando/script interno controlado no ambiente local ou na implantação inicial. O procedimento técnico será documentado antes da implementação.
+
+## Último Administrador
+Único Administrador ativo restante. O sistema deve bloquear inativação, remoção da permissão administrativa ou qualquer alteração que deixe o sistema sem Administrador ativo.
+
+## Retenção de Log
+Período de preservação dos registros do Log Administrativo. A retenção é inicialmente indefinida e não haverá exclusão automática neste primeiro desenho.
 
 ## Rota pública
 Rota explicitamente marcada para não exigir sessão autenticada, limitada às rotas públicas aprovadas. Ausência de metadados não torna uma rota pública; rotas de negócio protegidas devem falhar fechadas.

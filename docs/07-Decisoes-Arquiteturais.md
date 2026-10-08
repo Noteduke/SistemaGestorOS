@@ -155,19 +155,21 @@ Definir uma base de autenticação e autorização compatível com as regras de 
 - Papéis fixos ou permissões granulares diretas: papéis rígidos não atendem à regra aprovada; concessões diretas por usuário/ação foram escolhidas, com Administrador como autoridade máxima.
 
 ## Decisão adotada
-- O aplicativo web usará sessão opaca mantida no servidor. O cookie contém somente o segredo opaco e o banco persiste somente seu hash. JWT e OIDC ficam fora do recorte atual.
-- Sessões têm expiração e podem ser revogadas; sessões simultâneas são permitidas e auditadas. Cookies usam `HttpOnly`, `Secure` em ambiente HTTPS e `SameSite` adequado. Proteção CSRF e detalhes de ciclo de sessão serão definidos antes da implementação.
-- Administrador é autoridade máxima; permissões granulares são atribuídas diretamente por usuário/ação, sem “Master” ou perfis rígidos obrigatórios de Técnico/Usuário comum. Ausência de permissão nega acesso e rota protegida sem política explícita falha fechada.
-- O Backend é a autoridade de autorização; o Frontend somente reflete permissões e respostas da API.
-- Haverá um único Log Administrativo para eventos administrativos e de segurança; não será criado histórico paralelo de segurança.
-- Acesso externo fica proibido até 2FA. O recorte inicial pode operar somente como interno; método de 2FA, recuperação e fronteira de rede permanecem pendentes. Não se presume confiança em IPs, headers ou proxies sem fronteira documentada e aprovada.
+- O aplicativo web usará sessão opaca mantida no servidor. O cookie contém somente o segredo opaco e o banco persiste somente seu hash. A sessão expira após 8 horas, atualiza `last_used_at` a cada uso relevante e pode ser revogada. Sessões simultâneas são permitidas e auditadas; logout revoga somente a sessão atual. Cookies usam `HttpOnly`, `Secure` em ambiente HTTPS e `SameSite` adequado. JWT e OIDC ficam fora do recorte atual.
+- O sistema é considerado de uso interno neste momento. Acesso externo fica proibido até 2FA implementado e regra de rede confiável documentada/aprovada; não presumir confiança em IPs, headers ou proxies sem definição formal.
+- Métodos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) exigem proteção CSRF; `GET` não exige token. A forma técnica fica para implementação.
+- Senhas têm mínimo de 10 caracteres, são armazenadas com Argon2id e não exigem troca periódica. Recuperação fica fora do primeiro recorte; troca manual pelo Administrador pode ser tratada depois.
+- Cinco falhas consecutivas geram registro e notificação sem bloquear a conta; login bem-sucedido zera a sequência. Registrar IP, origem e user-agent quando disponíveis. No primeiro recorte, a notificação pode ser apenas registro no Log Administrativo, sem e-mail; destinatários, frequência e parâmetros de limitação ainda devem ser detalhados.
+- Haverá um único Log Administrativo para eventos administrativos e de segurança, com retenção inicialmente indefinida e sem exclusão automática neste primeiro desenho. Eventos mínimos: login bem-sucedido, falha de login, logout, sessão revogada, usuário criado/alterado/inativado e permissão concedida/revogada.
+- O primeiro Administrador será criado manualmente por comando/script interno controlado no ambiente local ou na implantação inicial; o procedimento técnico será documentado antes da implementação. Usuários devem ser inativados, não excluídos fisicamente. O sistema bloqueará inativação do último Administrador ativo, remoção de sua permissão administrativa e qualquer alteração que deixe o sistema sem Administrador ativo.
+- Administrador é autoridade máxima; permissões granulares são atribuídas diretamente por usuário/ação, sem “Master” ou perfis rígidos obrigatórios de Técnico/Usuário comum. Ausência de permissão nega acesso e rota protegida sem política explícita falha fechada. O Backend é a autoridade de autorização; o Frontend somente reflete permissões e respostas da API.
 - As sete rotas atuais de Pessoas devem ser protegidas por autenticação e autorização no primeiro recorte de implementação.
 
 ## Justificativa
 O modelo conserva revogação no servidor e atende ao aplicativo web próprio. Permissões por usuário/ação preservam a flexibilidade aprovada e o Log Administrativo único evita duplicar trilhas. As decisões não alteram o schema atual e não significam que a implementação começou.
 
 ## Impactos
-O desenho conceitual prevê `users`, `permissions`, `user_permissions`, `user_sessions` e `admin_audit_log`; esses nomes não são tabelas implementadas nem schema definitivo. Usuários usam nome de usuário único, são criados somente por Administrador e não têm auto-registro público. O primeiro Administrador será provisionado por procedimento controlado interno, a documentar antes da implementação; o sistema não poderá ficar sem Administrador ativo. Cinco falhas consecutivas geram registro e notificação sem bloquear a conta; login bem-sucedido zera a sequência. `person_contact_events` poderá referenciar opcionalmente o executor, após decisão sobre FK e retenção. O catálogo inicial de permissões e as sete políticas de rota estão nos documentos de regras e API. Implementação, 2FA, recuperação de senha, fronteira de rede e frontend permanecem pendentes.
+O desenho conceitual prevê `users`, `permissions`, `user_permissions`, `user_sessions` e `admin_audit_log`; esses nomes não são tabelas implementadas nem schema definitivo. Usuários usam nome de usuário único, são criados somente por Administrador e são inativados em vez de excluídos fisicamente. O primeiro Administrador será criado manualmente por comando/script interno controlado; o procedimento técnico deve ser documentado antes da implementação. O sistema não poderá ficar sem Administrador ativo. `user_sessions` terá duração de 8 horas, hash do segredo, `last_used_at` e estado de revogação. `person_contact_events` poderá referenciar opcionalmente o executor; se exclusão física de usuário vier a existir, a preferência é FK equivalente a `ON DELETE SET NULL`. A implementação, 2FA, recuperação de senha, fronteira de rede e frontend permanecem pendentes.
 
 ## Data de aprovação
 08/10/2026.
@@ -176,7 +178,7 @@ O desenho conceitual prevê `users`, `permissions`, `user_permissions`, `user_se
 Marcos.
 
 ## Procedência
-Pacote inicial de decisões de Autenticação e Autorização aprovado por Marcos.
+Pacotes inicial e complementar de decisões de Autenticação e Autorização aprovados por Marcos em 08/10/2026.
 
 ---
 
