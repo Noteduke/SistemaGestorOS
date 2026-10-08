@@ -87,7 +87,7 @@ Permissões são atribuídas por usuário/ação. Técnico e Usuário comum não
 
 O Frontend apenas reflete as permissões e respostas fornecidas pela API. Pode ocultar ou desabilitar ações indisponíveis para orientar a interface, mas essa apresentação não concede nem nega autorização real; o Backend verifica cada operação e é a autoridade final. Não duplicar no Frontend as regras de autorização.
 
-O histórico geral por entidade de Pessoa, Equipamento e OS aparece no contexto do respectivo cadastro/OS. A interface diferencia alteração de campo (valor anterior e novo) de evento/movimentação. Aviso e histórico técnico/auditoria exigem Administrador ou permissão equivalente. Não se deve presumir snapshot completo dos cadastros dentro da OS; a consulta de dados atuais é complementada pelo histórico de mudanças. A estrutura física continua pendente.
+O histórico geral por entidade de Pessoa, Equipamento e OS aparece no contexto do respectivo cadastro/OS. A interface diferencia alteração de campo (valor anterior e novo) de evento/movimentação. Aviso e histórico técnico/auditoria exigem Administrador ou permissão equivalente. A OS terá retrato cadastral parcial da confirmação, sem snapshot completo; a tela usa dados atuais e oferece consulta histórica ao retrato conforme a regra específica abaixo. A estrutura física continua pendente.
 
 Antes de salvar qualquer alteração de Pessoa ou Equipamento, exibir a confirmação: “Estas alterações serão registradas no histórico. Deseja continuar?”. Confirmar salva e registra a alteração; cancelar não salva. O registro é automático e alteração comum não exige justificativa. Os detalhes finais de exibição, filtros, paginação e eventos permanecem pendentes.
 
@@ -138,6 +138,14 @@ Na OS interna, mostrar claramente uma área histórica de informações herdadas
 Ao iniciar a abertura, apresentar o número visível gerado no formato `OS-000001` antes de confirmar os dados, para uso em etiqueta e atendimento. Identificar claramente que a abertura ainda está em andamento até salvar os campos mínimos obrigatórios: cliente e equipamento. Defeito/reclamação começa vazio e não bloqueia confirmação. O equipamento pode ser selecionado entre os associados ao cliente ou cadastrado nessa tela; equipamento novo recebe automaticamente o cliente como proprietário.
 
 Se o equipamento existente pertencer a outra Pessoa, mostrar o proprietário atual, o cliente selecionado e o efeito de cada escolha. Oferecer cancelar a seleção, abrir para o proprietário atual ou transferir para o cliente selecionado quando o usuário for Administrador ou tiver `equipment.transfer_ownership`; nunca transferir sem confirmação explícita. Não solicitar dados de portador/entregador. Em desistência, apresentar o resultado do cancelamento da abertura conforme a regra de reuso do número; imprimir etiqueta não consome o número por si só. Estados visuais, confirmação de transferência e política de retomada de abertura precisam de UX detalhada.
+
+### 10.12 Retrato cadastral e correção de vínculos da OS — interface futura
+
+Na confirmação da abertura, o Backend grava uma única vez o retrato cadastral parcial da Pessoa e do Equipamento, com os dados principais disponíveis naquele momento. A interface não solicita nem permite edição manual desse retrato. Na tela e na impressão padrão da OS, exibir dados atuais dos cadastros vinculados; não exibir aviso automático obrigatório se divergirem do retrato. Não oferecer impressão própria do retrato.
+
+Usuários com permissão de visualizar a OS podem consultar o retrato no histórico, com indicação clara de que representa a situação cadastral na confirmação da abertura. Não o apresentar como dado principal. Reabertura ou correção posterior do cliente/equipamento não altera esse registro. A correção de vínculo exige Administrador ou permissão específica futura sugerida (`os.correct_customer` ou `os.correct_equipment`, conforme o vínculo), confirmação apropriada e histórico com usuário, data/hora, campo e valores anterior/novo. O número da OS não muda; os dados principais da tela e da impressão passam a refletir o vínculo atual. Eventual exigência de motivo segue pendente.
+
+O retrato não substitui checklist de recebimento. Estado físico, acessórios, senha informada, avarias, itens ausentes e demais dados de recebimento não aparecem nele; um checklist/registro de recebimento é fluxo futuro independente.
 
 # 11. Evolução
 

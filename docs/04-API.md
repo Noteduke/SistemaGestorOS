@@ -166,6 +166,14 @@ O desenho futuro precisa separar iniciar abertura (gera/reserva o número visív
 
 Como rotas candidatas, ainda não aprovadas: `POST /api/v1/service-order-openings`, `PATCH /api/v1/service-order-openings/:openingPublicId`, `POST /api/v1/service-order-openings/:openingPublicId/confirm`, `POST /api/v1/service-order-openings/:openingPublicId/cancel`, `POST /api/v1/service-order-openings/:openingPublicId/equipment`, `POST /api/v1/service-order-openings/:openingPublicId/equipment/:equipmentPublicId/transfer-ownership`, `GET /api/v1/service-orders`, `GET /api/v1/service-orders/:publicId`, `PATCH /api/v1/service-orders/:publicId/situation`, `PATCH /api/v1/service-orders/:publicId/assignments` e `GET /api/v1/service-orders/:publicId/history`. Criar equipamento durante a abertura deve associá-lo ao cliente selecionado. Divergência entre cliente e proprietário exige resposta explícita: cancelar seleção, abrir para o proprietário cadastrado ou solicitar transferência autorizada; a transferência deve ser auditada. Formato definitivo das rotas, payloads, códigos de erro e persistência da abertura ainda dependem da análise técnica e não ficam aprovados por esta atualização.
 
+### 10.9 Retrato cadastral e correção de vínculos da OS — contrato futuro
+
+Ao confirmar a abertura, a API deverá capturar uma única vez um retrato histórico cadastral parcial, nunca durante a abertura em andamento. O retrato inclui no mínimo nome do cliente e identificação principal do equipamento; quando disponíveis, documento, telefone/e-mail principais, endereço, tipo, marca, modelo, serial e observações/campos principais do equipamento. A captura ocorre junto à confirmação da OS. Reabertura e correção de vínculo não recriam nem substituem o retrato.
+
+O retrato será imutável e consultável no histórico por usuário com permissão para visualizar a OS, identificado como dados cadastrais no momento da abertura. A tela e a impressão padrão devem obter dados atuais dos cadastros vinculados; não se exige aviso automático de divergência e não haverá impressão própria do retrato. O retrato não representa checklist ou recebimento físico.
+
+Após a confirmação, corrigir o cliente ou equipamento vinculado será operação controlada, não uma nova abertura. Exige Administrador ou permissão específica futura sugerida (`os.correct_customer` ou `os.correct_equipment`, conforme o vínculo) e deve registrar obrigatoriamente usuário, data/hora, campo, valor anterior e novo valor. Motivo pode ser exigido por regra futura. A OS conserva o número e o retrato original, enquanto tela e impressão passam a refletir o vínculo/cadastro atual. Rotas, payloads, autorização composta, formato de persistência e atomicidade permanecem sem contrato aprovado; esta regra não aprova endpoint, modelo físico ou migration.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.

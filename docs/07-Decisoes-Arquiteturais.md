@@ -305,6 +305,45 @@ Regras de numeração visível, abertura e titularidade operacional da OS aprova
 
 ---
 
+# DA-022
+
+## Título
+Retrato cadastral histórico e correção de cliente/equipamento da OS.
+
+## Situação
+Aprovada por Marcos em 08/10/2026. Regras funcionais aprovadas; modelo físico, contratos de API e implementação permanecem futuros.
+
+## Contexto
+A OS permanece vinculada aos cadastros atuais de Pessoa e Equipamento, mas precisa preservar como os dados principais estavam quando a abertura foi confirmada. Também é necessário corrigir vínculos após a confirmação sem apagar a origem histórica.
+
+## Problema
+Definir o momento, finalidade e imutabilidade do retrato cadastral; estabelecer quais dados a interface apresenta; e permitir correções posteriores de vínculo com autorização e histórico.
+
+## Decisão adotada
+- Ao confirmar a abertura, gravar uma única vez um retrato histórico cadastral parcial. Não gravá-lo durante a abertura em andamento. Incluir, no mínimo, nome do cliente e identificação principal do equipamento; copiar documento, contatos principais, endereço, tipo, marca, modelo, serial e observações/campos principais do equipamento quando disponíveis.
+- O retrato não é editável, não é recalculado ou substituído por alterações cadastrais, reabertura ou correção posterior do vínculo. Permitir consulta no histórico a usuários com permissão para visualizar a OS, identificando-o como retrato do momento da abertura.
+- Tela e impressão padrão usam os dados atuais dos cadastros vinculados. Não exigir aviso automático de divergência nem oferecer impressão própria do retrato.
+- O retrato cadastral não contém checklist ou recebimento físico: estado, acessórios, senha, avarias e itens ausentes pertencem a fluxo futuro separado.
+- Após a confirmação, corrigir cliente ou equipamento é operação controlada, não nova abertura. Permitir somente a Administrador ou usuário com permissão específica; `os.correct_customer` e `os.correct_equipment` são permissões futuras sugeridas, não catálogo aprovado/implementado.
+- Toda correção preserva número e retrato original, atualiza o vínculo operacional e gera histórico obrigatório com usuário, data/hora, campo e valores anterior/novo. Exigência de motivo depende de regra futura.
+
+## Justificativa
+Preservar evidência histórica da abertura sem tornar dados desatualizados a apresentação operacional, permitindo correção rastreável dos vínculos quando necessário.
+
+## Impactos
+É necessária modelagem futura para persistência imutável do retrato e histórico das correções, além de contratos de API e autorização. Nenhuma tabela, campo, formato de armazenamento, endpoint ou migration está aprovado por esta decisão.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Regras de retrato histórico cadastral e correção controlada de vínculos aprovadas por Marcos em 08/10/2026.
+
+---
+
 # Lacunas da numeração histórica
 
 DA-007 a DA-016 ainda não estão registradas neste documento. Decisões históricas correspondentes, se existirem, precisam ser recuperadas e consolidadas. DA-001 a DA-006 e DA-017 preservam seus identificadores; as lacunas não foram preenchidas nem as decisões existentes renumeradas.
