@@ -29,13 +29,13 @@ Sistema integrado de gestão empresarial.
 Registro principal utilizado para controlar o atendimento técnico de um equipamento. Toda OS confirmada tem número visível sequencial no formato `OS-000001`, gerado durante a abertura antes da confirmação final.
 
 ## Retrato histórico cadastral da OS
-Registro imutável e parcial dos dados principais de Pessoa e Equipamento disponíveis no momento da confirmação da abertura. É preservado para auditoria e consulta histórica; tela e impressão padrão usam os cadastros atuais. Não é checklist de recebimento nem snapshot cadastral completo.
+Registro imutável e parcial dos dados principais de Pessoa e Equipamento disponíveis no momento da confirmação da abertura. No primeiro recorte será armazenado como JSON estruturado próprio da OS, separado dos vínculos atuais, com valores textuais principais, `snapshotVersion: 1` e `capturedAt`. É preservado para auditoria e consulta histórica; tela e impressão padrão usam os cadastros atuais. Não é checklist de recebimento nem snapshot cadastral completo.
 
 ## Correção controlada de vínculo da OS
 Alteração posterior à confirmação do cliente ou equipamento associado à OS, permitida somente a Administrador ou usuário com permissão específica, inclusive em OS FECHADA ou CANCELADA. Mantém o número e o retrato original, não reabre a OS nem altera status, financeiro ou estoque, e gera histórico obrigatório sem exigir motivo. Mudanças devem respeitar a titularidade do equipamento e nunca transferi-la silenciosamente.
 
 ## Abertura em andamento
-Etapa anterior à existência oficial da OS, iniciada com geração/reserva do número visível. Só vira OS oficialmente aberta após confirmação dos dados mínimos obrigatórios: cliente e equipamento.
+Etapa persistida no banco, anterior à existência oficial da OS, iniciada com geração/reserva do número visível. Sobrevive a reinício, não é atendimento ativo e não possui snapshot definitivo. Cada usuário pode ter uma por vez; só vira OS oficialmente aberta após confirmação dos dados mínimos obrigatórios: cliente e equipamento. Não há expiração automática obrigatória no Recorte 1.
 
 ## Número visível da OS
 Identificador sequencial global `OS-` mais seis dígitos, crescente, único e imutável, usado por usuários e clientes para atendimento, impressão, etiqueta, consulta e comunicação. Não se confunde com `id` interno ou `publicId` técnico.

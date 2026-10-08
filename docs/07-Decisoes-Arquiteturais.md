@@ -283,7 +283,7 @@ Definir formato e ciclo do número antes da confirmação, distinguir rascunho d
 
 ## Decisão adotada
 - Toda OS recebe durante a abertura um número visível `OS-` + seis dígitos, global, crescente, único e imutável. É usado em atendimento, impressão, etiqueta, consulta, WhatsApp e comunicação com o cliente; IDs internos/técnicos podem coexistir. Reabertura, cancelamento, fechamento e edição não alteram o número. OS interna recebe número próprio e conserva vínculo com a origem.
-- O número é gerado antes da confirmação. Até salvar cliente e equipamento, há abertura em andamento, não OS oficialmente aberta. Confirmar cria OS ABERTA/TRIAGEM. Cliente e equipamento são os únicos mínimos para confirmação; defeito/reclamação começa vazio e é opcional.
+- O número é gerado antes da confirmação. Até salvar cliente e equipamento, há abertura em andamento, não OS oficialmente aberta. A DA-025 complementa esta decisão: a abertura é persistida, limitada a uma por usuário, retomável após interrupção e sem expiração automática obrigatória no Recorte 1. Confirmar cria OS ABERTA/TRIAGEM. Cliente e equipamento são os únicos mínimos para confirmação; defeito/reclamação começa vazio e é opcional.
 - Se a abertura for abandonada, o número pode ser reaproveitado quando não houver número maior usado. Se houver, registrar ABERTURA CANCELADA para auditoria e nunca reutilizar esse número. Imprimir etiqueta não consome o número definitivamente.
 - O equipamento pode ser existente ou criado na abertura; o novo fica vinculado ao cliente informado. A Pessoa indicada pelo nome é cliente e proprietário operacional do equipamento para aquela OS; não se controla portador/entregador.
 - Se o equipamento existente tiver outro titular, alertar e permitir cancelar a seleção, abrir em nome do titular atual ou transferir ao cliente informado com Administrador ou `equipment.transfer_ownership`. A transferência é explícita, mostra a consequência, identifica o usuário e gera histórico.
@@ -292,7 +292,7 @@ Definir formato e ciclo do número antes da confirmação, distinguir rascunho d
 O número deve estar disponível para o atendimento físico antes de a OS ser confirmada, sem confundir rascunho com atendimento oficial nem permitir mudança silenciosa do titular.
 
 ## Impactos
-A análise de prontidão recomenda controle global de sequência/reservas com concorrência segura, abertura separada da OS confirmada e validação final de titularidade. Isso não aprova tabela, campos, constraints, locking, rotas ou migration. Permanecem para desenho a definição técnica de “número maior usado”, reservas concorrentes, reaproveitamento/auditoria, expiração de aberturas e comportamento após `OS-999999`.
+A análise de prontidão recomenda controle global de sequência/reservas com concorrência segura, abertura separada da OS confirmada e validação final de titularidade. Isso não aprova a estrutura completa da OS, índices, constraints, locking, rotas ou migration. Permanecem para desenho a definição técnica de “número maior usado”, reservas concorrentes, reaproveitamento/auditoria, retenção das aberturas canceladas e comportamento após `OS-999999`. A DA-025 determina que expiração automática não é obrigatória no Recorte 1; eventual limpeza fica para recorte posterior.
 
 ## Data de aprovação
 08/10/2026.
@@ -331,7 +331,7 @@ Definir o momento, finalidade e imutabilidade do retrato cadastral; estabelecer 
 Preservar evidência histórica da abertura sem tornar dados desatualizados a apresentação operacional, permitindo correção rastreável dos vínculos quando necessário.
 
 ## Impactos
-É necessária modelagem futura para persistência imutável do retrato e histórico das correções, além de contratos de API e autorização. Nenhuma tabela, campo, formato de armazenamento, endpoint ou migration está aprovado por esta decisão.
+É necessária implementação futura da entidade OS, persistência imutável do retrato e histórico, além de contratos finais de API e autorização. A DA-024 aprova os campos JSON próprios sugeridos e a estrutura interna inicial do snapshot; isso ainda não cria entidade, schema Prisma ou migration.
 
 ## Data de aprovação
 08/10/2026.
@@ -381,6 +381,92 @@ Marcos.
 
 ## Procedência
 Política complementar de correção administrativa de cliente/equipamento aprovada por Marcos em 08/10/2026.
+
+---
+
+# DA-024
+
+## Título
+Formato estruturado dos snapshots cadastrais da OS.
+
+## Situação
+Aprovada por Marcos em 08/10/2026 para o primeiro recorte. Implementação, entidade OS e migration permanecem futuras.
+
+## Contexto
+A DA-022 aprovou capturar uma única vez um retrato histórico cadastral parcial na confirmação da abertura, mas deixou seu formato físico em aberto.
+
+## Problema
+Preservar valores cadastrais que continuem legíveis e auditáveis sem depender dos registros atuais de Pessoa e Equipamento nem confundir o retrato com os vínculos operacionais.
+
+## Alternativas avaliadas
+- Manter somente referências às entidades atuais e consultar seu histórico.
+- Copiar todos os dados cadastrais em colunas ou tabelas relacionais próprias.
+- Armazenar os dados principais em JSON estruturado próprio da OS, separado dos vínculos atuais.
+
+## Decisão adotada
+- O primeiro recorte armazenará snapshots estruturados em JSON na entidade OS, em campos sugeridos `customerSnapshotJson` e `equipmentSnapshotJson`, separados dos relacionamentos atuais com Pessoa e Equipamento.
+- Cada objeto guardará valores textuais principais suficientes para leitura histórica sem depender de IDs internos. A estrutura incluirá `snapshotVersion: 1` e `capturedAt`.
+- `capturedAt` registra o momento da confirmação da abertura, independentemente do `createdAt` da OS.
+- Os snapshots são gravados uma vez na confirmação, não são editáveis manualmente nem recriados por reabertura, correção de cliente/equipamento ou mudança posterior nos cadastros.
+- O uso de JSON não transforma o retrato em snapshot completo. Tela e impressão padrão usam dados atuais; o retrato serve à consulta histórica/auditoria, sem impressão própria. Checklist/recebimento físico fica fora.
+
+## Justificativa
+JSON versionado permite preservar os valores principais do momento da abertura e evoluir seu formato sem perder a interpretação de retratos antigos, mantendo separados estado cadastral histórico e vínculos operacionais atuais.
+
+## Impactos
+Na implementação, validar campos JSON compatíveis com Prisma/MySQL, capturar os dados de forma consistente na confirmação e impedir sua alteração posterior. Os nomes físicos finais/mapeamento e a entidade OS completa ainda serão definidos no schema e na migration. Não há implementação nesta decisão documental.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Decisões técnicas de snapshot cadastral aprovadas por Marcos em 08/10/2026.
+
+---
+
+# DA-025
+
+## Título
+Abertura de OS persistida e limites do Recorte 1.
+
+## Situação
+Aprovada por Marcos em 08/10/2026 para orientar o primeiro recorte funcional. Modelo físico e contrato de API permanecem futuros.
+
+## Contexto
+O número visível precisa ser reservado antes de existir uma OS oficialmente aberta, e o processo pode ser interrompido por fechamento do navegador ou reinício do computador.
+
+## Problema
+Permitir continuidade e rastreabilidade da abertura sem apresentar rascunhos como atendimento ativo, sem permitir acúmulo indefinido por usuário e sem ampliar o primeiro recorte para fluxos posteriores.
+
+## Alternativas avaliadas
+- Manter a abertura somente no estado local do navegador.
+- Persistir a abertura como fluxo separado da OS confirmada, com iniciador e eventos principais.
+
+## Decisão adotada
+- A abertura em andamento é persistida no banco, sobrevive a interrupções e não é uma OS ativa; ainda não exige cliente/equipamento e não tem snapshot cadastral definitivo.
+- Cada usuário pode ter no máximo uma abertura em andamento. Usuário comum só retoma ou cancela a própria; Administrador ou usuário com a permissão futura sugerida `os.opening.manage` pode retomar/assumir ou cancelar abertura de outra pessoa.
+- Ações de terceiros registram usuário iniciador, usuário responsável, data/hora, número visível e ação. Registram-se eventos principais de criação, retomada/assunção, confirmação e cancelamento; edições temporárias não exigem histórico detalhado.
+- Aberturas em andamento e canceladas não aparecem na listagem comum de OS. As canceladas permanecem disponíveis para consulta administrativa/auditoria ou filtro técnico. Não há expiração automática obrigatória no Recorte 1.
+- A confirmação exige cliente e equipamento, cria OS com status macro ABERTA e situação TRIAGEM e grava os snapshots conforme DA-024.
+- O Recorte 1 também contempla numeração, criação opcional de Equipamento durante a abertura com vínculo ao cliente, decisão explícita de titularidade/transferência autorizada, listagem/consulta de OS confirmadas, mudança livre de situação operacional, atribuições e histórico básico. Correção administrativa após confirmação, fechamento, cancelamento de OS oficial, reabertura, orçamento, serviços, peças, estoque, financeiro, Equipamento comprado/Doado, OS interna automática, checklist, impressão, relatórios de auditoria e frontend completo ficam fora.
+
+## Justificativa
+Persistência permite retomar o processo após interrupção e controlar a numeração, enquanto a separação entre abertura e OS confirmada protege as listagens e os snapshots contra dados provisórios.
+
+## Impactos
+O schema futuro deverá representar aberturas, iniciador, estado, número e eventos, além de garantir uma abertura ativa por usuário e concorrência segura do sequenciador. Os detalhes físicos, índices/constraints, retenção/reuso do número e rotas continuam no plano técnico de `docs/Especificacoes-Nao-Documentadas.md`; esta decisão não cria código, schema ou migration.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Regras de abertura persistida e limites do Recorte 1 aprovadas por Marcos em 08/10/2026.
 
 ---
 
