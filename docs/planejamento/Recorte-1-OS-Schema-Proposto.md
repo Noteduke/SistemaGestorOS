@@ -14,7 +14,19 @@ O schema implementado permanece a fonte do estado atual. Os blocos abaixo são u
 - A intenção de transferir titularidade pode ser salva durante a abertura. A mudança de proprietário e o evento de titularidade ocorrem somente na confirmação.
 - A confirmação cria atomicamente OS, vínculos, snapshots, eventual equipamento, eventual transferência e eventos.
 
-O JSON temporário sugerido para equipamento novo contém somente campos do cadastro: `typePublicId`, `brandPublicId` e `model` obrigatórios, e `serialNumber` opcional. Marca e modelo são obrigatórios pelas regras oficiais. Observações de entrada pertencem à OS/atendimento e são armazenadas em `ServiceOrder.intakeObservations`, fora do cadastro e do snapshot de Equipamento. O proprietário é o cliente escolhido na abertura e não é aceito do corpo do DTO. O conteúdo é validado e versionado antes de ser salvo.
+O JSON temporário sugerido para equipamento novo contém `typePublicId` obrigatório; Marca e Modelo também são obrigatórios, admitindo as opções controladas exibidas como `Não informada` e `Não informado`; o número de série deve ser informado ou marcado `NOT_IDENTIFIED`. A opção de Marca é um registro controlado de `EquipmentBrand`, sem depender de ID numérico fixo no código. Modelo continua textual; ao escolher a opção controlada `Não informado`, persiste o valor normalizado previsto pela regra geral (`NÃO INFORMADO`). Para não guardar um texto fictício como número de série, a proposta mantém `serialNumber` nulo quando não identificado e armazena essa escolha como estado da OS, não como dado permanente do Equipamento. Observações de entrada pertencem à OS/atendimento e ficam em `ServiceOrder.intakeObservations`, fora do cadastro e do snapshot de Equipamento. O proprietário é o cliente escolhido na abertura e não é aceito do corpo do DTO. O conteúdo é validado e versionado antes de ser salvo.
+
+Exemplo de opção “Não identificado” no JSON temporário:
+
+~~~json
+{
+  "typePublicId": "identificador público do tipo",
+  "brandPublicId": "identificador público da marca Não informada",
+  "model": "NÃO INFORMADO",
+  "serialIdentificationStatus": "NOT_IDENTIFIED",
+  "serialNumber": null
+}
+~~~
 
 ## Extensões propostas às entidades existentes
 
@@ -79,6 +91,13 @@ enum ServiceOrderOpeningStatus {
   CANCELED
 
   @@map("service_order_opening_status")
+}
+
+enum SerialIdentificationStatus {
+  IDENTIFIED
+  NOT_IDENTIFIED
+
+  @@map("serial_identification_status")
 }
 
 enum ServiceOrderNumberAllocationStatus {
@@ -190,6 +209,7 @@ model ServiceOrder {
   operationalSituation  ServiceOrderOperationalSituation @default(TRIAGE) @map("operational_situation")
   complaint             String?                          @db.Text
   intakeObservations    String?                          @map("intake_observations") @db.Text
+  newEquipmentSerialIdentificationStatus SerialIdentificationStatus? @map("new_equipment_serial_identification_status")
   customerSnapshotJson  Json                             @map("customer_snapshot_json")
   equipmentSnapshotJson Json                             @map("equipment_snapshot_json")
   snapshotVersion       Int                              @default(1) @map("snapshot_version")
@@ -268,10 +288,13 @@ O schema Prisma representa as chaves, relações e índices convencionais. A mig
 4. Alocação RESERVED, CONFIRMED ou CONSUMED exige opening_id; RELEASED exige opening_id IS NULL.
 5. Evento precisa apontar para pelo menos uma entidade: opening_id ou service_order_id.
 6. A tabela de controle contém somente a linha singleton id = 1.
+7. No JSON de rascunho da abertura, `serialIdentificationStatus = IDENTIFIED` exige `serialNumber` informado; `NOT_IDENTIFIED` exige `serialNumber` nulo. Validar essa regra no DTO/domínio; a proposta não depende de CHECK SQL para inspecionar o JSON.
 
 O unique nullable em activeForUserId permite vários NULL no MySQL e impede duas aberturas ativas para a mesma conta. A CHECK mantém o marcador coerente com estado e iniciador. A aplicação também verifica esse limite e traduz violação de unicidade para conflito de domínio.
 
 As relações entre opening CONFIRMED e ServiceOrder, e entre alocação CONFIRMED e ServiceOrder, são invariantes entre tabelas e não podem ser garantidas por CHECK local. Criar, confirmar e mudar status de alocação na mesma transação, com FKs/uniqueness como garantias complementares.
+
+A correspondência entre `ServiceOrder.newEquipmentSerialIdentificationStatus` e o `serialNumber` da linha `Equipment` criada também cruza tabelas, portanto não pode ser validada por CHECK local no MySQL. Na mesma transação de confirmação, copiar o estado do rascunho para a OS e gravar o serial no Equipamento quando `IDENTIFIED`; para `NOT_IDENTIFIED`, manter `Equipment.serialNumber` nulo. Quando a OS usa equipamento já existente, o campo de estado novo fica nulo.
 
 ## Numeração e JSON na API
 
@@ -288,5 +311,6 @@ As relações entre opening CONFIRMED e ServiceOrder, e entre alocação CONFIRM
 - MySQL não oferece índice único parcial; nullable unique mais CHECK garantem uma abertura por usuário.
 - CHECKs precisam constar na migration SQL e ser cobertas por integração MySQL. Não usar db push como substituto.
 - A migration deverá inserir a linha singleton com id 1, next_number 1, highest_reserved_number 0 e updated_at no instante de criação.
+- O seed/catálogo de Marca deverá garantir idempotentemente a opção controlada `Não informada`. `Não informado` é uma opção controlada do campo textual de Modelo, sem criar catálogo de modelos. Confirmar como identificar esses valores sem depender do ID numérico do seed.
 - Testar a migration em banco MySQL isolado antes de qualquer aplicação no principal.
 - Fechamento, cancelamento oficial, orçamento, inventário, financeiro e OS interna automática ficam fora do comportamento do Recorte 1.

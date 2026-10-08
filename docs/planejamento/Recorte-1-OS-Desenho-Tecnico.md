@@ -73,6 +73,7 @@ Na liberação, a linha permanece `RELEASED`, sem `openingId`; a sequência pode
 | `complaint` (`String?`/`Text?`) | Reclamação temporária, opcional e vazia por padrão. |
 | `equipmentDraftJson` (`Json?`) | Dados temporários de equipamento novo, sem linha em `equipment` enquanto a abertura estiver em andamento. |
 | `equipmentDraftVersion` (`Int?`) | Versão do formato validado dos dados temporários de equipamento. |
+| Dados de identificação no `equipmentDraftJson` | Tipo obrigatório; Marca e Modelo obrigatórios, aceitando as opções controladas exibidas como `Não informada` e `Não informado`; série informada ou marcada `Não identificado`. |
 | `transferRequested` (`Boolean`) | Intenção temporária explícita de transferir titularidade na confirmação; não muda o proprietário durante o rascunho. |
 | `transferRequestedByUserId` (`Int?`) | Usuário que registrou a intenção explícita de transferência. |
 | `transferRequestedAt` (`DateTime(3)?`) | Instante em que a intenção temporária foi registrada. |
@@ -91,6 +92,7 @@ Na liberação, a linha permanece `RELEASED`, sem `openingId`; a sequência pode
 | `macroStatus` | No Recorte 1, único valor gravável: `ABERTA`. |
 | `operationalSituation` | Enum aprovado; inicia `TRIAGEM` e pode mudar para as demais situações operacionais aprovadas. |
 | `intakeObservations` (`Text?`) | Observações de entrada pertencem ao atendimento/OS, não ao cadastro permanente do Equipamento. |
+| `newEquipmentSerialIdentificationStatus` (`Enum?`) | Guarda na OS se a série do equipamento criado na confirmação foi informada ou marcada `NOT_IDENTIFIED`; nulo quando a OS usa equipamento já cadastrado. |
 | `complaint` (`String?`/`Text?`) | Reclamação opcional. |
 | `customerSnapshotJson`, `equipmentSnapshotJson` (`Json`) | Snapshots históricos da confirmação; obrigatórios na OS oficial e imutáveis. |
 | `createdByUserId`, `createdAt`, `updatedAt`, `openedAt` | Autoria e datas geradas pelo servidor. |
