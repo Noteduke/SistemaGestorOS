@@ -118,10 +118,19 @@ Os fluxos de Aviso, inativação/reativação, Equipamento, OS, transferência, 
 
 ## Próximas áreas de modelagem
 
-1. Usuários e permissões diretas por usuário, incluindo auditoria administrativa.
-2. Ordem de Serviço e estrutura de histórico de alterações/eventos para OS, Pessoa, Equipamento e entidades relacionadas; não adotar snapshot cadastral completo por OS.
-3. Estoque por movimentações e compras.
-4. Financeiro e vendas, após detalhamento dos estados e vínculos pendentes.
+### Autenticação e autorização — modelo conceitual aprovado, não implementado
+
+As entidades conceituais previstas são `users`, `permissions`, `user_permissions`, `user_sessions` e um único `admin_audit_log`. Os nomes e relações abaixo não são schema definitivo, não existem no Prisma nem no banco aplicado e dependem de modelagem física e migration futuras.
+
+- `users`: conta do sistema separada de Pessoa, com nome de usuário único para login; criação somente por Administrador, sem auto-registro público. O sistema deve impedir que uma operação deixe zero Administradores ativos.
+- `permissions`: catálogo conceitual de permissões por ação. `user_permissions` associa diretamente usuários às permissões, sem perfis rígidos obrigatórios.
+- `user_sessions`: sessões opacas mantidas no servidor, expiráveis e revogáveis. O banco guarda somente hash do segredo; sessões simultâneas são permitidas e auditadas.
+- `admin_audit_log`: único registro conceitual para eventos administrativos e de segurança.
+- `person_contact_events` poderá ter relação opcional com `users` para identificar o executor, preservando eventos sistêmicos, legados ou anteriores à autenticação. Retenção e comportamento da FK devem ser aprovados antes da migration.
+
+1. Ordem de Serviço e estrutura de histórico de alterações/eventos para OS, Pessoa, Equipamento e entidades relacionadas; não adotar snapshot cadastral completo por OS.
+2. Estoque por movimentações e compras.
+3. Financeiro e vendas, após detalhamento dos estados e vínculos pendentes.
 
 ## Histórico de alterações
 
@@ -134,3 +143,4 @@ Os fluxos de Aviso, inativação/reativação, Equipamento, OS, transferência, 
 | 07/10/2026 | Registro das regras aprovadas de serial, campos obrigatórios, status Ativo/Inativo e ciclo de vida de Tipo de Equipamento/Marca, sem alterar o schema ou migration atuais. |
 | 07/10/2026 | Registro dos catálogos iniciais de Tipo de Equipamento e Marca, normalização de dados, pesquisa, alterações permanentes e vínculo opcional de transferência com OS; schema e migration permanecem inalterados. |
 | 07/10/2026 | Aplicação da migration `20261007120000_person_basic` e atualização do modelo físico de Pessoa básica, mantendo as demais decisões funcionais como evolução futura. |
+| 08/10/2026 | Registro do modelo conceitual aprovado de autenticação/autorização; tabelas, FK opcional de autoria e migration permanecem futuras. |

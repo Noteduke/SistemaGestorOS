@@ -95,6 +95,8 @@ Centralizará:
 - acesso ao banco;
 - APIs.
 
+No aplicativo web, a autenticação aprovada usará sessão opaca mantida no servidor. A autorização por ação será decidida exclusivamente pelo Backend, com Administrador como autoridade máxima e permissões diretas por usuário. Acesso externo permanece proibido até haver 2FA. A decisão está documentada em DA-018; sua implementação ainda não começou.
+
 # 9. Banco de Dados
 
 MySQL 8 utilizando Prisma.

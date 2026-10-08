@@ -43,6 +43,30 @@ Designação operacional de usuário. Não implica conjunto fixo de permissões;
 ## Permissão por usuário/ação
 Autorização atribuída a um usuário para executar uma ação específica, sem depender de perfil rígido.
 
+## Usuário do Sistema
+Conta individual usada para autenticar uma pessoa no Gestor OS. É separada do cadastro de Pessoa usado em operações comerciais. O login usa nome de usuário único; contas são criadas somente por Administrador e não há auto-registro público. A implementação permanece pendente.
+
+## Sessão opaca
+Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. É o modelo aprovado para o aplicativo web; ainda não implementado.
+
+## Log Administrativo
+Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. Estrutura, retenção e acesso ainda serão definidos.
+
+## 2FA
+Autenticação em dois fatores. É obrigatória para acesso externo; acesso externo é proibido até que o 2FA esteja implementado. Método e recuperação do segundo fator permanecem pendentes.
+
+## Acesso interno
+Acesso dentro da fronteira interna que vier a ser documentada e aprovada. A fronteira e a forma de identificação ainda não estão definidas; não presumir confiança em IP, headers ou proxies.
+
+## Acesso externo
+Acesso fora da fronteira interna aprovada. É proibido até que 2FA esteja implementado.
+
+## Guard
+Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards ainda não foram implementados no projeto.
+
+## Rota pública
+Rota explicitamente marcada para não exigir sessão autenticada, limitada às rotas públicas aprovadas. Ausência de metadados não torna uma rota pública; rotas de negócio protegidas devem falhar fechadas.
+
 ## Fornecedor
 Pessoa física ou jurídica que fornece produtos ou serviços ao Gestor OS.
 

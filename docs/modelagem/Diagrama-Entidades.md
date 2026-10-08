@@ -108,6 +108,21 @@ erDiagram
   }
 ```
 
+## Modelo conceitual futuro de autenticação e autorização
+
+O diagrama abaixo representa somente o desenho conceitual aprovado em 08/10/2026. `USER`, `PERMISSION`, `USER_PERMISSION`, `USER_SESSION` e `ADMIN_AUDIT_LOG` não existem no schema Prisma nem no banco aplicado. Não é modelo físico definitivo e não autoriza migration nesta etapa. A ligação de `PERSON_CONTACT_EVENT` ao usuário executor é opcional e depende de decisão sobre retenção e comportamento da FK.
+
+```mermaid
+erDiagram
+  USER ||--o{ USER_PERMISSION : receives
+  PERMISSION ||--o{ USER_PERMISSION : grants
+  USER ||--o{ USER_SESSION : opens
+  USER o|--o{ ADMIN_AUDIT_LOG : actor
+  USER o|--o{ PERSON_CONTACT_EVENT : "optional executor"
+```
+
+O nome de usuário será único; Administrador cria contas e não há auto-registro. Sessões são opacas, revogáveis e expiráveis; apenas o hash do segredo será persistido. Permissões são diretas por usuário, sem perfis rígidos; Administrador é a autoridade máxima. O Log Administrativo é único para eventos administrativos e de segurança. Esses atributos são decisões conceituais, não colunas ou constraints aprovadas.
+
 ## Observações
 
 - O diagrama mostra relações e restrições principais; os campos completos estão em `docs/modelagem/Modelo-Banco.md` e `backend/prisma/schema.prisma`.
@@ -136,6 +151,7 @@ erDiagram
 - `document` é opcional e unique no modelo físico. A API básica valida CPF numérico e CNPJ numérico ou alfanumérico oficial, normaliza o valor canônico, confere compatibilidade com PF/PJ e bloqueia duplicidade. `VARCHAR(14)` comporta os 14 caracteres do CNPJ. A coluna por si só não impõe cálculo dos dígitos, normalização ou compatibilidade; essas validações são realizadas no Backend.
 - Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
 - As migrations inicial, de Pessoa básica e de contatos foram aplicadas. As demais decisões funcionais descritas neste documento continuam pendentes.
+- O desenho conceitual de Auth aprovado não representa tabelas implementadas; as sete rotas de Pessoas permanecem sem proteção e não estão prontas para produção.
 
 ## Histórico de alterações
 
@@ -150,3 +166,4 @@ erDiagram
 | 08/10/2026 | Registro da decisão de documento: CPF numérico; CNPJ numérico antigo ou alfanumérico oficial, canônico sem pontuação e em maiúsculas; schema/migration permanecem inalterados naquela atualização documental. |
 | 07/10/2026 | Registro do recorte de contatos aplicado, incluindo eventos mínimos e índices de principalidade. |
 | 08/10/2026 | Registro do contrato técnico final aprovado para contatos, histórico mínimo e integridade futura, sem alterar o diagrama físico aplicado. |
+| 08/10/2026 | Inclusão do diagrama conceitual futuro de autenticação/autorização, separado do modelo físico implementado. |

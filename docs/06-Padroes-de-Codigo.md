@@ -94,3 +94,13 @@ Seeds de catálogos iniciais serão idempotentes e executados por comando contro
 ## 12.2 Contatos de Pessoa — persistência implementada
 
 Os services de domínio persistem inclusão de telefone/e-mail, eventual troca de principal e eventos mínimos de `person_contact_events` na mesma transação Prisma; falha no histórico cancela toda a operação. Índices funcionais únicos customizados no MySQL garantem principalidade única por coleção e foram aplicados pela migration `20261007183000_person_contacts`, validada em MySQL 8.0.46 e Prisma 7.10.0. O SQL customizado permanece versionado na migration. SQL raw excepcional no runtime, se necessário para bloqueio concorrente, continuará parametrizado e acessado através do Prisma, conforme a fronteira desta seção. A autenticação, os guards e a autorização ainda não foram implementados. A tabela de eventos não tem CHECK para coerência do tipo com a FK; o service deve manter essa regra.
+
+# 13. Autenticação e autorização — padrões previstos
+
+- A autenticação será centralizada em guard global. Rotas públicas deverão ser marcadas explicitamente; rota de negócio é protegida por padrão.
+- Autorização usará metadados/decorators para declarar a permissão exigida e um guard para verificá-la. Rota protegida sem política declarada deve falhar fechada; ausência de permissão nega acesso.
+- Um serviço central de política/permissões concentra a decisão de autorização. Não espalhar verificações ad hoc nem duplicar regras em controllers, services ou Frontend. Services ainda validam invariantes de domínio e autorização dependente do recurso quando necessário.
+- A identidade usada em cada requisição deve vir da sessão autenticada e validada pelo Backend, nunca de um identificador de usuário fornecido livremente pelo cliente.
+- Sessões serão opacas e mantidas no servidor. O cookie leva apenas o segredo; somente seu hash pode ser persistido. JWT/OIDC não fazem parte do recorte atual.
+- O Log Administrativo será único para eventos administrativos e de segurança. Segredos de sessão, senhas e material de autenticação não devem ser registrados.
+- Estes são padrões aprovados para orientar o desenho; não indicam que Auth, guards ou tabelas já existam. CSRF, ciclo detalhado de sessão, recuperação e políticas de log devem ser definidos antes da implementação.

@@ -209,7 +209,32 @@ O sistema deverá permitir clonagem de:
 
 Novos módulos poderão aderir à clonagem futuramente.
 
-# 11. Evolução
+# 12. Usuários, autenticação e autorização
+
+Usuários do Sistema Gestor OS são contas distintas dos cadastros de Pessoa. O identificador de login será um nome de usuário único; e-mail de contato de Pessoa não é identificador obrigatório de login, pois pode ser compartilhado. Contas serão criadas somente por Administrador, sem auto-registro público. O primeiro Administrador será criado uma única vez, na implantação inicial, por procedimento controlado interno, cuja especificação deverá ser documentada antes da implementação. O sistema não pode permitir uma operação que deixe zero Administradores ativos.
+
+A autenticação do aplicativo web usará sessão opaca mantida no servidor. O cookie contém somente o segredo opaco; o banco deverá armazenar somente o hash desse segredo. JWT e provedor externo OIDC ficam fora do recorte atual. Sessões expiram e podem ser revogadas; sessões simultâneas são permitidas e auditadas. Cookies devem usar `HttpOnly`, `Secure` em ambiente HTTPS e política `SameSite` adequada. A proteção contra CSRF deve ser definida antes da implementação final.
+
+O acesso externo é proibido até que 2FA esteja implementado. O primeiro recorte de autenticação pode operar somente em ambiente considerado interno. Não se presumirá confiança em IPs, headers ou proxies: a fronteira de rede deve ser documentada e aprovada. Método e recuperação do segundo fator continuam pendentes.
+
+Cinco falhas consecutivas de senha geram registro e notificação administrativa, sem bloquear a conta por essa regra. Um login bem-sucedido zera a sequência. Destinatários, frequência de notificação e parâmetros de limitação de tentativas devem ser definidos antes da implementação; tais parâmetros não podem converter essa regra em bloqueio da conta.
+
+Administrador é a autoridade máxima. As permissões são granulares e atribuídas diretamente por usuário/ação, sem papel “Master” nem perfis rígidos obrigatórios para Técnico ou Usuário comum. O Backend é a autoridade final; ausência de permissão nega acesso, e uma rota protegida sem política explícita deve falhar fechada. O Frontend pode refletir permissões, como ocultar ações indisponíveis, mas não decide autorização.
+
+Catálogo inicial aprovado para o primeiro desenho:
+
+- Pessoas: `people.read`, `people.create`, `people.update`, `people.inactivate`, `people.reactivate`.
+- Contatos: `people.contacts.read`, `people.contacts.add`.
+- Avisos: `people.notice.create`, `people.notice.update`, `people.notice.delete`.
+- Histórico: `people.history.read.operational`, `people.history.read.sensitive`.
+- Equipamentos: `equipment.read`, `equipment.create`, `equipment.update`, `equipment.inactivate`, `equipment.reactivate`, `equipment.delete_unlinked`, `equipment.transfer_ownership`.
+- Usuários: `users.read`, `users.create`, `users.update`, `users.permissions.grant`, `users.permissions.revoke`.
+
+OS, Estoque e Financeiro terão permissões próprias; sua matriz não está fechada nesta etapa. O Log Administrativo será o único conceito de log para eventos administrativos e de segurança. Deve registrar, no mínimo, tentativas e falhas de login, login bem-sucedido, logout, revogação de sessão, criação/alteração/inativação de usuários, concessão/revogação de permissões e alterações administrativas relevantes.
+
+Os eventos de `person_contact_events` deverão poder referenciar opcionalmente o usuário executor, preservando eventos sistêmicos, legados ou anteriores à autenticação. Retenção e comportamento da chave estrangeira devem ser definidos antes da migration. As sete rotas atuais de Pessoa e contatos deverão exigir autenticação e autorização no primeiro recorte de implementação de Auth; permanecem impróprias para produção enquanto não forem protegidas.
+
+# 13. Evolução
 
 Este documento crescerá continuamente durante o desenvolvimento do projeto.
 

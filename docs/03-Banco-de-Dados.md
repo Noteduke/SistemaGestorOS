@@ -76,7 +76,7 @@ O recorte físico atual inclui pessoas, papéis, telefones, e-mails, eventos de 
 
 O schema Prisma foi validado pelo Prisma. As migrations `20261006120000_initial_core`, `20261007120000_person_basic` e `20261007183000_person_contacts` foram aplicadas no MySQL Community Server 8.0.46; `prisma migrate status` confirmou o banco atualizado, sem migrations pendentes. A terceira migration acrescentou identificadores públicos de contato, unicidade de e-mail por Pessoa, unicidade funcional de principalidade por coleção e a tabela de eventos de contato. O Prisma Migrate controla o histórico pela tabela administrativa `_prisma_migrations`. O Backend valida CPF numérico e CNPJ numérico ou alfanumérico, normaliza e verifica unicidade do documento informado. A transferência de titularidade e o histórico geral permanecem para etapas futuras.
 
-Permanecem para etapas seguintes: usuário e permissões, estrutura de histórico/auditoria, OS e seu histórico de alterações/movimentações, estoque, compras, vendas e financeiro. Não se adotará snapshot completo de Pessoa/Equipamento em cada OS. Regras que constam em `docs/Especificacoes-Nao-Documentadas.md` não devem ser presumidas durante a modelagem.
+Permanecem para etapas seguintes a implementação física de usuários e permissões (cujo desenho conceitual foi aprovado), o Log Administrativo, OS e seu histórico de alterações/movimentações, estoque, compras, vendas e financeiro. Não se adotará snapshot completo de Pessoa/Equipamento em cada OS. Regras que constam em `docs/Especificacoes-Nao-Documentadas.md` não devem ser presumidas durante a modelagem.
 
 ## 10.1 Cadastros: recorte de Pessoa básica aplicado e evolução pendente
 
@@ -163,6 +163,18 @@ O mesmo e-mail normalizado é bloqueado na mesma Pessoa pela unicidade composta 
 
 Cada inclusão bem-sucedida gera evento de criação; mudança efetiva de principal gera evento adicional, inclusive de nenhum para o primeiro principal. Contato, eventual desmarcação anterior e eventos são persistidos atomicamente; falha no histórico cancela a operação. Não há usuário fictício nem rota pública de histórico. Este histórico mínimo não substitui o histórico geral definitivo, cuja estrutura permanece pendente.
 
+
+# 10.8 Autenticação e autorização — modelo conceitual aprovado, não implementado
+
+O desenho conceitual prevê `users`, `permissions`, `user_permissions`, `user_sessions` e um único `admin_audit_log` para eventos administrativos e de segurança. Esses nomes representam entidades previstas, não tabelas existentes nem um schema definitivo. Não há migration, modelo Prisma ou alteração no banco para Auth nesta etapa.
+
+Usuários terão nome de usuário único para login, serão criados somente por Administrador e não terão auto-registro público. O primeiro Administrador será provisionado por procedimento controlado interno na implantação inicial. Uma operação que deixe o sistema sem Administrador ativo deve ser bloqueada. A sessão será opaca e mantida no servidor; somente o hash do segredo poderá ser persistido. Sessões terão expiração e revogação, e sessões simultâneas serão permitidas e auditadas. JWT e OIDC ficam fora do recorte atual.
+
+O Log Administrativo único deverá registrar eventos de segurança e administração, incluindo tentativas/falhas e sucesso de login, logout, revogação de sessão, alterações de usuários e concessões/revogações de permissões. Retenção, campos, acesso, integridade e política de exclusão ainda precisam de especificação.
+
+`person_contact_events` deverá aceitar referência opcional ao usuário executor. Essa relação precisa preservar eventos sistêmicos, legados ou anteriores à autenticação. A regra de retenção e o comportamento da FK em exclusão/inativação de usuário permanecem pendentes e devem ser decididos antes da migration.
+
+O acesso externo permanece proibido até a implementação de 2FA; o primeiro recorte pressupõe uso somente interno. A fronteira de rede, o método e a recuperação do segundo fator ainda não foram definidos. O desenho de autenticação não está implementado: o banco aplicado continua sem tabelas de usuários, permissões, sessões ou Log Administrativo.
 
 # 11. Evolução
 

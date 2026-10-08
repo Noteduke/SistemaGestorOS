@@ -22,9 +22,21 @@ A API deverá suportar versionamento (ex.: /api/v1).
 # 4. Autenticação
 
 Será centralizada no backend.
-Os detalhes serão definidos no documento de Segurança.
+O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. JWT e OIDC ficam fora do recorte atual. O acesso externo é proibido até 2FA estar implementado. Detalhes de contrato de login, logout e consulta da sessão atual serão definidos antes da implementação.
 
-O primeiro recorte técnico de Pessoas ainda não possui autenticação nem guards. Suas rotas não estão prontas para exposição operacional ou produção. Autenticação e autorização por usuário/ação deverão ser implementadas antes dessa exposição.
+As rotas atuais de Pessoas não possuem autenticação nem guards e não estão prontas para exposição operacional ou produção. No primeiro recorte de Auth, todas exigirão autenticação e autorização por ação. Ausência de permissão nega acesso; uma rota protegida sem política explícita deve falhar fechada. O Backend decide autorização. O Frontend não concede acesso nem substitui essa verificação.
+
+| Rota atual | Política inicial prevista |
+| --- | --- |
+| `POST /api/v1/people` | `people.create` |
+| `GET /api/v1/people` | `people.read` |
+| `GET /api/v1/people/:publicId` | `people.read` |
+| `POST /api/v1/people/:publicId/phones` | `people.contacts.add` |
+| `GET /api/v1/people/:publicId/phones` | `people.contacts.read` |
+| `POST /api/v1/people/:publicId/emails` | `people.contacts.add` |
+| `GET /api/v1/people/:publicId/emails` | `people.contacts.read` |
+
+Rotas futuras de autenticação, como login, logout e consulta da sessão atual, ainda não têm caminhos nem contratos aprovados. Rotas públicas deverão ser explicitamente identificadas; não se presume pública nenhuma rota de negócio.
 
 # 5. Padrão de Endpoints
 
