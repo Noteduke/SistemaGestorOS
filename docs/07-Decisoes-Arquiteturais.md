@@ -325,7 +325,7 @@ Definir o momento, finalidade e imutabilidade do retrato cadastral; estabelecer 
 - Tela e impressão padrão usam os dados atuais dos cadastros vinculados. Não exigir aviso automático de divergência nem oferecer impressão própria do retrato.
 - O retrato cadastral não contém checklist ou recebimento físico: estado, acessórios, senha, avarias e itens ausentes pertencem a fluxo futuro separado.
 - Após a confirmação, corrigir cliente ou equipamento é operação controlada, não nova abertura. Permitir somente a Administrador ou usuário com permissão específica; `os.correct_customer` e `os.correct_equipment` são permissões futuras sugeridas, não catálogo aprovado/implementado.
-- Toda correção preserva número e retrato original, atualiza o vínculo operacional e gera histórico obrigatório com usuário, data/hora, campo e valores anterior/novo. Exigência de motivo depende de regra futura.
+- Toda correção preserva número e retrato original, atualiza o vínculo operacional e gera histórico obrigatório com usuário, data/hora, campo e valores anterior/novo. Motivo não é obrigatório; poderá existir futuramente como campo opcional, conforme complemento da DA-023.
 
 ## Justificativa
 Preservar evidência histórica da abertura sem tornar dados desatualizados a apresentação operacional, permitindo correção rastreável dos vínculos quando necessário.
@@ -341,6 +341,46 @@ Marcos.
 
 ## Procedência
 Regras de retrato histórico cadastral e correção controlada de vínculos aprovadas por Marcos em 08/10/2026.
+
+---
+
+# DA-023
+
+## Título
+Política administrativa para correção de cliente e equipamento vinculados à OS.
+
+## Situação
+Aprovada por Marcos em 08/10/2026 como complemento da DA-022. Regras funcionais aprovadas; API, modelo físico e implementação continuam futuros.
+
+## Contexto
+A DA-022 permitiu correção controlada dos vínculos de cliente/equipamento após a confirmação, com histórico obrigatório. Faltavam definir o motivo, estados macro permitidos, efeitos financeiros/estoque e como a correção interage com a titularidade atual do equipamento.
+
+## Problema
+Evitar que uma correção administrativa reabra a OS, modifique registros financeiros ou transfira titularidade silenciosamente, sem restringir a correção a OS abertas.
+
+## Decisão adotada
+- Correção de vínculo não exige motivo obrigatório; um campo de motivo poderá ser opcional no futuro. Histórico é obrigatório e registra usuário, data/hora, campo e valores anterior/novo.
+- Administrador ou usuário com permissão específica pode corrigir cliente/equipamento mesmo com a OS FECHADA ou CANCELADA. A correção não reabre a OS nem altera status macro, número ou retrato cadastral histórico.
+- A correção não altera faturamento, cobrança, pagamento ou estoque, mesmo quando existam registros financeiros vinculados. Ajustes financeiros necessários são operações próprias, com regras e histórico próprios.
+- Ao corrigir equipamento, se houver divergência entre proprietário atual e cliente da OS, alertar e exigir escolha explícita entre cancelar, corrigir também o cliente (com permissão) ou transferir a titularidade (Administrador ou `equipment.transfer_ownership`).
+- Ao corrigir o cliente, se o equipamento continuar vinculado ao cliente anterior, exigir decisão explícita sobre transferência. Sem autorização ou aceite da transferência necessária, cancelar a correção. Nunca transferir titularidade silenciosamente.
+- Uma operação pode corrigir cliente e equipamento em conjunto, desde que toda autorização e titularidade sejam validadas. A operação é atômica e registra cada campo alterado no histórico.
+- Não é obrigatório gerar alerta automático no painel do Administrador. Relatórios/filtros de auditoria podem ser considerados futuramente.
+
+## Justificativa
+Permitir ajuste rastreável dos vínculos sem alterar o ciclo de vida da OS nem produzir efeitos colaterais financeiros, de estoque ou titularidade não confirmados.
+
+## Impactos
+Contratos de API e modelo físico deverão preservar histórico e atomicidade, validar as permissões aplicáveis e respeitar a titularidade. Nenhum endpoint, tabela, campo ou migration está aprovado por esta decisão.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Política complementar de correção administrativa de cliente/equipamento aprovada por Marcos em 08/10/2026.
 
 ---
 

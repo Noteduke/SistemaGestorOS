@@ -32,7 +32,7 @@ Registro principal utilizado para controlar o atendimento técnico de um equipam
 Registro imutável e parcial dos dados principais de Pessoa e Equipamento disponíveis no momento da confirmação da abertura. É preservado para auditoria e consulta histórica; tela e impressão padrão usam os cadastros atuais. Não é checklist de recebimento nem snapshot cadastral completo.
 
 ## Correção controlada de vínculo da OS
-Alteração posterior à confirmação do cliente ou equipamento associado à OS, permitida somente a Administrador ou usuário com permissão específica. Mantém o número e o retrato original da OS, atualiza os dados operacionais correntes e gera histórico obrigatório.
+Alteração posterior à confirmação do cliente ou equipamento associado à OS, permitida somente a Administrador ou usuário com permissão específica, inclusive em OS FECHADA ou CANCELADA. Mantém o número e o retrato original, não reabre a OS nem altera status, financeiro ou estoque, e gera histórico obrigatório sem exigir motivo. Mudanças devem respeitar a titularidade do equipamento e nunca transferi-la silenciosamente.
 
 ## Abertura em andamento
 Etapa anterior à existência oficial da OS, iniciada com geração/reserva do número visível. Só vira OS oficialmente aberta após confirmação dos dados mínimos obrigatórios: cliente e equipamento.
