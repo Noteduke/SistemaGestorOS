@@ -146,13 +146,19 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 Item controlado em estoque e comercializado.
 
 ## Peça ORÇADA
-Peça incluída no orçamento da OS. Sua inclusão no orçamento não altera, por si só, a disponibilidade do estoque.
+Lançamento de peça em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça em estoque ou previsão de compra, de estoque ou avulsa. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico.
 
 ## Peça UTILIZADA
-Peça que um usuário autorizado marcou como utilizada na OS. A transição a partir de ORÇADA registra data, usuário, OS e peça no histórico e torna a peça indisponível para outra OS ou venda.
+Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
+
+## Peça DISPONÍVEL
+Peça parada no estoque, sem previsão de uso.
+
+## Peça BAIXADA
+Peça cuja baixa definitiva ocorre automaticamente quando a OS é encerrada; não está mais na empresa e representa consumo/venda na OS. Peças ORÇADAS não são baixadas no encerramento.
 
 ## Pendência de conferência de estoque
-Registro exigido quando uma peça UTILIZADA não foi usada ou quando o serviço/OS foi cancelado, desfeito ou recusado. O técnico pode informar a não utilização; somente um Administrador confirma manualmente o retorno da peça à disponibilidade. A confirmação não é automática.
+Registro criado quando peça UTILIZADA não foi usada, foi removida da OS ou quando o serviço/OS foi cancelado, desfeito ou recusado. Não libera a peça automaticamente. Administrador ou usuário com permissão futura `stock.pending_review.resolve` pode resolver, confirmando DISPONÍVEL, mantendo UTILIZADA ou marcando BAIXADA por motivo administrativo. Usuário operacional pode informar a não utilização, mas não resolver sozinho. Pendência aberta bloqueia o encerramento da OS.
 
 ## Serviço
 Atividade executada pela empresa, não representando item de estoque.

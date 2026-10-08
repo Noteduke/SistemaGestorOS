@@ -107,7 +107,9 @@ O Frontend continua não implementado. Quando criado, deverá obter o token pré
 
 ### 10.7 Peças em Ordem de Serviço — interface futura
 
-Na futura interface de OS, usuários autorizados poderão mudar uma peça de ORÇADA para UTILIZADA. A interface deve refletir a indisponibilidade da peça para outra OS ou venda e apresentar a pendência de conferência quando houver cancelamento, desfazimento, recusa ou informação de não utilização. O técnico pode registrar que a peça não foi usada; apenas Administrador pode confirmar seu retorno à disponibilidade. A interface não deve liberar estoque por conta própria. Nenhuma tela desse fluxo está implementada.
+Na futura interface de OS, DISPONÍVEL, ORÇADA, UTILIZADA e BAIXADA devem ser apresentados com seus efeitos distintos: ORÇADA não afeta estoque; UTILIZADA fica indisponível para outra OS/venda, mas não é baixa definitiva; BAIXADA é definitiva no encerramento. Usuários autorizados na OS podem mudar ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Recusa/cancelamento de lançamento ainda ORÇADO não movimenta estoque e preserva o histórico do lançamento.
+
+A interface deve sinalizar pendências para peças UTILIZADAS que não foram usadas, foram removidas ou cuja OS/serviço foi cancelado, desfeito ou recusado. Usuário operacional pode reportar a não utilização; somente Administrador ou usuário autorizado pela permissão futura `stock.pending_review.resolve` pode resolver, escolhendo DISPONÍVEL, manter UTILIZADA ou BAIXADA por motivo administrativo. Não deve haver liberação automática. O encerramento da OS deve baixar as peças UTILIZADAS e ficar bloqueado enquanto houver pendência aberta. Uma tela/painel de conferência e o fluxo visual ainda não estão implementados.
 
 # 11. Evolução
 

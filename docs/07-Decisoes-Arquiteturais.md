@@ -140,10 +140,10 @@ Conversa original do projeto; o conteúdo conceitual da decisão foi confirmado 
 Autenticação e autorização do aplicativo web.
 
 ## Situação
-Aprovada em 08/10/2026. Primeiro recorte implementado no Backend, ainda não versionado. Migration aplicada no banco principal, seed de 24 permissões executado, bootstrap local concluído e testes HTTP autenticados principais aprovados. Auth permanece limitado a uso local/interno; não está liberado para produção ou acesso externo.
+Aprovada em 08/10/2026. Primeiro recorte implementado no Backend, já versionado localmente, ainda não enviado a origin. Migration aplicada no banco principal, seed de 24 permissões executado, bootstrap local concluído e testes HTTP autenticados principais aprovados. Auth permanece limitado a uso local/interno; não está liberado para produção ou acesso externo.
 
 ## Contexto
-O Backend NestJS possui o primeiro recorte de autenticação, guards e autorização por usuário/ação, incluindo proteção das sete rotas de Pessoas. A implementação ainda não foi versionada. A migration de Auth foi aplicada no banco principal e o seed de 24 permissões passou duas vezes. O bootstrap local criou um Administrador ativo; os principais testes HTTP autenticados confirmaram login, identidade pública, acesso Admin paginado, CSRF e logout. A segunda execução do bootstrap aborta antes de solicitar credenciais se já há Administrador ativo.
+O Backend NestJS possui o primeiro recorte de autenticação, guards e autorização por usuário/ação, incluindo proteção das sete rotas de Pessoas. A implementação já foi versionada localmente, ainda não publicada. A migration de Auth foi aplicada no banco principal e o seed de 24 permissões passou duas vezes. O bootstrap local criou um Administrador ativo; os principais testes HTTP autenticados confirmaram login, identidade pública, acesso Admin paginado, CSRF e logout. A segunda execução do bootstrap aborta antes de solicitar credenciais se já há Administrador ativo.
 
 ## Problema
 Definir uma base de autenticação e autorização compatível com as regras de usuários, sessões, auditoria e evolução dos módulos, sem transformar designações operacionais em perfis rígidos nem confiar a segurança ao Frontend.
