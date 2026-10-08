@@ -17,6 +17,12 @@ Foi consultado o [portal oficial de desenvolvedores dos Correios](https://www.co
 
 O portal informa que o acesso às APIs é feito por chave de acesso concedida por cliente com contrato. Também informa que a consulta de rastreamento pela API Rastro está restrita a objetos vinculados ao contrato do remetente. Para obter token de API, o manual dos Correios descreve autenticação no serviço de token; o manual específico pode ser consultado em [Manual de uso da API Token](https://www.correios.com.br/atendimento/developers/manuais/manual-uso-da-api-token). Portanto, será necessário contrato/credencial autorizada para o fluxo oficial avaliado. Não foram testadas credenciais nem chamadas de produção.
 
+### Portal público de rastreamento
+
+Também foi inspecionada a [página pública de rastreamento](https://rastreamento.correios.com.br/app/index.php). O formulário aceita CPF/CNPJ ou até 20 códigos de rastreamento e apresenta um CAPTCHA obrigatório antes do botão **Consultar**. A página pública permite que uma pessoa consulte eventos depois de preencher o formulário, mas a barreira CAPTCHA impede tratar o fluxo como uma fonte de consulta automatizada confiável. Não foi submetido formulário nem tentado resolver ou contornar o CAPTCHA; nenhum código de rastreio foi fornecido para esta análise.
+
+Conclusão sobre extração: os eventos podem ser vistos no portal após uma consulta humana, mas não foi verificado um endpoint público estável nem um formato de resposta automatizável por trás do formulário. Fazer scraping da página não é recomendado como integração do sistema; além do CAPTCHA, o HTML e o comportamento do site podem mudar. Para consulta automática, usar a API Rastro oficial com autorização e credenciais, conforme o caminho técnico abaixo.
+
 ### Caminho técnico identificado
 
 O manual documenta a API Rastro com base de homologação `https://apihom.correios.com.br/srorastro` e operação `GET /v1/objetos/{codigoObjeto}`. O exemplo do manual acrescenta `?resultado=T` e envia `Accept: application/json` e `Authorization: Bearer <token>`. O host de produção e os escopos efetivamente liberados devem ser confirmados no catálogo CWS para a conta/contrato que será usada.
