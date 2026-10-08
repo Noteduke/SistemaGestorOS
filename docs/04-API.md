@@ -22,7 +22,7 @@ A API deverá suportar versionamento (ex.: /api/v1).
 # 4. Autenticação
 
 Será centralizada no backend.
-O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. A sessão expira após 8 horas, atualiza `last_used_at` a cada uso relevante e pode ser revogada. Logout revoga somente a sessão atual. JWT e OIDC ficam fora do recorte atual. O sistema é considerado de uso interno neste momento; acesso externo é proibido até 2FA implementado e regra de rede confiável documentada/aprovada.
+O modelo aprovado para o aplicativo web é sessão opaca mantida no servidor; o cookie contém apenas o segredo opaco, e o banco deverá armazenar somente seu hash. A sessão expira após 8 horas de inatividade: cada requisição autenticada válida atualiza `last_used_at` e renova o prazo a partir do último uso. Não há limite absoluto no primeiro recorte. Logout revoga somente a sessão atual. JWT e OIDC ficam fora do recorte atual. O sistema é considerado somente de uso interno e o Backend não está pronto para exposição externa operacional; não se deve confiar em `X-Forwarded-For`, headers de proxy, IP público ou origem informada por cabeçalhos. Acesso externo é proibido até 2FA e fronteira confiável estarem implementados. Proxy reverso, VPN, túnel ou publicação externa futura exige nova decisão documental.
 
 Como a autenticação usa cookie, métodos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão exigir proteção CSRF. Requisições `GET` não exigem token CSRF. A forma técnica ainda será definida durante a implementação.
 

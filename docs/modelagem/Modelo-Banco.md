@@ -124,7 +124,7 @@ As entidades conceituais previstas são `users`, `permissions`, `user_permission
 
 - `users`: conta do sistema separada de Pessoa, com nome de usuário único para login e senha armazenada por hash Argon2id; criação somente por Administrador, sem auto-registro público. Usuários são inativados, não excluídos fisicamente. O sistema deve impedir que uma operação deixe zero Administradores ativos.
 - `permissions`: catálogo conceitual de permissões por ação. `user_permissions` associa diretamente usuários às permissões, sem perfis rígidos obrigatórios.
-- `user_sessions`: sessões opacas mantidas no servidor e com duração de 8 horas. O banco guarda somente hash do segredo, expiração, revogação e `last_used_at`, atualizado a cada uso relevante; sessões simultâneas são permitidas e auditadas. Logout revoga apenas a sessão atual.
+- `user_sessions`: sessões opacas mantidas no servidor e com timeout de 8 horas por inatividade. Cada requisição autenticada válida atualiza `last_used_at` e renova o prazo a partir do último uso; não há limite absoluto no primeiro recorte. O banco guarda somente hash do segredo, controle de expiração e revogação; sessões simultâneas são permitidas e auditadas. Logout revoga apenas a sessão atual.
 - `admin_audit_log`: único registro conceitual para eventos administrativos e de segurança, com retenção inicialmente indefinida e sem exclusão automática neste primeiro desenho.
 - `person_contact_events` poderá ter relação opcional com `users` para identificar o executor, preservando eventos sistêmicos, legados ou anteriores à autenticação. Usuários não devem ser excluídos fisicamente; se exclusão vier a existir, a preferência é FK equivalente a `ON DELETE SET NULL`, preservando o evento. Essa FK depende de migration futura.
 

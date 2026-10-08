@@ -95,7 +95,7 @@ Centralizará:
 - acesso ao banco;
 - APIs.
 
-No aplicativo web, a autenticação aprovada usará sessão opaca mantida no servidor. A autorização por ação será decidida exclusivamente pelo Backend, com Administrador como autoridade máxima e permissões diretas por usuário. Neste momento o sistema é considerado de uso interno; acesso externo permanece proibido até haver 2FA implementado e regra confiável de rede documentada/aprovada. A decisão está documentada em DA-018; sua implementação ainda não começou.
+No aplicativo web, a autenticação aprovada usará sessão opaca mantida no servidor, com timeout de oito horas por inatividade renovado a cada requisição autenticada válida e sem limite absoluto no primeiro recorte. A autorização por ação será decidida exclusivamente pelo Backend, com Administrador como autoridade máxima e permissões diretas por usuário. Neste momento o sistema é considerado somente de uso interno e não está pronto para exposição externa operacional. Até haver 2FA e fronteira confiável implementados, não se deve classificar origem por IP, `X-Forwarded-For` ou outros headers de proxy. Qualquer proxy, VPN, túnel ou publicação externa exigirá nova decisão documental. A decisão está documentada em DA-018; sua implementação ainda não começou.
 
 # 9. Banco de Dados
 

@@ -47,19 +47,19 @@ Autorização atribuída a um usuário para executar uma ação específica, sem
 Conta individual usada para autenticar uma pessoa no Gestor OS. É separada do cadastro de Pessoa usado em operações comerciais. O login usa nome de usuário único; contas são criadas somente por Administrador e não há auto-registro público. A implementação permanece pendente.
 
 ## Sessão opaca
-Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. Expira após 8 horas; `last_used_at` é atualizado a cada uso relevante. É o modelo aprovado para o aplicativo web; ainda não implementado.
+Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. Expira após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`; não há limite absoluto no primeiro recorte. É o modelo aprovado para o aplicativo web; ainda não implementado.
 
 ## Log Administrativo
 Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. A retenção inicial é indefinida e não haverá exclusão automática neste primeiro desenho; detalhes de campos e acesso permanecem por definir.
 
 ## 2FA
-Autenticação em dois fatores. É obrigatória para acesso externo; o acesso externo permanece proibido até que o 2FA esteja implementado e exista regra confiável de rede documentada/aprovada. Método e recuperação do segundo fator permanecem pendentes.
+Autenticação em dois fatores. É obrigatória para acesso externo; o acesso externo permanece proibido até que o 2FA e uma fronteira confiável estejam implementados. Método e recuperação do segundo fator permanecem pendentes.
 
 ## Acesso interno
-Acesso considerado interno neste momento. A fronteira e a forma técnica de identificação ainda não estão definidas; não presumir confiança em IP, headers ou proxies. Acesso externo continua proibido até 2FA e regra de rede confiável documentada/aprovada.
+Acesso considerado somente interno neste momento; o Backend não está pronto para exposição externa operacional. Não confiar em `X-Forwarded-For`, headers de proxy, IP público ou origem informada por cabeçalhos. Acesso externo continua proibido até 2FA e fronteira confiável implementados. Proxy reverso, VPN, túnel ou publicação externa exigem nova decisão documental.
 
 ## Acesso externo
-Acesso fora da fronteira interna aprovada. É proibido até que 2FA esteja implementado e exista regra confiável de rede documentada/aprovada.
+Acesso externo é proibido neste momento. Só poderá ser liberado depois que 2FA e uma fronteira confiável estiverem implementados; qualquer proxy reverso, VPN, túnel ou publicação exige nova decisão documental. Não se deve confiar em IP, `X-Forwarded-For` ou headers de proxy para classificar a origem antes dessa decisão.
 
 ## Guard
 Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards ainda não foram implementados no projeto.

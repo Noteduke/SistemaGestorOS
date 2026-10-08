@@ -110,7 +110,7 @@ erDiagram
 
 ## Modelo conceitual futuro de autenticação e autorização
 
-O diagrama abaixo representa somente o desenho conceitual aprovado em 08/10/2026. `USER`, `PERMISSION`, `USER_PERMISSION`, `USER_SESSION` e `ADMIN_AUDIT_LOG` não existem no schema Prisma nem no banco aplicado. Não é modelo físico definitivo e não autoriza migration nesta etapa. `USER_SESSION` terá duração de 8 horas, hash do segredo, `last_used_at` e estado de revogação; `ADMIN_AUDIT_LOG` terá retenção inicialmente indefinida e sem exclusão automática. Usuários devem ser inativados, não excluídos fisicamente. A ligação opcional de `PERSON_CONTACT_EVENT` ao usuário executor preserva eventos históricos; se exclusão física vier a existir, a preferência aprovada é FK equivalente a `ON DELETE SET NULL`.
+O diagrama abaixo representa somente o desenho conceitual aprovado em 08/10/2026. `USER`, `PERMISSION`, `USER_PERMISSION`, `USER_SESSION` e `ADMIN_AUDIT_LOG` não existem no schema Prisma nem no banco aplicado. Não é modelo físico definitivo e não autoriza migration nesta etapa. `USER_SESSION` permitirá controlar timeout de 8 horas por inatividade, renovado em cada requisição autenticada válida via `last_used_at`, sem limite absoluto no primeiro recorte; também registra hash do segredo e estado de revogação. `ADMIN_AUDIT_LOG` terá retenção inicialmente indefinida e sem exclusão automática. Usuários devem ser inativados, não excluídos fisicamente. A ligação opcional de `PERSON_CONTACT_EVENT` ao usuário executor preserva eventos históricos; se exclusão física vier a existir, a preferência aprovada é FK equivalente a `ON DELETE SET NULL`.
 
 ```mermaid
 erDiagram
@@ -121,7 +121,7 @@ erDiagram
   USER o|--o{ PERSON_CONTACT_EVENT : "optional executor"
 ```
 
-O nome de usuário será único; Administrador cria contas e não há auto-registro. Senhas terão mínimo de 10 caracteres e serão armazenadas com Argon2id, sem troca periódica obrigatória. Sessões são opacas, revogáveis e expiram em 8 horas; somente o hash do segredo será persistido. Logout revoga apenas a sessão atual. Permissões são diretas por usuário, sem perfis rígidos; Administrador é a autoridade máxima e o último Administrador ativo é protegido contra inativação ou remoção da permissão administrativa. O Log Administrativo é único para eventos administrativos e de segurança. Esses atributos são decisões conceituais, não colunas ou constraints aprovadas.
+O nome de usuário será único; Administrador cria contas e não há auto-registro. Senhas terão mínimo de 10 caracteres e serão armazenadas com Argon2id, sem troca periódica obrigatória. Sessões são opacas, revogáveis e expiram após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`, sem limite absoluto no primeiro recorte; somente o hash do segredo será persistido. Logout revoga apenas a sessão atual. Permissões são diretas por usuário, sem perfis rígidos; Administrador é a autoridade máxima e o último Administrador ativo é protegido contra inativação ou remoção da permissão administrativa. O Log Administrativo é único para eventos administrativos e de segurança. Esses atributos são decisões conceituais, não colunas ou constraints aprovadas.
 
 ## Observações
 

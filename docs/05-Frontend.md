@@ -103,7 +103,7 @@ O Backend já implementa inclusão e listagem de telefones/e-mails como sub-recu
 
 ### 10.6 Autenticação e autorização
 
-O Frontend deverá usar a sessão autenticada conforme o contrato futuro da API, lidar com expiração, logout da sessão atual e respostas de autorização negada, e refletir as permissões devolvidas pelo Backend. Pode ocultar ou desabilitar ações indisponíveis, mas não duplica regras nem é autoridade de autorização. Chamadas mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão incluir a proteção CSRF definida pela API; `GET` não exige token CSRF. O sistema é considerado de uso interno neste momento; acesso externo segue proibido até 2FA implementado e regra confiável de rede aprovada. A implementação do Frontend de autenticação permanece futura.
+O Frontend deverá usar a sessão autenticada conforme o contrato futuro da API, lidar com expiração por 8 horas de inatividade, logout da sessão atual e respostas de autorização negada, e refletir as permissões devolvidas pelo Backend. Pode ocultar ou desabilitar ações indisponíveis, mas não duplica regras nem é autoridade de autorização. Chamadas mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) deverão incluir a proteção CSRF definida pela API; `GET` não exige token CSRF. O sistema é considerado somente de uso interno neste momento; acesso externo segue proibido até 2FA e fronteira confiável implementados. A implementação do Frontend de autenticação permanece futura.
 
 # 11. Evolução
 
