@@ -44,13 +44,13 @@ Designação operacional de usuário. Não implica conjunto fixo de permissões;
 Autorização atribuída a um usuário para executar uma ação específica, sem depender de perfil rígido.
 
 ## Usuário do Sistema
-Conta individual usada para autenticar uma pessoa no Gestor OS. É separada do cadastro de Pessoa usado em operações comerciais. O login usa nome de usuário único; contas são criadas somente por Administrador e não há auto-registro público. O primeiro recorte está implementado no Backend; a migration correspondente continua pendente no banco principal.
+Conta individual usada para autenticar uma pessoa no Gestor OS. É separada do cadastro de Pessoa usado em operações comerciais. O login usa nome de usuário único; contas são criadas somente por Administrador e não há auto-registro público. O primeiro recorte está implementado no Backend; a migration correspondente foi aplicada no banco principal e o bootstrap criou um Administrador ativo no ambiente local. A conta permanece única até a gestão de usuários ser implementada.
 
 ## Sessão opaca
-Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. Expira após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`; não há limite absoluto no primeiro recorte. Está implementada no código; a migration Auth ainda está pendente no banco principal.
+Sessão autenticada cujo cookie contém apenas um segredo aleatório opaco. O Backend mantém a sessão e persiste somente o hash do segredo. Expira após 8 horas de inatividade, renovadas a cada requisição autenticada válida por `last_used_at`; não há limite absoluto no primeiro recorte. Está implementada no código; a migration Auth está aplicada no banco principal; login, `/auth/me`, acesso Admin paginado a Pessoas, CSRF, logout e rejeição da sessão revogada foram validados em testes locais.
 
 ## Log Administrativo
-Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. O modelo Prisma e a migration foram criados, mas a migration continua pendente no banco principal. A retenção inicial é indefinida e não haverá exclusão automática neste primeiro desenho.
+Registro único para eventos administrativos e de segurança, incluindo autenticação, sessões, usuários e permissões. Não deve haver um histórico paralelo de segurança. O modelo Prisma e a migration foram criados, e a migration foi aplicada no banco principal. A retenção inicial é indefinida e não haverá exclusão automática neste primeiro desenho.
 
 ## 2FA
 Autenticação em dois fatores. É obrigatória para acesso externo; o acesso externo permanece proibido até que o 2FA e uma fronteira confiável estejam implementados. Método e recuperação do segundo fator permanecem pendentes.
@@ -62,7 +62,7 @@ Acesso considerado somente interno neste momento; o Backend não está pronto pa
 Acesso externo é proibido neste momento. Só poderá ser liberado depois que 2FA e uma fronteira confiável estiverem implementados; qualquer proxy reverso, VPN, túnel ou publicação exige nova decisão documental. Não se deve confiar em IP, `X-Forwarded-For` ou headers de proxy para classificar a origem antes dessa decisão.
 
 ## Guard
-Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards de autenticação e permissão foram implementados no primeiro recorte; sua operação no banco principal depende da migration, seed e bootstrap ainda pendentes.
+Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards de autenticação, CSRF e permissão foram implementados no primeiro recorte; as rotas de Pessoas e contatos exigem sessão e permissão correspondente. Bootstrap, migration e seed de 24 permissões foram concluídos no banco local principal.
 
 ## CSRF
 Falsificação de requisição entre sites. Métodos mutáveis `POST`, `PUT`, `PATCH` e `DELETE`, inclusive login, exigem proteção CSRF; `GET` não exige token. Antes do login, o token é obtido por `GET /api/v1/auth/csrf`, enviado em `X-CSRF-Token` e associado a contexto temporário de 15 minutos; depois do login, a sessão autenticada usa controle CSRF próprio.
@@ -119,7 +119,7 @@ Sub-recurso implementado de Pessoa, com número persistido somente em dígitos. 
 Sub-recurso implementado de Pessoa, salvo em minúsculas após `trim`, validado pela gramática ASCII da API e limitado a 254 caracteres. Repetição na mesma Pessoa bloqueia; entre Pessoas distintas é permitida com aviso não bloqueante. Pode ser principal, independentemente do telefone principal. A API permite adicionar e listar; edição e remoção estão fora do recorte.
 
 ## Histórico mínimo de contatos
-Registro implementado em `person_contact_events` pela migration `20261007183000_person_contacts`, para inclusão de telefone/e-mail em Pessoa existente e mudança efetiva de principal. Todo `POST` bem-sucedido registra `PHONE_CREATED` ou `EMAIL_CREATED`; `PHONE_PRIMARY_CHANGED` ou `EMAIL_PRIMARY_CHANGED` registra também a mudança do principal efetivo, inclusive de nenhum para o primeiro. Dados, troca de principal e eventos são atômicos. Não há rota pública de consulta neste recorte. O schema Prisma e a migration Auth criada incluem `user_id` opcional para o usuário executor, mantendo registros anteriores com `NULL`; a migration Auth está pendente no banco principal. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
+Registro implementado em `person_contact_events` pela migration `20261007183000_person_contacts`, para inclusão de telefone/e-mail em Pessoa existente e mudança efetiva de principal. Todo `POST` bem-sucedido registra `PHONE_CREATED` ou `EMAIL_CREATED`; `PHONE_PRIMARY_CHANGED` ou `EMAIL_PRIMARY_CHANGED` registra também a mudança do principal efetivo, inclusive de nenhum para o primeiro. Dados, troca de principal e eventos são atômicos. Não há rota pública de consulta neste recorte. O schema Prisma e a migration Auth criada incluem `user_id` opcional para o usuário executor, mantendo registros anteriores com `NULL`; a migration Auth foi aplicada no banco principal. Não substitui o histórico geral definitivo, cuja estrutura física permanece pendente.
 
 ## Confirmação de alteração da Pessoa
 Declaração `confirmPersonChange: true` exigida pelo contrato atual em todo `POST` de telefone/e-mail para Pessoa existente. Não substitui autenticação nem comprova sozinha a exibição da mensagem ao operador. Telefone fora do padrão exige adicionalmente `confirmNonstandardPhone: true` após aviso da API.
@@ -144,6 +144,15 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 
 ## Produto
 Item controlado em estoque e comercializado.
+
+## Peça ORÇADA
+Peça incluída no orçamento da OS. Sua inclusão no orçamento não altera, por si só, a disponibilidade do estoque.
+
+## Peça UTILIZADA
+Peça que um usuário autorizado marcou como utilizada na OS. A transição a partir de ORÇADA registra data, usuário, OS e peça no histórico e torna a peça indisponível para outra OS ou venda.
+
+## Pendência de conferência de estoque
+Registro exigido quando uma peça UTILIZADA não foi usada ou quando o serviço/OS foi cancelado, desfeito ou recusado. O técnico pode informar a não utilização; somente um Administrador confirma manualmente o retorno da peça à disponibilidade. A confirmação não é automática.
 
 ## Serviço
 Atividade executada pela empresa, não representando item de estoque.
@@ -209,18 +218,18 @@ Alteração versionada da estrutura do banco de dados realizada pelo Prisma.
 Identificador obrigatório e único de login. É normalizado com `trim`, armazenado em minúsculas, aceita de 3 a 50 caracteres e deve corresponder a `^[a-z0-9._-]{3,50}$`. Não é o e-mail de contato de Pessoa.
 
 ## CSRF pré-login
-Contexto temporário obtido antes do login por `GET /api/v1/auth/csrf`. O servidor retorna o token e grava identificador opaco em cookie `HttpOnly`; o token é enviado em `X-CSRF-Token`, expira em 15 minutos e é descartado após login bem-sucedido. `PreAuthCsrfContext` é a entidade Prisma e tabela definida pela migration criada; essa tabela ainda não existe no banco principal, onde a migration está pendente. A sessão autenticada passa a usar controle CSRF próprio.
+Contexto temporário obtido antes do login por `GET /api/v1/auth/csrf`. O servidor retorna o token e grava identificador opaco em cookie `HttpOnly`; o token é enviado em `X-CSRF-Token`, expira em 15 minutos e é descartado após login bem-sucedido. `PreAuthCsrfContext` é a entidade Prisma e tabela definida pela migration criada; essa tabela existe no banco principal após a aplicação da migration. A sessão autenticada passa a usar controle CSRF próprio.
 
 ## `PreAuthCsrfContext`
-Modelo Prisma e tabela da migration Auth criada para persistir temporariamente os hashes do identificador opaco e do token CSRF pré-login, com timestamps de expiração e uso. Não tem vínculo com usuário. A tabela ainda não existe no banco principal porque `20261008120000_auth_foundation` está pendente.
+Modelo Prisma e tabela da migration Auth criada para persistir temporariamente os hashes do identificador opaco e do token CSRF pré-login, com timestamps de expiração e uso. Não tem vínculo com usuário. A tabela existe no banco principal após a aplicação de `20261008120000_auth_foundation`.
 
 ## Administrador bootstrapado
 Primeiro Administrador criado por comando interno controlado, fora de auto-registro e das rotas HTTP de usuários. O primeiro uso do sistema fica restrito a essa conta até a gestão de usuários ser implementada.
 
-O comando está implementado e revisado no código, mas ainda não foi executado em terminal interativo real; o teste real de concorrência de bootstraps também está pendente. A migration e o seed no banco principal ainda precisam ser aplicados.
+O bootstrap local foi concluído e há um Administrador ativo e 24 permissões. Uma segunda execução foi validada para abortar antes de solicitar username e senha quando já existe Administrador ativo. A transação protege contra concorrência no service, mas o teste concorrente real permanece pendente. O primeiro uso é restrito ao Administrador bootstrapado; a tabela `users` contém essa conta.
 
 ## `isAdmin`
-Campo do modelo Prisma que indica que a conta tem nível máximo de Administrador. A migration correspondente ainda está pendente no banco principal. Não é a permissão `admin.full` ou `system.admin` e não substitui a política explícita de cada rota.
+Campo do modelo Prisma que indica que a conta tem nível máximo de Administrador. A migration correspondente foi aplicada no banco principal. Não é a permissão `admin.full` ou `system.admin` e não substitui a política explícita de cada rota.
 
 ## Cinco falhas consecutivas
 Sequência de falhas de autenticação contada pelo username normalizado, inclusive quando não existe usuário. A quinta gera evento no Log Administrativo, sem bloquear a conta nem impedir novas tentativas; autenticação bem-sucedida zera o contador do usuário existente.

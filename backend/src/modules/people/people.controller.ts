@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { parseCreatePersonDto } from "./dto/create-person.dto.js";
 import { parseListPeopleQuery } from "./dto/list-people-query.dto.js";
 import {
@@ -7,42 +7,51 @@ import {
   parsePersonContactListQuery,
 } from "./dto/person-contact.dto.js";
 import { PeopleService } from "./people.service.js";
+import { RequirePermissions } from "../auth/decorators/auth-metadata.js";
+import type { AuthRequest } from "../auth/auth.types.js";
 
 @Controller("people")
 export class PeopleController {
   constructor(private readonly people: PeopleService) {}
 
   @Post()
+  @RequirePermissions("people.create")
   create(@Body() body: unknown) {
     return this.people.create(parseCreatePersonDto(body));
   }
 
   @Get()
+  @RequirePermissions("people.read")
   list(@Query() query: Record<string, unknown>) {
     return this.people.list(parseListPeopleQuery(query));
   }
 
   @Get(":publicId")
+  @RequirePermissions("people.read")
   getByPublicId(@Param("publicId") publicId: string) {
     return this.people.getByPublicId(publicId);
   }
 
   @Post(":publicId/phones")
-  createPhone(@Param("publicId") publicId: string, @Body() body: unknown) {
-    return this.people.createPhone(publicId, parseCreatePersonPhone(body));
+  @RequirePermissions("people.contacts.add")
+  createPhone(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.people.createPhone(publicId, parseCreatePersonPhone(body), request.auth!.id);
   }
 
   @Get(":publicId/phones")
+  @RequirePermissions("people.contacts.read")
   listPhones(@Param("publicId") publicId: string, @Query() query: Record<string, unknown>) {
     return this.people.listPhones(publicId, parsePersonContactListQuery(query));
   }
 
   @Post(":publicId/emails")
-  createEmail(@Param("publicId") publicId: string, @Body() body: unknown) {
-    return this.people.createEmail(publicId, parseCreatePersonEmail(body));
+  @RequirePermissions("people.contacts.add")
+  createEmail(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.people.createEmail(publicId, parseCreatePersonEmail(body), request.auth!.id);
   }
 
   @Get(":publicId/emails")
+  @RequirePermissions("people.contacts.read")
   listEmails(@Param("publicId") publicId: string, @Query() query: Record<string, unknown>) {
     return this.people.listEmails(publicId, parsePersonContactListQuery(query));
   }

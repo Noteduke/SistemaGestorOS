@@ -8,6 +8,8 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
+    "auth:bootstrap-admin": "npm run build && node dist/scripts/bootstrap-admin.js",
+    "auth:seed-permissions": "npm run build && node dist/scripts/seed-permissions.js",
     "prisma:generate": "prisma generate",
     "prisma:format": "prisma format",
     "prisma:validate": "prisma validate"
@@ -19,6 +21,7 @@
     "@nestjs/platform-express": "^12.1.2",
     "@prisma/adapter-mariadb": "7.10.0",
     "@prisma/client": "7.10.0",
+    "argon2": "^0.45.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -37,6 +40,7 @@
   },
   "allowScripts": {
     "prisma@7.10.0": true,
-    "@prisma/engines@7.10.0": true
+    "@prisma/engines@7.10.0": true,
+    "argon2@0.45.1": true
   }
 }

@@ -11,7 +11,7 @@ import type { ListPeopleQuery } from "./dto/list-people-query.dto.js";
 export class PeopleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createPhone(publicId: string, input: CreatePersonPhoneInput) {
+  async createPhone(publicId: string, input: CreatePersonPhoneInput, actorUserId?: number) {
     requirePersonChangeConfirmation(input.confirmPersonChange);
     const number = normalizePhoneNumber(input.number);
     const standard = isStandardBrazilianPhone(number);
@@ -44,7 +44,7 @@ export class PeopleService {
           select: { id: true, publicId: true, number: true, isPrimary: true, createdAt: true },
         });
         await tx.personContactEvent.create({
-          data: { personId: person.id, phoneId: phone.id, eventType: "PHONE_CREATED", newValue: number },
+          data: { personId: person.id, phoneId: phone.id, userId: actorUserId ?? null, eventType: "PHONE_CREATED", newValue: number },
         });
 
         if (input.isPrimary) {
@@ -52,6 +52,7 @@ export class PeopleService {
             data: {
               personId: person.id,
               phoneId: phone.id,
+              userId: actorUserId ?? null,
               eventType: "PHONE_PRIMARY_CHANGED",
               previousContactPublicId: previous?.publicId ?? null,
               previousValue: previous?.number ?? null,
@@ -72,7 +73,7 @@ export class PeopleService {
     }
   }
 
-  async createEmail(publicId: string, input: CreatePersonEmailInput) {
+  async createEmail(publicId: string, input: CreatePersonEmailInput, actorUserId?: number) {
     requirePersonChangeConfirmation(input.confirmPersonChange);
     const address = normalizeEmailAddress(input.address);
 
@@ -108,7 +109,7 @@ export class PeopleService {
           select: { id: true, publicId: true, address: true, isPrimary: true, createdAt: true },
         });
         await tx.personContactEvent.create({
-          data: { personId: person.id, emailId: email.id, eventType: "EMAIL_CREATED", newValue: address },
+          data: { personId: person.id, emailId: email.id, userId: actorUserId ?? null, eventType: "EMAIL_CREATED", newValue: address },
         });
 
         if (input.isPrimary) {
@@ -116,6 +117,7 @@ export class PeopleService {
             data: {
               personId: person.id,
               emailId: email.id,
+              userId: actorUserId ?? null,
               eventType: "EMAIL_PRIMARY_CHANGED",
               previousContactPublicId: previous?.publicId ?? null,
               previousValue: previous?.address ?? null,
