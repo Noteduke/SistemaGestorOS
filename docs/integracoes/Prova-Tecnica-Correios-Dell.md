@@ -83,7 +83,7 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 - Consulta Dell no navegador: **realizada manualmente pela superfície de navegação**, sem Playwright ou automação de navegador. A página pública exibiu o nome/modelo sem login. Ainda não se concluiu se o parser poderá operar com HTTP simples ou se precisará renderizar JavaScript.
 - Correios: o código lê credenciais somente do ambiente do processo e não as imprime. Configure-as localmente fora do repositório. O manual usa `idCorreios` mais o código de acesso às APIs criado no CWS para Basic Auth; esse código não é necessariamente a senha de login do site Meu Correios. Variáveis esperadas:
   - `CORREIOS_ID`: idCorreios da pessoa jurídica.
-  - `CORREIOS_API_CODE`: código de acesso às APIs criado no CWS.
+  - `CORREIOS_PASS`: senha/código de acesso às APIs criado no CWS (não a senha de login do Meu Correios).
   - `CORREIOS_AUTH_MODE`: `contract` ou `posting-card`.
   - `CORREIOS_CONTRACT_NUMBER`: número do contrato para `contract`; opcional para `posting-card`.
   - `CORREIOS_POSTING_CARD`: número do cartão quando `posting-card`.
@@ -106,4 +106,4 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 
 Arquivos criados: `docs/integracoes/Prova-Tecnica-Correios-Dell.md` e `backend/src/integrations/_spikes/correios-tracking.ts`.
 
-O código Correios foi validado quanto à sintaxe, mas ainda não foi executado contra os Correios porque as credenciais não foram configuradas no ambiente desta sessão e nenhum código de rastreio válido vinculado ao contrato foi fornecido. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript.
+O código Correios foi validado quanto à sintaxe, mas ainda não foi executado contra os Correios porque as credenciais não foram configuradas no ambiente desta sessão e nenhum código de rastreio válido vinculado ao contrato foi fornecido. As variáveis de autenticação são `CORREIOS_ID` e `CORREIOS_PASS`; a segunda deve ser o código de acesso às APIs do CWS, não a senha do portal Meu Correios. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript.

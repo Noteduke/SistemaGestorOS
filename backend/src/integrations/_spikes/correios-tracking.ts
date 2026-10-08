@@ -102,8 +102,8 @@ async function readJson(response: Response): Promise<unknown> {
 
 async function getAccessToken(apiBaseUrl: string): Promise<string> {
   const username = requiredEnv("CORREIOS_ID");
-  // This is the API access code created in CWS, not a Meu Correios website password.
-  const apiAccessCode = requiredEnv("CORREIOS_API_CODE");
+  // Must be the API access code/password created in CWS, not the Meu Correios login password.
+  const apiAccessCode = requiredEnv("CORREIOS_PASS");
   const mode = requiredEnv("CORREIOS_AUTH_MODE") as AuthorizationMode;
   if (mode !== "contract" && mode !== "posting-card") {
     throw new Error("CORREIOS_AUTH_MODE must be 'contract' or 'posting-card'.");
