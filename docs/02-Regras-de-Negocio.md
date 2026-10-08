@@ -152,6 +152,35 @@ Cada OS possuirá histórico completo.
 
 Deverá permitir anexos, fotos e evolução cronológica.
 
+### Situação operacional, status macro e resultado de encerramento
+
+A OS possui três conceitos independentes: **situação operacional**, que indica a etapa atual do trabalho; **status macro**, que indica se a OS está aberta, fechada ou cancelada; e **status/motivo de encerramento**, que registra o resultado final. Uma OS pode passar por várias situações enquanto seu status macro permanece ABERTA. Não tratar esses três conceitos como um único campo.
+
+As situações operacionais iniciais aprovadas são:
+
+1. **TRIAGEM** — situação inicial obrigatória de toda OS. Na abertura, nenhuma outra situação/status operacional fica disponível. Pode ser atribuída a um ou mais funcionários.
+2. **AGUARDANDO AVALIAÇÃO/ORÇAMENTO** — pode ser atribuída a um ou mais funcionários.
+3. **AGUARDANDO APROVAÇÃO DO ORÇAMENTO** — por padrão atribuída ao Administrador; podem ser atribuídos outros funcionários.
+4. **AUTORIZADO REPARO** — pode ser atribuída a um ou mais funcionários.
+5. **AGUARDANDO COMPRA DE PEÇA** — por padrão atribuída ao Administrador; podem ser atribuídos outros funcionários.
+6. **AGUARDANDO CHEGADA DE PEÇA** — por padrão atribuída ao Administrador; podem ser atribuídos outros funcionários.
+7. **PRONTO AVISAR CLIENTE** — por padrão atribuída ao Administrador; podem ser atribuídos outros funcionários.
+8. **PRONTO CLIENTE AVISADO** — por padrão atribuída ao Administrador; podem ser atribuídos outros funcionários.
+9. **NÃO AUTORIZADO - REMONTAR EQUIPAMENTO** — pode ser atribuída a um ou mais funcionários. Ao salvar, se houver orçamento na OS, perguntar se deseja removê-lo e colocá-lo no histórico.
+10. **NÃO AUTORIZADO - PRONTO PRA ENTREGA** — pode ser atribuída a um ou mais funcionários. Se ainda houver orçamento na OS ao salvar, perguntar se deseja removê-lo e colocá-lo no histórico.
+
+As atribuições padrão ao Administrador não impedem incluir outros funcionários. Situações operacionais criadas futuramente também poderão ser atribuídas a qualquer funcionário.
+
+Os três status macro aprovados são:
+
+- **ABERTA:** OS que está na loja e ainda não foi fechada nem cancelada.
+- **FECHADA:** OS entregue e faturada.
+- **CANCELADA:** OS entregue sem execução do serviço e sem cobrança. É considerada encerrada para fins operacionais, mas mantém o status macro CANCELADA.
+
+Os resultados/status-motivos de encerramento aprovados são **Devolvido sem Reparo**, **Devolvido Reparado** e **Equipamento comprado/Doado**. Eles registram o resultado final no fechamento, cancelamento ou encerramento, conforme a regra operacional que ainda será detalhada; não substituem a situação operacional nem o status macro.
+
+Cada mudança de situação e de atribuição deve gerar histórico com usuário que alterou, data/hora, OS e situação anterior/nova; registrar também funcionários atribuídos antes/depois quando aplicável. Ao salvar uma das duas situações NÃO AUTORIZADO, a decisão de remover ou manter o orçamento e colocá-lo no histórico deve ser registrada. Essa estrutura e os fluxos permanecem futuros; não implica implementação nesta etapa.
+
 ### Ciclo da peça vinculada à OS
 
 - **DISPONÍVEL:** peça parada no estoque, sem previsão de uso.

@@ -94,6 +94,8 @@ Peça avulsa é item manual financeiro/descritivo da OS, fora do cadastro e do c
 
 Valores cobrados de qualquer item da OS (peça de estoque, peça avulsa, serviço/mão de obra ou outro) podem ser alterados por usuário autorizado mesmo após aprovação do orçamento, sem nova aprovação do cliente e sem motivo obrigatório. O histórico deve registrar usuário, data/hora, OS, item, tipo do item, campo alterado e valores anterior/novo. A aprovação do orçamento não congela automaticamente os valores; implementação e interface permanecem futuras.
 
+A estrutura funcional aprovada da OS distingue situação operacional, status macro e resultado/status-motivo de encerramento. A situação inicial é TRIAGEM; as dez situações, atribuições padrão e status macro/encerramento estão descritos na documentação oficial. Mudanças de situação e atribuições geram histórico. As duas situações NÃO AUTORIZADO perguntam se o orçamento existente deve ser removido e guardado no histórico. Schema, API, UI, regras técnicas de transição e migrations permanecem futuros.
+
 ---
 
 # FASE 6 — Integrações

@@ -138,6 +138,12 @@ Para qualquer item cobrado da OS — peça de estoque, peça avulsa, serviço/m�
 
 Para peça UTILIZADA não usada, removida da OS ou ligada a serviço/OS cancelado, desfeito ou recusado, a API futura deve criar pendência de conferência. Técnico/usuário operacional pode informar não utilização, mas apenas Administrador ou usuário com a permissão futura sugerida `stock.pending_review.resolve` poderá resolver a pendência, confirmando DISPONÍVEL, mantendo UTILIZADA ou marcando BAIXADA por motivo administrativo. O encerramento da OS deve alterar automaticamente para BAIXADA suas peças UTILIZADAS e ser recusado enquanto houver pendência aberta. Peças ORÇADAS não são baixadas. Endpoints, contratos de erro, políticas técnicas, tabelas e implementação seguem futuros.
 
+### 10.5 Situação e encerramento da OS — contrato futuro
+
+A API futura deve tratar separadamente situação operacional, status macro ABERTA/FECHADA/CANCELADA e resultado/status-motivo de encerramento. A abertura inicia em TRIAGEM e não disponibiliza outra situação operacional. Deve suportar a lista inicial, as atribuições a um ou mais funcionários e os padrões ao Administrador definidos em `docs/02-Regras-de-Negocio.md`; padrões não impedem outras atribuições e situações futuras podem ser atribuídas a qualquer funcionário.
+
+Ao salvar NÃO AUTORIZADO - REMONTAR EQUIPAMENTO ou NÃO AUTORIZADO - PRONTO PRA ENTREGA, se houver orçamento, o contrato deve permitir perguntar se ele será removido e colocado no histórico ou mantido. A escolha gera histórico. Mudanças de situação/atribuição também registram usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. Não há endpoints nem modelo de persistência aprovados nesta etapa.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.

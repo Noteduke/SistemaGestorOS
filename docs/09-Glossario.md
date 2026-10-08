@@ -28,6 +28,15 @@ Sistema integrado de gestão empresarial.
 ## OS (Ordem de Serviço)
 Registro principal utilizado para controlar o atendimento técnico de um equipamento.
 
+## Situação operacional da OS
+Etapa atual do fluxo de trabalho da OS, como TRIAGEM ou AGUARDANDO AVALIAÇÃO/ORÇAMENTO. Pode mudar enquanto o status macro permanece ABERTA; é distinta do status macro e do resultado de encerramento.
+
+## Status macro da OS
+Classificação administrativa geral: ABERTA (na loja, não fechada nem cancelada), FECHADA (entregue e faturada) ou CANCELADA (entregue sem serviço e sem cobrança, encerrada operacionalmente).
+
+## Resultado de encerramento da OS
+Status/motivo que registra o resultado final da OS: Devolvido sem Reparo, Devolvido Reparado ou Equipamento comprado/Doado. Não substitui a situação operacional nem o status macro.
+
 ## Cliente
 Pessoa física ou jurídica que contrata serviços ou adquire produtos.
 

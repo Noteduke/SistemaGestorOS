@@ -55,27 +55,36 @@ Nem toda funcionalidade mencionada está detalhada o suficiente para implementa�
 
 ### 2.1 Fluxo operacional
 
-O atendimento começa quando o cliente traz um equipamento e informa o defeito/reclamação. Na maior parte dos casos, a equipe avalia o equipamento diante do cliente e prepara o orçamento na recepção. Quando não for possível avaliar de imediato, o equipamento pode entrar em triagem para encaminhamento.
+O atendimento começa quando o cliente traz um equipamento e informa o defeito/reclamação. Na maior parte dos casos, a equipe avalia o equipamento diante do cliente e prepara o orçamento na recepção. Toda OS começa obrigatoriamente na situação operacional TRIAGEM; quando não for possível avaliar de imediato, o equipamento é encaminhado para avaliação a partir dessa etapa.
 
 Triagem identifica o setor de avaliação/destino: Laboratório de Sistemas (informática convencional, por exemplo travamento, memória ou SSD) ou Laboratório Eletrônico (indícios de defeito eletrônico, por exemplo equipamento que não liga). O encaminhamento pode mudar após avaliação. Setor/destino físico e situação/status da OS são conceitos distintos.
 
 Após autorização, o equipamento segue para o laboratório adequado. O técnico determina o trabalho, solicita peças quando necessário, executa e testa o reparo. A equipe informa o cliente; quando ele retorna, testa o equipamento no balcão, a OS de saída é emitida, o valor é cobrado conforme o caso e o equipamento é entregue. A conclusão técnica não equivale ao encerramento administrativo/financeiro.
 
-### 2.2 Status configuráveis e estado da OS
+### 2.2 Situação operacional, status macro e encerramento
 
-As situações/status operacionais são cadastráveis, não uma lista fixa imposta pelo sistema. Exemplos citados incluem Triagem, Avaliação do Laboratório Eletrônico, Avaliação do Laboratório de Sistemas, Autorizado Reparo em Laboratório Eletrônico/Sistemas, Aguardando Peças em cada laboratório, Pronto/cliente avisado e Equipamento sem reparo/cliente avisado.
+A OS tem três conceitos distintos: **situação operacional** (etapa do trabalho), **status macro** (ABERTA, FECHADA ou CANCELADA) e **status/motivo de encerramento** (resultado final). A OS pode passar por várias situações operacionais mantendo-se ABERTA. Não unificar esses conceitos.
 
-O cadastro de status configura propriedades funcionais, incluindo:
+As situações operacionais iniciais aprovadas são:
 
-- se o status permite abertura de OS;
-- se indica equipamento/serviço pronto;
-- se pode permitir o encerramento;
-- se representa OS concluída ou não concluída;
-- se o encerramento nesse status deve gerar cobrança/contas a receber.
+1. **TRIAGEM:** estado inicial de todas as OS; na abertura, nenhuma outra situação fica disponível. Atribuível a um ou mais funcionários.
+2. **AGUARDANDO AVALIAÇÃO/ORÇAMENTO:** atribuível a um ou mais funcionários.
+3. **AGUARDANDO APROVAÇÃO DO ORÇAMENTO:** padrão atribuído ao Administrador, sem impedir outros funcionários.
+4. **AUTORIZADO REPARO:** atribuível a um ou mais funcionários.
+5. **AGUARDANDO COMPRA DE PEÇA:** padrão Administrador, podendo incluir outros funcionários.
+6. **AGUARDANDO CHEGADA DE PEÇA:** padrão Administrador, podendo incluir outros funcionários.
+7. **PRONTO AVISAR CLIENTE:** padrão Administrador, podendo incluir outros funcionários.
+8. **PRONTO CLIENTE AVISADO:** padrão Administrador, podendo incluir outros funcionários.
+9. **NÃO AUTORIZADO - REMONTAR EQUIPAMENTO:** atribuível a um ou mais funcionários. Ao salvar, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo.
+10. **NÃO AUTORIZADO - PRONTO PRA ENTREGA:** atribuível a um ou mais funcionários. Ao salvar, se ainda houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo.
 
-Na configuração atual descrita, Triagem é situação permitida para abertura. A OS não pode ser encerrada em Triagem nem enquanto estiver em status de reparo/avaliação incompatível com entrega. Um status que permite fechamento deve representar uma condição operacional apropriada, por exemplo pronto e cliente avisado, ou sem reparo e cliente avisado.
+As atribuições padrão ao Administrador são iniciais e não exclusivas. Situações criadas futuramente poderão ser atribuídas a qualquer funcionário. A abertura inicia obrigatoriamente em TRIAGEM.
 
-“Estado da OS” (aberta, concluída ou cancelada) é separado do status operacional configurável. A situação operacional descreve o ponto do fluxo; o estado descreve a condição administrativa da OS. Conclusão técnica, prontidão, encerramento administrativo e cancelamento são eventos/conceitos separados.
+Os status macro são **ABERTA** (OS na loja, ainda não fechada/cancelada), **FECHADA** (OS entregue e faturada) e **CANCELADA** (OS entregue, serviço não executado e sem cobrança; encerrada operacionalmente, mas classificada como cancelada).
+
+Os resultados/status-motivos finais aprovados são **Devolvido sem Reparo**, **Devolvido Reparado** e **Equipamento comprado/Doado**. Eles indicam o resultado no fechamento/cancelamento/encerramento conforme a regra que ainda será detalhada e não substituem a situação operacional ou o status macro.
+
+Mudanças de situação e atribuições geram histórico com usuário, data/hora, OS e situação anterior/nova; registrar funcionários antes/depois quando aplicável. A decisão de remover ou manter orçamento nas duas situações NÃO AUTORIZADO também é registrada. A lista e as propriedades iniciais estão aprovadas; grafo completo de transições, regras técnicas de encerramento e modelagem persistente seguem futuros.
 
 ### 2.3 Abertura e dados
 
@@ -423,7 +432,7 @@ Os itens abaixo foram acrescentados na comparação detalhada das decisões apro
 
 ### C.1 OS, cliente e equipamento
 
-- Status de OS são configurações comportamentais independentes: podem habilitar abertura, marcar conclusão técnica/pronto, permitir encerramento e determinar se o encerramento gera contas a receber. “Pronto, cliente avisado” mantém a OS aberta; equipamento entregue é o encerramento. O resultado sem reparo precisa poder fechar sem cobrança.
+- Situação operacional, status macro e resultado/status-motivo de encerramento são conceitos distintos, conforme a seção 2.2. A lista inicial aprovada não define por si só permissões de abertura/encerramento nem efeitos de cobrança; a abertura obrigatória em TRIAGEM e as definições de ABERTA, FECHADA e CANCELADA devem ser observadas. A relação detalhada entre cada resultado de encerramento e o status macro, inclusive o caso “Devolvido sem Reparo”, permanece pendente e não deve ser inferida como nova regra.
 - A data/hora da aprovação é preservada quando a OS muda entre situações que indiquem autorização. Se a alteração for escolhida, deve haver crítica explícita. O sistema mostra visualmente a aprovação e sua data, permitindo ordenar OS pela aprovação cronológica.
 - A tela de cadastro de Pessoa durante abertura da OS é o cadastro completo; Tipo de Pessoa (PF/PJ) e Nome/Razão Social são os campos obrigatórios mínimos. Os demais campos são opcionais no cadastro geral, salvo regras específicas de fluxos futuros. Cada Pessoa pode ter zero ou uma Pessoa de Contato, que é outro cadastro completo de Pessoa, além de múltiplos telefones, e-mails e endereços. Telefones e e-mails podem ser marcados como principais; cada endereço tem Tipo de Endereço de cadastro próprio e pode ser marcado como principal.
 - CPF/CNPJ é opcional; CPF é armazenado somente com números, possui 11 dígitos e é matematicamente validado. CNPJ aceita o formato numérico antigo ou o alfanumérico oficial, é armazenado sem pontuação e em maiúsculas, e é matematicamente validado conforme o algoritmo aplicável. O documento deve ser único e compatível com Tipo de Pessoa (PF usa CPF; PJ usa CNPJ). A máscara fica na interface; normalização, validação matemática, compatibilidade e duplicidade são regras do Backend/API. Documento repetido bloqueia novo cadastro; pela regra aprovada, sem documento a comparação exata normalizada de nome, telefone (somente números) ou e-mail (minúsculas após trim) avisa sem bloquear. A criação atual implementa o aviso por nome; as verificações por telefone/e-mail ainda são futuras. Busca fuzzy está fora desta etapa.

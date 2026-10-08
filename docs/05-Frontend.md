@@ -115,6 +115,12 @@ Para valor cobrado de peça de estoque, peça avulsa, serviço/mão de obra ou o
 
 A interface deve sinalizar pendências para peças UTILIZADAS que não foram usadas, foram removidas ou cuja OS/serviço foi cancelado, desfeito ou recusado. Usuário operacional pode reportar a não utilização; somente Administrador ou usuário autorizado pela permissão futura `stock.pending_review.resolve` pode resolver, escolhendo DISPONÍVEL, manter UTILIZADA ou BAIXADA por motivo administrativo. Não deve haver liberação automática. O encerramento da OS deve baixar as peças UTILIZADAS e ficar bloqueado enquanto houver pendência aberta. Uma tela/painel de conferência e o fluxo visual ainda não estão implementados.
 
+### 10.8 Situação operacional da OS — interface futura
+
+A interface deve apresentar separadamente situação operacional, status macro e resultado/status-motivo de encerramento. A abertura inicia em TRIAGEM e somente essa situação fica disponível nesse momento. As dez situações iniciais e seus padrões de atribuição constam em `docs/02-Regras-de-Negocio.md`; a atribuição padrão ao Administrador permite também incluir outros funcionários. Situações futuras podem ser atribuídas a qualquer funcionário.
+
+Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo. Registrar a escolha e todas as mudanças de situação/atribuição no histórico, incluindo usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. A UI ainda não está implementada.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.
