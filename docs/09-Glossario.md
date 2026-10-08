@@ -26,7 +26,16 @@ Este documento é a referência oficial de nomenclatura para documentação, ban
 Sistema integrado de gestão empresarial.
 
 ## OS (Ordem de Serviço)
-Registro principal utilizado para controlar o atendimento técnico de um equipamento.
+Registro principal utilizado para controlar o atendimento técnico de um equipamento. Toda OS confirmada tem número visível sequencial no formato `OS-000001`, gerado durante a abertura antes da confirmação final.
+
+## Abertura em andamento
+Etapa anterior à existência oficial da OS, iniciada com geração/reserva do número visível. Só vira OS oficialmente aberta após confirmação dos dados mínimos obrigatórios: cliente e equipamento.
+
+## Número visível da OS
+Identificador sequencial global `OS-` mais seis dígitos, crescente, único e imutável, usado por usuários e clientes para atendimento, impressão, etiqueta, consulta e comunicação. Não se confunde com `id` interno ou `publicId` técnico.
+
+## Abertura cancelada
+Registro de uma abertura abandonada cujo número não pode ser reutilizado porque já existe número maior usado. Fica para auditoria; o cancelamento não depende de a etiqueta ter sido impressa.
 
 ## Situação operacional da OS
 Etapa atual do fluxo de trabalho da OS, como TRIAGEM ou AGUARDANDO AVALIAÇÃO/ORÇAMENTO. Pode mudar enquanto o status macro permanece ABERTA; é distinta do status macro e do resultado de encerramento.
@@ -200,7 +209,7 @@ Registro criado quando peça UTILIZADA não foi usada, foi removida da OS ou qua
 Atividade executada pela empresa, não representando item de estoque.
 
 ## Equipamento
-Bem cuja titularidade atual é vinculada a uma Pessoa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. A Pessoa informada na OS não precisa ser o proprietário real.
+Bem cuja titularidade atual é vinculada a uma Pessoa ativa com Tipo de Contato Cliente e que pode gerar uma Ordem de Serviço. Para cada abertura, a Pessoa cujo nome é informado define o cliente e proprietário operacional; se divergir do titular cadastrado, há alerta e escolha explícita, conforme a regra de abertura da OS.
 
 ## Tipo de Equipamento
 Cadastro próprio que classifica o Equipamento. Catálogo inicial aprovado: Notebook, Computador/Desktop, Impressora, Projetor, Monitor, Nobreak, Roteador, Access Point, Switch, Servidor, Scanner, Leitor de Código de Barras, Coletor de Dados, Tablet, Celular/Smartphone e Outro. Não é enum fixo; novos tipos podem ser adicionados. A carga será feita por seed idempotente sob comando controlado; sua implementação permanece pendente.
@@ -221,7 +230,7 @@ Identificador opcional do Equipamento e principal critério de duplicidade quand
 Pessoa cadastrada que detém a titularidade atual do equipamento e possui Tipo de Contato Cliente.
 
 ## Pessoa informada na abertura da OS
-Pessoa registrada como informada no atendimento no momento em que uma OS é aberta. Não há separação obrigatória em relação ao proprietário real do equipamento. A evolução dos dados cadastrais é consultada pelo histórico; não haverá cópia completa dos dados em cada OS.
+Pessoa indicada pelo nome informado no atendimento e tratada como cliente e proprietário operacional do equipamento naquela abertura. Se o equipamento estiver vinculado a outra Pessoa, é necessária escolha explícita entre cancelar a seleção, abrir para o proprietário atual ou transferir a titularidade; não se controla separadamente quem trouxe fisicamente o equipamento. A evolução dos dados cadastrais é consultada pelo histórico; não haverá cópia completa dos dados em cada OS.
 
 ## Histórico de alterações e movimentações
 Histórico geral conceitualmente ligado a cada entidade, que acompanha alterações de campos e eventos relevantes sem duplicar todos os dados cadastrais dentro de cada OS. A estrutura física ainda será definida.

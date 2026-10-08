@@ -267,6 +267,44 @@ Decisões de encerramento Equipamento comprado/Doado e OS interna aprovadas por 
 
 ---
 
+# DA-021
+
+## Título
+Numeração visível, abertura e titularidade operacional da OS.
+
+## Situação
+Aprovada por Marcos em 08/10/2026. Regras funcionais registradas; modelo físico, contratos de API e implementação permanecem futuros.
+
+## Contexto
+A assistência precisa identificar e etiquetar o equipamento durante a abertura. O número deve ser utilizável pelo cliente/equipe, e a OS oficial só deve existir depois da confirmação dos dados mínimos.
+
+## Problema
+Definir formato e ciclo do número antes da confirmação, distinguir rascunho de OS aberta, estabelecer comportamento de desistência e manter coerência entre cliente da OS e titular operacional do equipamento.
+
+## Decisão adotada
+- Toda OS recebe durante a abertura um número visível `OS-` + seis dígitos, global, crescente, único e imutável. É usado em atendimento, impressão, etiqueta, consulta, WhatsApp e comunicação com o cliente; IDs internos/técnicos podem coexistir. Reabertura, cancelamento, fechamento e edição não alteram o número. OS interna recebe número próprio e conserva vínculo com a origem.
+- O número é gerado antes da confirmação. Até salvar cliente e equipamento, há abertura em andamento, não OS oficialmente aberta. Confirmar cria OS ABERTA/TRIAGEM. Cliente e equipamento são os únicos mínimos para confirmação; defeito/reclamação começa vazio e é opcional.
+- Se a abertura for abandonada, o número pode ser reaproveitado quando não houver número maior usado. Se houver, registrar ABERTURA CANCELADA para auditoria e nunca reutilizar esse número. Imprimir etiqueta não consome o número definitivamente.
+- O equipamento pode ser existente ou criado na abertura; o novo fica vinculado ao cliente informado. A Pessoa indicada pelo nome é cliente e proprietário operacional do equipamento para aquela OS; não se controla portador/entregador.
+- Se o equipamento existente tiver outro titular, alertar e permitir cancelar a seleção, abrir em nome do titular atual ou transferir ao cliente informado com Administrador ou `equipment.transfer_ownership`. A transferência é explícita, mostra a consequência, identifica o usuário e gera histórico.
+
+## Justificativa
+O número deve estar disponível para o atendimento físico antes de a OS ser confirmada, sem confundir rascunho com atendimento oficial nem permitir mudança silenciosa do titular.
+
+## Impactos
+A análise de prontidão recomenda controle global de sequência/reservas com concorrência segura, abertura separada da OS confirmada e validação final de titularidade. Isso não aprova tabela, campos, constraints, locking, rotas ou migration. Permanecem para desenho a definição técnica de “número maior usado”, reservas concorrentes, reaproveitamento/auditoria, expiração de aberturas e comportamento após `OS-999999`.
+
+## Data de aprovação
+08/10/2026.
+
+## Responsável
+Marcos.
+
+## Procedência
+Regras de numeração visível, abertura e titularidade operacional da OS aprovadas por Marcos em 08/10/2026.
+
+---
+
 # Lacunas da numeração histórica
 
 DA-007 a DA-016 ainda não estão registradas neste documento. Decisões históricas correspondentes, se existirem, precisam ser recuperadas e consolidadas. DA-001 a DA-006 e DA-017 preservam seus identificadores; as lacunas não foram preenchidas nem as decisões existentes renumeradas.

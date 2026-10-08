@@ -133,6 +133,12 @@ Disponibilizar ao Administrador a configuração de uma única Pessoa ativa como
 
 Na OS interna, mostrar claramente uma área histórica de informações herdadas da OS original e separá-la dos novos dados, atribuições e itens operacionais. Exibir o vínculo de origem/destino entre as OS. A origem fechada não oferece novos movimentos técnicos nem reabertura completa; somente reabertura simples para correção textual pode ser apresentada. OS interna não oferece Equipamento comprado/Doado como resultado de encerramento. Não exibir cobrança, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS nem pendências da original como itens ativos da interna. Não solicitar nem registrar valor pago ao cliente nesse fluxo nesta etapa. Os textos e detalhes de interação ainda precisam de especificação de UX.
 
+### 10.11 Abertura e numeração da OS — interface futura
+
+Ao iniciar a abertura, apresentar o número visível gerado no formato `OS-000001` antes de confirmar os dados, para uso em etiqueta e atendimento. Identificar claramente que a abertura ainda está em andamento até salvar os campos mínimos obrigatórios: cliente e equipamento. Defeito/reclamação começa vazio e não bloqueia confirmação. O equipamento pode ser selecionado entre os associados ao cliente ou cadastrado nessa tela; equipamento novo recebe automaticamente o cliente como proprietário.
+
+Se o equipamento existente pertencer a outra Pessoa, mostrar o proprietário atual, o cliente selecionado e o efeito de cada escolha. Oferecer cancelar a seleção, abrir para o proprietário atual ou transferir para o cliente selecionado quando o usuário for Administrador ou tiver `equipment.transfer_ownership`; nunca transferir sem confirmação explícita. Não solicitar dados de portador/entregador. Em desistência, apresentar o resultado do cancelamento da abertura conforme a regra de reuso do número; imprimir etiqueta não consome o número por si só. Estados visuais, confirmação de transferência e política de retomada de abertura precisam de UX detalhada.
+
 # 11. Evolução
 
 Este documento será expandido com padrões de componentes, gerenciamento de estado, rotas, temas e biblioteca visual adotada.

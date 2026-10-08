@@ -160,6 +160,12 @@ O fluxo aprovado fecha a OS externa, transfere a titularidade, cria OS interna l
 
 A OS externa original não aceita movimentos técnicos após a geração da interna e só pode receber reabertura simples textual. A OS interna segue os fluxos gerais, exceto que não pode usar novamente o resultado Equipamento comprado/Doado. Não se registra valor pago ao cliente, forma de pagamento, saída financeira ou compra formal nesta etapa. Fiscal, pagamento futuro, modelo dos dados herdados, nomes/rotas e semântica de falha parcial seguem pendentes; nenhum endpoint, modelo físico ou migration está aprovado.
 
+### 10.8 Abertura e numeração da OS — contrato futuro
+
+O desenho futuro precisa separar iniciar abertura (gera/reserva o número visível antes da confirmação), editar/preencher a abertura, confirmar com cliente e equipamento, e desistir/cancelar abertura. A confirmação cria a OS oficial como ABERTA/TRIAGEM; defeito/reclamação é opcional e começa vazio. Consulta/listagem, alteração de situação, atribuição e histórico devem expor o número `OS-000001` como referência de operação, mantendo identificadores técnicos internos separados.
+
+Como rotas candidatas, ainda não aprovadas: `POST /api/v1/service-order-openings`, `PATCH /api/v1/service-order-openings/:openingPublicId`, `POST /api/v1/service-order-openings/:openingPublicId/confirm`, `POST /api/v1/service-order-openings/:openingPublicId/cancel`, `POST /api/v1/service-order-openings/:openingPublicId/equipment`, `POST /api/v1/service-order-openings/:openingPublicId/equipment/:equipmentPublicId/transfer-ownership`, `GET /api/v1/service-orders`, `GET /api/v1/service-orders/:publicId`, `PATCH /api/v1/service-orders/:publicId/situation`, `PATCH /api/v1/service-orders/:publicId/assignments` e `GET /api/v1/service-orders/:publicId/history`. Criar equipamento durante a abertura deve associá-lo ao cliente selecionado. Divergência entre cliente e proprietário exige resposta explícita: cancelar seleção, abrir para o proprietário cadastrado ou solicitar transferência autorizada; a transferência deve ser auditada. Formato definitivo das rotas, payloads, códigos de erro e persistência da abertura ainda dependem da análise técnica e não ficam aprovados por esta atualização.
+
 # 11. Integrações
 
 Integrações externas utilizarão serviços independentes sempre que possível.

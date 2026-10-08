@@ -90,7 +90,7 @@ O proprietário atual de equipamento deve ser uma Pessoa cadastrada com Tipo de 
 
 Equipamento sem vínculo histórico pode ser excluído fisicamente por Administrador ou usuário com permissão equivalente. Há vínculo histórico se existir qualquer registro persistido relacionado ao Equipamento, incluindo OS, venda, orçamento, garantia, entrega/devolução, transferência de titularidade, movimentação técnica, financeiro ou histórico/auditoria. Com qualquer vínculo, não pode ser excluído fisicamente e somente pode ser inativado por Administrador ou permissão equivalente. Equipamento inativo não aparece por padrão em novas OS e continua sendo exibido nos históricos antigos.
 
-Não haverá snapshot completo dos dados da Pessoa ou do Equipamento dentro de cada OS nesta etapa. A OS poderá consultar os dados atuais dos cadastros relacionados; alterações e movimentações relevantes devem ser registradas no histórico para permitir entender a evolução sem duplicar todos os dados cadastrais em cada OS. A OS registra a Pessoa informada no atendimento na abertura, sem exigir separação obrigatória do proprietário real do equipamento. Alterações posteriores não reescrevem eventos históricos já registrados.
+Não haverá snapshot completo dos dados da Pessoa ou do Equipamento dentro de cada OS nesta etapa. A OS poderá consultar os dados atuais dos cadastros relacionados; alterações e movimentações relevantes devem ser registradas no histórico para permitir entender a evolução sem duplicar todos os dados cadastrais em cada OS. A Pessoa cujo nome é informado no atendimento é o cliente da OS e o proprietário operacional do equipamento para aquela abertura. Se o equipamento estiver vinculado a outra Pessoa, aplicam-se o alerta e as escolhas explícitas de titularidade descritos em “Numeração e abertura da OS”; não se controla separadamente quem trouxe fisicamente o equipamento. Alterações posteriores não reescrevem eventos históricos já registrados.
 
 Transferir titularidade é permitido. O novo proprietário deve ser Pessoa cadastrada, possuir Tipo de Contato Cliente e estar ativa. A transferência altera o proprietário atual e registra evento de titularidade, sem alterar OS antigas; pode ocorrer manualmente fora de OS ou durante atendimento/OS, e pode ter vínculo opcional com uma OS. Equipamento sem histórico pode ter o proprietário corrigido sem transferência formal; com histórico, a mudança deve ser transferência. Usuários com permissão para essas ações podem transferir e alterar Pessoa/Equipamento com ou sem histórico, sem justificativa obrigatória; o sistema registra a mudança automaticamente no histórico e pede confirmação antes de salvar.
 
@@ -151,6 +151,18 @@ Será o módulo principal do sistema.
 Cada OS possuirá histórico completo.
 
 Deverá permitir anexos, fotos e evolução cronológica.
+
+### Numeração e abertura da OS
+
+Toda OS recebe durante o início da abertura um número visível sequencial, global, crescente, único e imutável, no formato `OS-` seguido de seis dígitos (`OS-000001`, `OS-000002` etc.). O número é usado no atendimento, impressão, etiqueta, consulta, WhatsApp e comunicação com o cliente; identificadores técnicos internos podem coexistir, mas não substituem o número visível. Reabertura, cancelamento, fechamento ou edição não mudam esse número. OS interna criada no fluxo Equipamento comprado/Doado recebe número próprio e mantém vínculo com a OS original.
+
+O número é gerado antes da confirmação final, para permitir identificação e etiquetagem durante a abertura. Até a confirmação dos dados mínimos, o registro é uma **abertura em andamento**, não uma OS oficialmente aberta. A abertura só é confirmada quando houver cliente e equipamento; então a OS passa a existir oficialmente como ABERTA/TRIAGEM, com o número já reservado. Defeito/reclamação não é obrigatório e começa vazio.
+
+Se a abertura for abandonada, o número só pode voltar a ficar disponível quando não houver número maior já usado. Se houver número maior usado, registrar a tentativa como **ABERTURA CANCELADA**, mantendo o número para auditoria e sem reutilização. Impressão de etiqueta não consome definitivamente o número nem muda essa regra. A interpretação técnica de “número maior usado”, o controle de reservas concorrentes e a retenção física das aberturas canceladas precisam ser detalhados antes da implementação.
+
+Cliente e equipamento são obrigatórios para confirmar a OS. O usuário escolhe equipamento já associado ao cliente ou cria um novo durante a abertura; o equipamento recém-criado fica automaticamente vinculado ao cliente informado. O cliente indicado na OS é o proprietário operacional do equipamento para aquela abertura. Não há cadastro obrigatório de portador, entregador ou terceiro que trouxe fisicamente o equipamento.
+
+Se o equipamento selecionado estiver vinculado a outra Pessoa, alertar e apresentar o proprietário atual, o cliente escolhido e as consequências da transferência. O usuário pode cancelar a seleção, abrir a OS para o proprietário atual, ou transferir o equipamento ao cliente escolhido se for Administrador ou tiver `equipment.transfer_ownership`. A OS não deve ser salva com cliente diferente do proprietário sem que o usuário escolha explicitamente a transferência; não alterar titularidade silenciosamente. Toda transferência identifica o usuário responsável e gera histórico.
 
 ### Situação operacional, status macro e resultado de encerramento
 
