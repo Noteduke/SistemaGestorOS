@@ -6,7 +6,7 @@
 ## 1. Conclusão executiva
 
 - **Correios:** viável com credencial/contrato e autorização para a API Rastro. A consulta oficial não é uma API pública anônima: a documentação informa que objetos vinculados a contratos são consultáveis apenas com as credenciais do remetente.
-- **Dell:** confirmado no navegador que o fluxo público oficial aceita Service Tag sem login e mostra o nome/modelo do produto na página. A tag fictícia usada resolveu para `Dell 1600n Multifunction Mono Laser Printer`, então o fluxo foi confirmado, mas não foi validado com um notebook.
+- **Dell:** confirmado com uma Service Tag de notebook fornecida pelo usuário que a página pública identifica o produto sem login e mostra o modelo **Latitude 3420**. A etiqueta não foi copiada para este relatório.
 - **Resultado:** foi criado um cliente experimental isolado para a API Rastro. Ainda não foi executada uma chamada autenticada; as credenciais devem ser configuradas localmente pelo usuário. Não há integração com banco, OS ou endpoints do sistema.
 
 ## 2. Correios
@@ -60,7 +60,7 @@ O exemplo usa os dados demonstrativos do manual, não uma consulta atual. Se a c
 
 ## 3. Dell
 
-### Página pública e tentativa HTTP
+### Página pública e resultado observado
 
 A página oficial [Manuais Dell Brasil](https://www.dell.com/support/home/pt-br/Products?app=manuals&lwp=rt) apresenta um campo que aceita etiqueta de serviço, ID de produto ou modelo. A página oficial [Localize a etiqueta de serviço do notebook](https://www.dell.com/support/contents/pt-br/article/Product-Support/Self-support-Knowledgebase/locate-service-tag/Notebook) orienta a consulta do identificador no site de suporte.
 
@@ -68,19 +68,19 @@ Caminho de produto observado após a resolução da Service Tag:
 
 `https://www.dell.com/support/product-details/pt-br/servicetag/{serviceTag}/overview`
 
-`ABC1234` foi usado apenas como identificador fictício de teste. A navegação interativa no site público chegou à página do produto sem solicitar login e apresentou o modelo `Dell 1600n Multifunction Mono Laser Printer` junto à Service Tag. Essa confirmação demonstra que o modelo pode ser obtido do fluxo público no navegador; como o identificador de teste retornou uma impressora, ainda falta confirmar o resultado para um notebook.
+Na consulta solicitada pelo usuário, a navegação para a rota pública chegou à página do produto sem solicitar login. O título e os detalhes visíveis da página identificaram o equipamento como **Latitude 3420**. O modelo também constava no texto alternativo da imagem principal do produto. A Service Tag consultada foi omitida do relatório.
 
-Uma chamada HTTP direta fora do navegador para a rota `/support/home/pt-br/product-support/servicetag/ABC1234/overview`, com timeout de 20 segundos e User-Agent comum, recebeu **HTTP 403**. O site redirecionou a navegação do browser para o caminho canônico `/support/product-details/pt-br/servicetag/ABC1234/overview`. O 403, portanto, é uma limitação do acesso HTTP automatizado usado na prova e não indica que o fluxo público em navegador exija login.
+Em uma tentativa anterior com um identificador fictício (`ABC1234`), uma chamada HTTP direta recebeu **HTTP 403**, enquanto o navegador resolveu a rota para o caminho canônico `/support/product-details/pt-br/servicetag/{serviceTag}/overview` e mostrou um nome de produto. Esse bloqueio ocorreu somente no teste HTTP com identificador fictício; não foi feita chamada HTTP direta com a Service Tag de notebook informada pelo usuário.
 
 ### Parser e riscos
 
-Não foi implementado parser nesta spike documental. A estratégia recomendada agora é simples: consultar a rota pública de produto, identificar o elemento de título/nome do produto (`hero-product-image`/`dep_showDeviceDetails` eram sinais visíveis na página observada), validar que o conteúdo corresponde ao identificador consultado e normalizar para `{ serviceTag, model, source: "dell_public_site" }`. Extrair somente o nome/modelo; não coletar garantia, suporte, proprietário ou demais dados.
+Não foi implementado parser Dell nesta spike. A consulta confirmou que o nome/modelo está disponível no conteúdo público renderizado: o título em `dep_showDeviceDetails` e o texto alternativo de `hero-product-image` mostraram `Latitude 3420`. A implementação experimental pode extrair somente esse nome e normalizar para `{ serviceTag, model, source: "dell_public_site" }`, sem ler garantia, suporte, proprietário ou outros dados.
 
-Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecionamento, proteção anti-bot/limites, conteúdo renderizado por JavaScript e variação por país/idioma. O navegador carregou a página com seu comportamento normal, mas não foi verificado se a requisição direta devolve o mesmo campo sem execução de JavaScript. Revalidar o parser com respostas mínimas, sem armazenar cookies, tokens, dados pessoais ou conteúdo de garantia. Fazer poucas requisições e definir timeout.
+Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecionamento, proteção anti-bot/limites, conteúdo renderizado por JavaScript e variação por país/idioma. O modelo foi confirmado visualmente no fluxo público, mas não foi verificado se uma requisição HTTP simples devolve o mesmo campo sem renderização. Revalidar o parser com respostas mínimas, sem armazenar cookies, tokens, Service Tags ou conteúdo de garantia. Fazer poucas requisições e definir timeout.
 
 ## 4. Automação, credenciais e execução
 
-- Consulta Dell no navegador: **realizada manualmente pela superfície de navegação**, sem Playwright ou automação de navegador. A página pública exibiu o nome/modelo sem login. Ainda não se concluiu se o parser poderá operar com HTTP simples ou se precisará renderizar JavaScript.
+- Consulta Dell: **realizada manualmente no navegador**, sem Playwright. A página pública exibiu `Latitude 3420` sem login. Ainda não foi testada extração automática por HTTP nem implementado parser.
 - Correios: o código lê credenciais somente do ambiente do processo e não as imprime. Configure-as localmente fora do repositório. O manual usa `idCorreios` mais o código de acesso às APIs criado no CWS para Basic Auth; esse código não é necessariamente a senha de login do site Meu Correios. Variáveis esperadas:
   - `CORREIOS_ID`: idCorreios da pessoa jurídica.
   - `CORREIOS_PASS`: senha/código de acesso às APIs criado no CWS (não a senha de login do Meu Correios).
@@ -92,13 +92,13 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 - A autenticação obtém um token via API Token e então chama Rastro com Bearer token. O manual orienta que homologação requer primeiro o acesso em produção e replicação/liberação do contrato no ambiente de homologação.
 - Com Node.js 24, executar da raiz do projeto: `node --experimental-strip-types backend/src/integrations/_spikes/correios-tracking.ts <codigo-rastreio>`.
 - O cliente valida formato de código de 13 caracteres, aplica timeout de 15 segundos e retorna no máximo dez eventos resumidos. Não grava respostas nem tokens.
-- Dell: nenhuma credencial foi identificada como necessária para visualizar a página pública, mas não foi possível verificar o acesso com tag válida por HTTP. Nenhuma variável de ambiente foi necessária.
+- Dell: nenhuma credencial foi necessária para a consulta manual do notebook. Nenhuma variável de ambiente foi necessária; a Service Tag não foi armazenada no relatório.
 - Não houve gravação em banco, alteração de schema, migration, endpoint, alteração do módulo OS ou requisição repetida.
 
 ## 5. Recomendação e próximos passos
 
 1. **Correios — preparado para validação autenticada:** usuário configurar as variáveis locais acima, confirmar no CWS o acesso à API Rastro e fornecer um código de objeto associado ao contrato/ambiente. Então executar uma única consulta e revisar o formato real da resposta.
-2. **Dell — viável com parser simples como primeira opção:** confirmar com uma Service Tag de notebook de teste autorizada se o modelo é apresentado na mesma rota pública. Inspecionar o HTML/payload e extrair somente o nome do modelo. Se a extração via HTTP simples não capturar o elemento porque ele é renderizado por JavaScript, avaliar navegador automatizado em spike separada.
+2. **Dell — consulta pública confirmada; parser simples é a próxima etapa:** inspecionar uma resposta HTTP controlada para a rota pública e verificar se o nome do modelo vem no HTML/payload inicial. Se vier, extrair somente o modelo com parser leve; se depender de JavaScript, avaliar uma opção de renderização em spike separada.
 3. Validar o comportamento de timeout, credenciais sem permissão, objeto não disponível e respostas sem eventos antes de qualquer evolução do spike.
 4. Fazer revisão técnica antes de integrar à OS. Esta spike não altera regras de negócio nem recomenda automação periódica ainda.
 
@@ -106,4 +106,4 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 
 Arquivos criados: `docs/integracoes/Prova-Tecnica-Correios-Dell.md` e `backend/src/integrations/_spikes/correios-tracking.ts`.
 
-O código Correios foi validado quanto à sintaxe, mas ainda não foi executado contra os Correios porque as credenciais não foram configuradas no ambiente desta sessão e nenhum código de rastreio válido vinculado ao contrato foi fornecido. As variáveis de autenticação são `CORREIOS_ID` e `CORREIOS_PASS`; a segunda deve ser o código de acesso às APIs do CWS, não a senha do portal Meu Correios. No Dell, o caminho público foi confirmado no navegador com identificador fictício e mostrou nome/modelo sem login; falta confirmar uma Service Tag de notebook e a viabilidade de parse sem renderização de JavaScript.
+O código Correios foi validado quanto à sintaxe, mas ainda não foi executado contra os Correios porque as credenciais e os dados do contrato/cartão não estavam configurados no ambiente da sessão. As variáveis de autenticação são `CORREIOS_ID` e `CORREIOS_PASS`; a segunda deve ser o código de acesso às APIs do CWS, não a senha do portal Meu Correios. No Dell, uma consulta manual da Service Tag de notebook fornecida pelo usuário confirmou `Latitude 3420` sem login. A etiqueta foi omitida deste documento; a extração automática por HTTP ainda precisa ser validada.
