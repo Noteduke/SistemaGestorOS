@@ -433,7 +433,7 @@ Decisões técnicas de snapshot cadastral aprovadas por Marcos em 08/10/2026.
 Abertura de OS persistida e limites do Recorte 1.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026 para orientar o primeiro recorte funcional. Modelo físico e contrato de API permanecem futuros.
+Aprovada por Marcos em 08/10/2026 para orientar o primeiro recorte funcional. O modelo físico foi criado posteriormente no schema Prisma; a aplicação no banco principal e o contrato de API permanecem futuros.
 
 ## Contexto
 O número visível precisa ser reservado antes de existir uma OS oficialmente aberta, e o processo pode ser interrompido por fechamento do navegador ou reinício do computador.
@@ -457,7 +457,7 @@ Permitir continuidade e rastreabilidade da abertura sem apresentar rascunhos com
 Persistência permite retomar o processo após interrupção e controlar a numeração, enquanto a separação entre abertura e OS confirmada protege as listagens e os snapshots contra dados provisórios.
 
 ## Impactos
-O schema futuro deverá representar aberturas, iniciador, estado, número e eventos, além de garantir uma abertura ativa por usuário e concorrência segura do sequenciador. Os detalhes físicos, índices/constraints, retenção/reuso do número e rotas continuam no plano técnico de `docs/Especificacoes-Nao-Documentadas.md`; esta decisão não cria código, schema ou migration.
+O schema Prisma criado posteriormente representa aberturas, iniciador, estado, número e eventos. O índice unique nullable protege o marcador de uma abertura ativa por usuário; a coerência condicional e a concorrência do sequenciador dependerão de serviços transacionais. Retenção/reuso do número e rotas seguem o plano técnico; esta decisão original não implementou serviços nem API.
 
 ## Data de aprovação
 08/10/2026.
@@ -467,6 +467,10 @@ Marcos.
 
 ## Procedência
 Regras de abertura persistida e limites do Recorte 1 aprovadas por Marcos em 08/10/2026.
+
+## Nota técnica de implementação — 09/10/2026
+
+A estrutura Prisma da abertura e da OS foi criada na migration `20261008180000_service_order_foundation`, ainda pendente no banco principal. O primeiro ensaio isolado falhou com MySQL 3823 porque CHECKs condicionais usavam colunas de FKs com ações referenciais. Por decisão de Marcos, a correção preserva FKs e ações referenciais, remove os cinco CHECKs incompatíveis e mantém a CHECK independente do singleton da numeração. Os futuros services do Recorte 1 deverão garantir as invariantes condicionais, transições de estado, alocação de número e coerência entre abertura/OS/eventos dentro de transações. O novo ensaio em `gestor_os_migration_test` aplicou as cinco migrations e terminou com `prisma migrate status` atualizado. Não há implementação funcional de OS nesta nota.
 
 ---
 

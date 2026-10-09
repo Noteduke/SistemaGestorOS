@@ -1,10 +1,10 @@
 # Recorte 1 de OS — proposta de schema Prisma
 
-**Status: NÃO IMPLEMENTADA — proposta para revisão.**
+**Status: estrutura incorporada ao schema Prisma; migration validada em banco isolado e pendente no banco principal.**
 
-Esta proposta não foi incorporada a backend/prisma/schema.prisma, não foi validada pelo Prisma e não cria migration. Leia em conjunto com [o desenho técnico do Recorte 1](Recorte-1-OS-Desenho-Tecnico.md).
+Os modelos abaixo serviram de base para `backend/prisma/schema.prisma` e para a migration `20261008180000_service_order_foundation`. O schema passou em `prisma validate`. Em 09/10/2026, o primeiro ensaio em `gestor_os_migration_test` falhou por incompatibilidade entre CHECK e ação referencial de FK no MySQL 8.0.46. Após remover somente os cinco CHECKs incompatíveis, o ensaio completo passou e `prisma migrate status` ficou atualizado nesse banco isolado. A migration ainda não foi aplicada ao banco principal. Leia em conjunto com [o desenho técnico do Recorte 1](Recorte-1-OS-Desenho-Tecnico.md).
 
-O schema implementado permanece a fonte do estado atual. Os blocos abaixo são uma proposta com modelos novos e deltas conceituais para Person, Equipment, User e EquipmentOwnership. Inclui tornar Marca e Modelo obrigatórios no cadastro permanente de Equipamento, pois o schema atual permite valores nulos embora a regra aprovada os exija. Confirmar nomes finais, relações, constraints e permissões antes de implementar.
+O schema implementado permanece a fonte dos nomes finais. Os blocos abaixo preservam o desenho de referência para Person, Equipment, User e EquipmentOwnership. Marca e Modelo já são obrigatórios no schema Prisma, mas continuam nullable no banco principal até a aplicação da migration. A implementação transacional do Backend, os contratos finais e as permissões do Recorte 1 ainda estão pendentes.
 
 ## Decisões incorporadas
 
@@ -41,7 +41,7 @@ Adicionar ou ajustar os campos abaixo nos modelos existentes. São deltas concei
 
 ### Equipment
 
-O schema atual ainda não representa o estado Ativo/Inativo documentado e permite marca e modelo opcionais, embora as regras oficiais exijam ambos. Substituir as declarações atuais `brandId Int?`, relação `brand EquipmentBrand?` e `model String?` por declarações obrigatórias; acrescentar também o estado para impedir seleção de equipamento inativo em nova OS. Equipamentos novos criados na confirmação iniciam ativos.
+O schema anterior não representava o estado Ativo/Inativo e permitia marca e modelo opcionais. A migration pendente torna marca e modelo obrigatórios no banco principal e acrescenta `is_active`. A futura lógica do Backend deverá impedir a seleção de equipamento inativo em nova OS. Equipamentos novos criados na confirmação iniciam ativos.
 
 ~~~prisma
   brandId              Int                    @map("brand_id")
@@ -280,17 +280,17 @@ model ServiceOrderEvent {
 
 ## Restrições e comportamento no banco
 
-O schema Prisma representa as chaves, relações e índices convencionais. A migration futura deve acrescentar e testar no MySQL estas CHECK constraints, se não puderem ser expressas pela versão fixada:
+O schema Prisma representa chaves, relações e índices convencionais. A migration preserva as FKs com ações referenciais e, no MySQL 8.0.46, mantém apenas a CHECK do singleton `service_order_number_control.id = 1`. As invariantes condicionais abaixo, inicialmente propostas como CHECKs, deverão ser validadas pelo Backend dentro das transações do Recorte 1:
 
 1. Em abertura IN_PROGRESS, active_for_user_id = initiated_by_user_id; em CONFIRMED ou CANCELED, active_for_user_id IS NULL.
 2. transfer_requested = 1 exige equipamento existente, cliente, usuário solicitante e instante da decisão; não pode coexistir com equipmentDraftJson. Quando transfer_requested = 0, os metadados da intenção ficam nulos.
 3. Uma abertura não pode conter simultaneamente equipment_id e equipment_draft_json.
 4. Alocação RESERVED, CONFIRMED ou CONSUMED exige opening_id; RELEASED exige opening_id IS NULL.
 5. Evento precisa apontar para pelo menos uma entidade: opening_id ou service_order_id.
-6. A tabela de controle contém somente a linha singleton id = 1.
+6. A tabela de controle contém somente a linha singleton id = 1; esta condição permanece como CHECK no MySQL.
 7. No JSON de rascunho da abertura, `serialIdentificationStatus = IDENTIFIED` exige `serialNumber` informado; `NOT_IDENTIFIED` exige `serialNumber` nulo. Validar essa regra no DTO/domínio; a proposta não depende de CHECK SQL para inspecionar o JSON.
 
-O unique nullable em activeForUserId permite vários NULL no MySQL e impede duas aberturas ativas para a mesma conta. A CHECK mantém o marcador coerente com estado e iniciador. A aplicação também verifica esse limite e traduz violação de unicidade para conflito de domínio.
+O unique nullable em activeForUserId permite vários NULL no MySQL e impede duas aberturas marcadas como ativas para a mesma conta. O Backend mantém o marcador coerente com estado e iniciador na transação e traduz violação de unicidade para conflito de domínio; o banco não valida essa correlação condicional.
 
 As relações entre opening CONFIRMED e ServiceOrder, e entre alocação CONFIRMED e ServiceOrder, são invariantes entre tabelas e não podem ser garantidas por CHECK local. Criar, confirmar e mudar status de alocação na mesma transação, com FKs/uniqueness como garantias complementares.
 
@@ -307,10 +307,10 @@ A correspondência entre `ServiceOrder.newEquipmentSerialIdentificationStatus` e
 
 ## Compatibilidade e etapas antes da implementação
 
-- Esta proposta ainda precisa passar por prisma format e prisma validate após aprovação e inserção no schema real. A relação 1:1 da alocação com ServiceOrder e nomes de relações inversas precisam ser conferidos pelo Prisma.
-- MySQL não oferece índice único parcial; nullable unique mais CHECK garantem uma abertura por usuário.
-- CHECKs precisam constar na migration SQL e ser cobertas por integração MySQL. Não usar db push como substituto.
-- A migration deverá inserir a linha singleton com id 1, next_number 1, highest_reserved_number 0 e updated_at no instante de criação.
+- O schema real passou em `prisma format` e `prisma validate`; a migration corrigida aplicou em MySQL 8.0.46 isolado. O banco principal ainda não recebeu essa migration.
+- MySQL não oferece índice único parcial; nullable unique impede dois marcadores ativos iguais. A coerência do marcador com o status e o iniciador será mantida pelo Backend transacional.
+- Cinco CHECKs que referenciavam colunas de FKs com ações referenciais foram removidos após falha MySQL 3823 no primeiro ensaio. A migration mantém a CHECK independente do singleton. Não usar `db push` como substituto da migration.
+- A migration insere a linha singleton com id 1, next_number 1, highest_reserved_number 0 e updated_at no instante de criação.
 - O seed/catálogo de Marca deverá garantir idempotentemente a opção controlada `Não informada`. `Não informado` é uma opção controlada do campo textual de Modelo, sem criar catálogo de modelos. Confirmar como identificar esses valores sem depender do ID numérico do seed.
 - Testar a migration em banco MySQL isolado antes de qualquer aplicação no principal.
 - Fechamento, cancelamento oficial, orçamento, inventário, financeiro e OS interna automática ficam fora do comportamento do Recorte 1.

@@ -197,40 +197,9 @@ ALTER TABLE `service_order_events` ADD CONSTRAINT `service_order_events_actor_us
 -- AddForeignKey
 ALTER TABLE `service_order_events` ADD CONSTRAINT `service_order_events_initiating_user_id_fkey` FOREIGN KEY (`initiating_user_id`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- These invariants cannot be represented in the Prisma schema.
+-- The singleton invariant is independent of foreign keys and can be enforced in MySQL.
 ALTER TABLE `service_order_number_control`
     ADD CONSTRAINT `service_order_number_control_singleton_chk` CHECK (`id` = 1);
-
-ALTER TABLE `service_order_number_allocations`
-    ADD CONSTRAINT `service_order_number_allocations_opening_status_chk` CHECK (
-        (`status` IN ('RESERVED', 'CONFIRMED', 'CONSUMED') AND `opening_id` IS NOT NULL)
-        OR (`status` = 'RELEASED' AND `opening_id` IS NULL)
-    );
-
-ALTER TABLE `service_order_openings`
-    ADD CONSTRAINT `service_order_openings_active_user_chk` CHECK (
-        (`status` = 'IN_PROGRESS' AND `active_for_user_id` IS NOT NULL AND `active_for_user_id` = `initiated_by_user_id`)
-        OR (`status` IN ('CONFIRMED', 'CANCELED') AND `active_for_user_id` IS NULL)
-    ),
-    ADD CONSTRAINT `service_order_openings_equipment_choice_chk` CHECK (
-        `equipment_id` IS NULL OR `equipment_draft_json` IS NULL
-    ),
-    ADD CONSTRAINT `service_order_openings_transfer_intent_chk` CHECK (
-        (`transfer_requested` = true
-            AND `equipment_id` IS NOT NULL
-            AND `customer_id` IS NOT NULL
-            AND `transfer_requested_by_user_id` IS NOT NULL
-            AND `transfer_requested_at` IS NOT NULL
-            AND `equipment_draft_json` IS NULL)
-        OR (`transfer_requested` = false
-            AND `transfer_requested_by_user_id` IS NULL
-            AND `transfer_requested_at` IS NULL)
-    );
-
-ALTER TABLE `service_order_events`
-    ADD CONSTRAINT `service_order_events_target_chk` CHECK (
-        `opening_id` IS NOT NULL OR `service_order_id` IS NOT NULL
-    );
 
 INSERT INTO `service_order_number_control`
     (`id`, `next_number`, `highest_reserved_number`, `updated_at`)
