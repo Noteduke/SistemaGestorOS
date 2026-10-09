@@ -311,7 +311,7 @@ Regras de numeração visível, abertura e titularidade operacional da OS aprova
 Retrato cadastral histórico e correção de cliente/equipamento da OS.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026. Regras funcionais aprovadas; modelo físico, contratos de API e implementação permanecem futuros.
+Aprovada por Marcos em 08/10/2026. A base física de OS e os campos JSON do retrato foram aplicados ao principal; contratos de API, captura transacional, consulta histórica e correções permanecem futuros.
 
 ## Contexto
 A OS permanece vinculada aos cadastros atuais de Pessoa e Equipamento, mas precisa preservar como os dados principais estavam quando a abertura foi confirmada. Também é necessário corrigir vínculos após a confirmação sem apagar a origem histórica.
@@ -331,7 +331,7 @@ Definir o momento, finalidade e imutabilidade do retrato cadastral; estabelecer 
 Preservar evidência histórica da abertura sem tornar dados desatualizados a apresentação operacional, permitindo correção rastreável dos vínculos quando necessário.
 
 ## Impactos
-É necessária implementação futura da entidade OS, persistência imutável do retrato e histórico, além de contratos finais de API e autorização. A DA-024 aprova os campos JSON próprios sugeridos e a estrutura interna inicial do snapshot; isso ainda não cria entidade, schema Prisma ou migration.
+A entidade OS e os campos JSON do retrato já existem no schema Prisma e no banco principal. Permanecem futuras a captura imutável, o histórico de correções, os contratos finais de API e a autorização. A DA-024 define o formato inicial do snapshot, cuja validação caberá aos services transacionais.
 
 ## Data de aprovação
 08/10/2026.
@@ -390,7 +390,7 @@ Política complementar de correção administrativa de cliente/equipamento aprov
 Formato estruturado dos snapshots cadastrais da OS.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026 para o primeiro recorte. Implementação, entidade OS e migration permanecem futuras.
+Aprovada por Marcos em 08/10/2026 para o primeiro recorte. Entidade OS, campos JSON e migration já foram aplicados ao principal; captura e consulta funcionais permanecem futuras.
 
 ## Contexto
 A DA-022 aprovou capturar uma única vez um retrato histórico cadastral parcial na confirmação da abertura, mas deixou seu formato físico em aberto.
@@ -414,7 +414,7 @@ Preservar valores cadastrais que continuem legíveis e auditáveis sem depender 
 JSON versionado permite preservar os valores principais do momento da abertura e evoluir seu formato sem perder a interpretação de retratos antigos, mantendo separados estado cadastral histórico e vínculos operacionais atuais.
 
 ## Impactos
-Na implementação, validar campos JSON compatíveis com Prisma/MySQL, capturar os dados de forma consistente na confirmação e impedir sua alteração posterior. Os nomes físicos finais/mapeamento e a entidade OS completa ainda serão definidos no schema e na migration. Não há implementação nesta decisão documental.
+Os campos JSON e a entidade OS básica já estão no schema Prisma e no banco principal. Os futuros services deverão validar o conteúdo, capturar os dados de forma consistente na confirmação e impedir sua alteração posterior; contratos e histórico funcional permanecem pendentes. Esta decisão documental não implementa esses fluxos.
 
 ## Data de aprovação
 08/10/2026.
@@ -470,7 +470,7 @@ Regras de abertura persistida e limites do Recorte 1 aprovadas por Marcos em 08/
 
 ## Nota técnica de implementação — 09/10/2026
 
-A estrutura Prisma da abertura e da OS foi criada na migration `20261008180000_service_order_foundation`, ainda pendente no banco principal. O primeiro ensaio isolado falhou com MySQL 3823 porque CHECKs condicionais usavam colunas de FKs com ações referenciais. Por decisão de Marcos, a correção preserva FKs e ações referenciais, remove os cinco CHECKs incompatíveis e mantém a CHECK independente do singleton da numeração. Os futuros services do Recorte 1 deverão garantir as invariantes condicionais, transições de estado, alocação de número e coerência entre abertura/OS/eventos dentro de transações. O novo ensaio em `gestor_os_migration_test` aplicou as cinco migrations e terminou com `prisma migrate status` atualizado. Não há implementação funcional de OS nesta nota.
+A estrutura Prisma da abertura e da OS foi criada na migration `20261008180000_service_order_foundation`, aplicada ao banco principal em 09/10/2026 após ensaios em banco isolado e em cópia restaurada do principal. O primeiro ensaio isolado falhou com MySQL 3823 porque CHECKs condicionais usavam colunas de FKs com ações referenciais. Por decisão de Marcos, a correção preserva FKs e ações referenciais, remove os cinco CHECKs incompatíveis e mantém a CHECK independente do singleton da numeração. Os futuros services do Recorte 1 deverão garantir as invariantes condicionais, transições de estado, alocação de número e coerência entre abertura/OS/eventos dentro de transações. O ensaio em `gestor_os_migration_test` aplicou as cinco migrations e terminou com `prisma migrate status` atualizado. No principal, o deploy concluiu as cinco migrations; as seis tabelas de OS e o contador inicial foram verificados, sem DDL parcial. Não há implementação funcional de OS nesta nota.
 
 ---
 

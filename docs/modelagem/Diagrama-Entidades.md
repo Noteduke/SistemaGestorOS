@@ -2,11 +2,11 @@
 
 ## Objetivo
 
-Apresentar os relacionamentos já aplicados no banco principal até Auth. A base de OS existe no schema Prisma e na migration pendente, mas ainda não aparece neste diagrama do banco aplicado.
+Apresentar os relacionamentos já aplicados no banco principal, incluindo a base do Recorte 1 de OS. Os diagramas resumem as relações principais; fluxos funcionais de OS ainda não foram implementados.
 
 ## Status
 
-O banco principal `gestor_os`, em MySQL Community Server 8.0.46, tem as migrations `20261006120000_initial_core`, `20261007120000_person_basic`, `20261007183000_person_contacts` e `20261008120000_auth_foundation` aplicadas. A migration `20261008180000_service_order_foundation` já existe no repositório e passou em banco isolado vazio e em cópia restaurada do principal, mas permanece pendente em `gestor_os`. O diagrama abaixo retrata as entidades aplicadas no principal; para a estrutura de OS criada no schema Prisma, consultar `docs/modelagem/Modelo-Banco.md` e `backend/prisma/schema.prisma`.
+O banco principal `gestor_os`, em MySQL Community Server 8.0.46, tem cinco migrations aplicadas, até `20261008180000_service_order_foundation`. A migration de OS passou em banco isolado vazio e em cópia restaurada do principal antes do deploy autorizado. As seis tabelas de OS, seus índices e FKs e o CHECK singleton foram conferidos no principal; não houve seed de OS. O diagrama de OS abaixo mostra a base física aplicada, ainda sem services, controllers ou endpoints funcionais.
 
 ## Última atualização
 
@@ -26,7 +26,7 @@ erDiagram
   PERSON o|--o{ PERSON : "contact person link"
   PERSON ||--o{ EQUIPMENT : owns
   EQUIPMENT_TYPE ||--o{ EQUIPMENT : classifies
-  EQUIPMENT_BRAND o|--o{ EQUIPMENT : brands
+  EQUIPMENT_BRAND ||--o{ EQUIPMENT : brands
   EQUIPMENT ||--o{ EQUIPMENT_OWNERSHIP : tracks
   PERSON o|--o{ EQUIPMENT_OWNERSHIP : "previous owner"
   PERSON ||--o{ EQUIPMENT_OWNERSHIP : "new owner"
@@ -99,12 +99,15 @@ erDiagram
     int brand_id FK
     string model
     string serial_number
+    boolean is_active
   }
   EQUIPMENT_OWNERSHIP {
     int id PK
     int equipment_id FK
     int previous_owner_id FK
     int new_owner_id FK
+    int changed_by_user_id FK
+    int service_order_id FK
     datetime changed_at
   }
 ```
@@ -178,9 +181,79 @@ O username é obrigatório e único, normalizado por `trim`, armazenado em minú
 
 `PERSON_CONTACT_EVENT.user_id` está no schema Prisma e na migration Auth criada, com vínculo opcional ao usuário executor; eventos antigos permanecem sem usuário e a gravação do ator é atômica com a alteração do contato. A migration foi aplicada no banco principal.
 
+## Base física de OS — migration aplicada no banco principal
+
+As seis tabelas abaixo foram criadas por `20261008180000_service_order_foundation`. `equipment` recebeu `is_active`, Marca e Modelo obrigatórios; `equipment_ownership_events` recebeu usuário executor e vínculo opcional com OS. O contador foi inicializado com `(id, next_number, highest_reserved_number) = (1, 1, 0)`. Este diagrama mostra a estrutura, não a implementação dos fluxos operacionais.
+
+```mermaid
+erDiagram
+  USER ||--o{ SERVICE_ORDER_OPENING : initiates
+  USER o|--o{ SERVICE_ORDER_OPENING : active_for
+  PERSON o|--o{ SERVICE_ORDER_OPENING : customer
+  EQUIPMENT o|--o{ SERVICE_ORDER_OPENING : equipment
+  SERVICE_ORDER_OPENING o|--o| SERVICE_ORDER_NUMBER_ALLOCATION : reserves
+  SERVICE_ORDER_OPENING ||--o| SERVICE_ORDER : confirms
+  SERVICE_ORDER_NUMBER_ALLOCATION ||--o| SERVICE_ORDER : numbers
+  PERSON ||--o{ SERVICE_ORDER : customer
+  EQUIPMENT ||--o{ SERVICE_ORDER : equipment
+  USER ||--o{ SERVICE_ORDER : creates
+  SERVICE_ORDER ||--o{ SERVICE_ORDER_ASSIGNMENT : assigns
+  USER ||--o{ SERVICE_ORDER_ASSIGNMENT : assigned
+  SERVICE_ORDER o|--o{ SERVICE_ORDER_EVENT : records
+  SERVICE_ORDER_OPENING o|--o{ SERVICE_ORDER_EVENT : records
+  USER ||--o{ SERVICE_ORDER_EVENT : acts
+  SERVICE_ORDER o|--o{ EQUIPMENT_OWNERSHIP : links
+
+  SERVICE_ORDER_NUMBER_CONTROL {
+    int id PK
+    bigint next_number
+    bigint highest_reserved_number
+  }
+  SERVICE_ORDER_NUMBER_ALLOCATION {
+    bigint number_value PK
+    enum status
+    int opening_id FK,UK
+  }
+  SERVICE_ORDER_OPENING {
+    int id PK
+    string public_id UK
+    enum status
+    int initiated_by_user_id FK
+    int active_for_user_id FK,UK
+    bigint attempted_number_value
+    int customer_id FK
+    int equipment_id FK
+    json equipment_draft_json
+  }
+  SERVICE_ORDER {
+    int id PK
+    string public_id UK
+    int opening_id FK,UK
+    bigint number_value FK,UK
+    int customer_id FK
+    int equipment_id FK
+    int created_by_user_id FK
+    json customer_snapshot_json
+    json equipment_snapshot_json
+  }
+  SERVICE_ORDER_ASSIGNMENT {
+    int service_order_id PK,FK
+    int user_id PK,FK
+    int assigned_by_user_id FK
+  }
+  SERVICE_ORDER_EVENT {
+    int id PK
+    int service_order_id FK
+    int opening_id FK
+    int actor_user_id FK
+    bigint number_value
+    string event_type
+  }
+```
+
 ## Observações
 
-- O diagrama mostra relações e restrições principais; os campos completos estão em `docs/modelagem/Modelo-Banco.md` e `backend/prisma/schema.prisma`.
+- Os diagramas mostram relações e restrições principais; os campos completos estão em `docs/modelagem/Modelo-Banco.md` e `backend/prisma/schema.prisma`.
 - `equipment.serial_number` é opcional e possui índice não unique no schema atual. A regra funcional mais recente bloqueia serial repetido para o mesmo proprietário atual e avisa sem bloquear quando o proprietário é diferente; a aplicação deverá aplicar essa validação. Não há unicidade global de serial.
 - **Modelo físico atual:** `person_addresses.person_id` é único, então o banco aplicado aceita no máximo um endereço por Pessoa. A regra funcional aprovada em 07/10/2026 permite vários endereços; a unicidade deverá ser removida e Tipo de Endereço/principalidade modelados em migration futura. O diagrama continua mostrando o schema atual, não a estrutura futura.
 - Os catálogos funcionais iniciais aprovados em 07/10/2026 são Tipos de Contato (Cliente, Fornecedor, Transportadora, Prestador de Serviço, Parceiro), Tipos de Endereço (Principal, Cobrança, Entrega, Instalação) e Tipos de Contribuinte (Contribuinte ICMS, Contribuinte Isento, Não Contribuinte). Essas categorias ainda não correspondem a tabelas no schema/banco aplicado; o diagrama não as representa como entidades físicas existentes.
@@ -189,29 +262,29 @@ O username é obrigatório e único, normalizado por `trim`, armazenado em minú
 - A relação física de Pessoa de Contato é opcional, autorreferenciada em `people` e permite no máximo uma pessoa vinculada a cada cadastro. A coluna existente se chama `primary_contact_id`; a nomenclatura funcional aprovada é Pessoa de Contato.
 - Para equipamentos, Marca e Fabricante são o mesmo conceito e haverá um único cadastro, representado fisicamente por `equipment_brands`.
 - Aviso permanece campo único futuro e não existe em `people`; pergunta, apresentação condicional, permissões e ausência de log de leitura são regras funcionais ainda não implementadas. Administrador tem poderes máximos; permissões individuais podem conceder ação equivalente a outro usuário. Master não existe.
-- `people.is_active` existe no schema, mas a regra funcional proíbe excluir Pessoa fisicamente; somente Administrador ou usuário com permissão equivalente pode inativar/reativar. Pessoa inativa é consultável, mas não pode ser usada em novos vínculos operacionais. Equipamento só pode ser excluído sem qualquer registro persistido relacionado e com autorização correspondente; com vínculo, só pode ser inativado/reativado. O schema Prisma já contém `equipment.is_active`; a coluna ainda não existe no principal nem aparece neste diagrama.
+- `people.is_active` existe no schema, mas a regra funcional proíbe excluir Pessoa fisicamente; somente Administrador ou usuário com permissão equivalente pode inativar/reativar. Pessoa inativa é consultável, mas não pode ser usada em novos vínculos operacionais. Equipamento só pode ser excluído sem qualquer registro persistido relacionado e com autorização correspondente; com vínculo, só pode ser inativado/reativado. `equipment.is_active` já existe no schema Prisma e no banco principal e aparece no diagrama de Equipamento.
 - `equipment.owner_id` referencia uma Pessoa sem exigir no schema que ela tenha Tipo de Contato Cliente ou esteja ativa. A validação funcional será necessária no cadastro e em transferência.
-- A Pessoa informada pelo nome no atendimento é cliente da OS e proprietário operacional do equipamento para aquela abertura. Se o equipamento estiver ligado a outra Pessoa, exigir escolha explícita entre cancelar, abrir para o titular atual ou transferir com permissão; portador não é controlado. Cada OS confirmada terá retrato histórico cadastral parcial, imutável e consultável no histórico; tela e impressão padrão usarão dados atuais. O primeiro recorte armazenará o retrato em campos JSON próprios sugeridos `customerSnapshotJson` e `equipmentSnapshotJson`, separados dos vínculos atuais, com valores textuais principais, `snapshotVersion: 1` e `capturedAt` na confirmação. O schema Prisma já contém a entidade OS e esses campos JSON, ainda ausentes no principal e neste diagrama; o mecanismo geral de histórico continua futuro.
-- **Retrato cadastral e correção de vínculos — regras aprovadas:** captura única na confirmação, nunca durante abertura em andamento, com dados principais indicados em `docs/02-Regras-de-Negocio.md`. Reabertura e correção do cliente/equipamento não recriam o retrato. A correção pós-confirmação exige Administrador ou permissão específica futura sugerida (`os.correct_customer`, `os.correct_equipment`) e gera histórico obrigatório; o número permanece. A consulta do retrato é permitida a quem pode visualizar a OS. Não há impressão própria nem aviso automático obrigatório de divergência. Checklist/recebimento físico é separado. Os campos JSON e o formato interno inicial do snapshot estão aprovados; a base de OS e seus campos JSON existem no schema Prisma e na migration pendente; os demais campos físicos, a API e migrations posteriores continuam futuros.
+- A Pessoa informada pelo nome no atendimento é cliente da OS e proprietário operacional do equipamento para aquela abertura. Se o equipamento estiver ligado a outra Pessoa, exigir escolha explícita entre cancelar, abrir para o titular atual ou transferir com permissão; portador não é controlado. Cada OS confirmada terá retrato histórico cadastral parcial, imutável e consultável no histórico; tela e impressão padrão usarão dados atuais. O primeiro recorte armazenará o retrato em campos JSON próprios sugeridos `customerSnapshotJson` e `equipmentSnapshotJson`, separados dos vínculos atuais, com valores textuais principais, `snapshotVersion: 1` e `capturedAt` na confirmação. A entidade OS e esses campos JSON já existem no schema Prisma, no principal e no diagrama de OS; o mecanismo geral de histórico continua futuro.
+- **Retrato cadastral e correção de vínculos — regras aprovadas:** captura única na confirmação, nunca durante abertura em andamento, com dados principais indicados em `docs/02-Regras-de-Negocio.md`. Reabertura e correção do cliente/equipamento não recriam o retrato. A correção pós-confirmação exige Administrador ou permissão específica futura sugerida (`os.correct_customer`, `os.correct_equipment`) e gera histórico obrigatório; o número permanece. A consulta do retrato é permitida a quem pode visualizar a OS. Não há impressão própria nem aviso automático obrigatório de divergência. Checklist/recebimento físico é separado. Os campos JSON e o formato interno inicial do snapshot estão aprovados; a base de OS e seus campos JSON existem no schema Prisma e na migration aplicada ao principal; os demais campos físicos, a API e migrations posteriores continuam futuros.
 - **Correção administrativa de vínculo — complemento aprovado:** motivo não é obrigatório; correção pode ocorrer em OS FECHADA/CANCELADA e não reabre a OS nem altera status, número, retrato, faturamento, cobrança, pagamento ou estoque. Registros financeiros vinculados não são alterados automaticamente. Alterações de cliente/equipamento exigem validação de titularidade e escolha explícita; transferência exige Administrador ou `equipment.transfer_ownership`, nunca ocorre em silêncio. Se os dois vínculos forem corrigidos juntos, a operação é atômica. Não há alerta automático obrigatório no painel do Administrador. O modelo físico ainda não está aprovado.
-- **Numeração e abertura — regras aprovadas:** número visível `OS-` + seis dígitos, sequência global, crescente, única e imutável, gerada antes da confirmação. A abertura em andamento fica persistida, sobrevive a reinício, não é atendimento ativo e não possui snapshot; cada usuário pode ter uma por vez. Usuário comum só retoma/cancela a própria; Administrador ou `os.opening.manage` pode atuar em outra, com evento de auditoria. A confirmação com cliente/equipamento cria OS ABERTA/TRIAGEM. Edições temporárias não exigem histórico detalhado; eventos principais são registrados; não há expiração automática obrigatória no Recorte 1. Aberturas em andamento/canceladas não aparecem na listagem comum. Abandono libera número conforme a regra de sequência ou registra ABERTURA CANCELADA; etiqueta não consome o número. O schema Prisma já contém OS, abertura e sequenciador; a migration passou em banco restaurado e segue pendente no principal. Este diagrama aplicado ainda não os mostra.
-- **OS, mudanças de status e reabertura — regras funcionais aprovadas:** situação operacional e status macro são distintos; após TRIAGEM, a situação pode mudar livremente por usuário autorizado. FECHADA/CANCELADA exigem Administrador ou permissão específica; transições diretas entre elas são proibidas. Reabertura simples é textual. Reabertura completa mantém o número e retorna a ABERTA/AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento/pagamentos do ativo com histórico, move peças vinculadas para ORÇADA e notifica o Administrador; pode reabrir OS CANCELADA. As situações, atribuições padrão, resultados e regra de orçamento em NÃO AUTORIZADO estão em `docs/02-Regras-de-Negocio.md`. O schema Prisma contém a base de OS e eventos do Recorte 1, ainda sem os fluxos e relações de reabertura, financeiro e estoque descritos aqui. Este diagrama do banco principal ainda não mostra OS.
-- **Equipamento comprado/Doado — fluxo aprovado para etapa posterior:** OS externa fica FECHADA; equipamento passa à Pessoa da própria empresa e gera OS interna ABERTA/TRIAGEM ligada reciprocamente. Informações da origem são herdadas em área histórica separada; cobranças, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS e pendências não se tornam itens ativos. Só Administrador configura a Pessoa, que deve ser elegível como titular; sem configuração, bloqueia o encerramento. A original não recebe movimentação técnica depois da nova OS e só admite reabertura simples. A interna não pode repetir esse resultado. O schema Prisma contém a base de OS, mas não a configuração da Pessoa da empresa, vínculos recíprocos entre OS ou histórico herdado; o diagrama do principal ainda não mostra OS. Não se aprova modelo físico adicional para esse fluxo. Atomicidade, herança, efeitos fiscais/financeiros e reconciliações de estoque permanecem pendentes.
+- **Numeração e abertura — regras aprovadas:** número visível `OS-` + seis dígitos, sequência global, crescente, única e imutável, gerada antes da confirmação. A abertura em andamento fica persistida, sobrevive a reinício, não é atendimento ativo e não possui snapshot; cada usuário pode ter uma por vez. Usuário comum só retoma/cancela a própria; Administrador ou `os.opening.manage` pode atuar em outra, com evento de auditoria. A confirmação com cliente/equipamento cria OS ABERTA/TRIAGEM. Edições temporárias não exigem histórico detalhado; eventos principais são registrados; não há expiração automática obrigatória no Recorte 1. Aberturas em andamento/canceladas não aparecem na listagem comum. Abandono libera número conforme a regra de sequência ou registra ABERTURA CANCELADA; etiqueta não consome o número. O schema Prisma já contém OS, abertura e sequenciador; a migration passou em banco restaurado e foi aplicada ao principal. O diagrama de OS mostra essa estrutura.
+- **OS, mudanças de status e reabertura — regras funcionais aprovadas:** situação operacional e status macro são distintos; após TRIAGEM, a situação pode mudar livremente por usuário autorizado. FECHADA/CANCELADA exigem Administrador ou permissão específica; transições diretas entre elas são proibidas. Reabertura simples é textual. Reabertura completa mantém o número e retorna a ABERTA/AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento/pagamentos do ativo com histórico, move peças vinculadas para ORÇADA e notifica o Administrador; pode reabrir OS CANCELADA. As situações, atribuições padrão, resultados e regra de orçamento em NÃO AUTORIZADO estão em `docs/02-Regras-de-Negocio.md`. O schema Prisma contém a base de OS e eventos do Recorte 1, ainda sem os fluxos e relações de reabertura, financeiro e estoque descritos aqui. O diagrama de OS mostra a base física aplicada.
+- **Equipamento comprado/Doado — fluxo aprovado para etapa posterior:** OS externa fica FECHADA; equipamento passa à Pessoa da própria empresa e gera OS interna ABERTA/TRIAGEM ligada reciprocamente. Informações da origem são herdadas em área histórica separada; cobranças, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS e pendências não se tornam itens ativos. Só Administrador configura a Pessoa, que deve ser elegível como titular; sem configuração, bloqueia o encerramento. A original não recebe movimentação técnica depois da nova OS e só admite reabertura simples. A interna não pode repetir esse resultado. O schema Prisma contém a base de OS, mas não a configuração da Pessoa da empresa, vínculos recíprocos entre OS ou histórico herdado; o diagrama de OS mostra somente a base física atual. Não se aprova modelo físico adicional para esse fluxo. Atomicidade, herança, efeitos fiscais/financeiros e reconciliações de estoque permanecem pendentes.
 - **Peças e valores de itens em OS — decisões funcionais aprovadas:** DISPONÍVEL/ORÇADA/UTILIZADA/BAIXADA aplicam-se somente à peça controlada pelo estoque; peça avulsa fica fora do estoque e não é conversível. O valor cobrado de peça de estoque, peça avulsa, serviço/mão de obra ou outro item pode ser alterado por usuário autorizado após aprovação, sem nova aprovação do cliente, bloqueio automático ou motivo obrigatório. A aprovação não congela valores. Cada alteração registra usuário, data/hora, OS, item, tipo, campo e valores anterior/novo. Usuários autorizados na OS também podem visualizar e alterar o custo interno da peça avulsa após aprovação, mantendo histórico. `finance.os_costs.manage` pode ser avaliada futuramente para relatórios, fechamento ou controle mais restrito, sem ser requisito operacional. O diagrama/schema não contém itens de OS nem histórico financeiro de alterações; não se aprova estrutura física nesta etapa.
-- `equipment_ownership_events` existe para eventos de titularidade. Transferência altera titular atual, registra evento e não reescreve OS antigas; pode ocorrer fora ou durante OS, com associação opcional à OS. Usuários autorizados podem alterar cadastros e transferir mesmo com histórico, sem justificativa obrigatória; as mudanças devem gerar histórico automaticamente. O banco principal não registra tipos de histórico, usuário executor, justificativa ou vínculo com OS; o schema Prisma já prevê usuário executor e vínculo opcional, pendentes no principal.
-- O sistema terá histórico geral por entidade, conceitualmente com alteração de campo e evento/movimentação, valores anterior/novo quando aplicável, entidade, data/hora e usuário quando disponível. A estrutura física, lista final de eventos, classificação de acesso e filtros permanecem pendentes. O schema Prisma já contém a base de OS e a chave opcional para vincular transferência; ambos continuam pendentes no banco principal.
+- `equipment_ownership_events` existe para eventos de titularidade. Transferência altera titular atual, registra evento e não reescreve OS antigas; pode ocorrer fora ou durante OS, com associação opcional à OS. Usuários autorizados podem alterar cadastros e transferir mesmo com histórico, sem justificativa obrigatória; as mudanças devem gerar histórico automaticamente. O banco principal não registra tipos gerais de histórico ou justificativa; usuário executor e vínculo opcional com OS já existem no schema Prisma e no principal.
+- O sistema terá histórico geral por entidade, conceitualmente com alteração de campo e evento/movimentação, valores anterior/novo quando aplicável, entidade, data/hora e usuário quando disponível. A estrutura física, lista final de eventos, classificação de acesso e filtros permanecem pendentes. O schema Prisma já contém a base de OS e a chave opcional para vincular transferência; ambos já foram aplicados ao banco principal; os fluxos funcionais continuam pendentes.
 - Telefone, e-mail e endereço admitem no máximo um principal por Pessoa e coleção, sem exigir que exista principal; marcar outro desmarca o anterior. Índices funcionais aplicados garantem principalidade única para telefones e e-mails. Vários endereços do mesmo Tipo são permitidos funcionalmente, mas o schema ainda restringe endereço a zero ou um por Pessoa.
 - **Contatos implementados:** a migration `20261007183000_person_contacts` adiciona `public_id` único a telefones/e-mails, unicidade de e-mail por Pessoa, índices funcionais de principalidade e a tabela `person_contact_events`. As rotas diretas de `POST`/`GET` são descritas em `docs/04-API.md`; `label` permanece fora da API, sem edição/remoção/inativação e sem rota de histórico. A inclusão exige confirmação cadastral; telefone não padrão até 32 dígitos exige confirmação específica. E-mail segue a gramática ASCII documentada na API. As operações persistem contato, principalidade e eventos na mesma transação. A tabela de eventos não possui CHECK físico para XOR entre `phone_id`/`email_id` ou coerência de `event_type`; o service valida essas combinações. As rotas estão protegidas por Auth no código, a migration foi aplicada no banco principal e os principais testes autenticados locais passaram. Testes funcionais específicos de criação e autoria de evento ainda estão pendentes.
 - Catálogos iniciais serão carregados por seed idempotente sob comando controlado, sem execução automática ao iniciar o Backend; a estratégia técnica de identificadores e preservação de alterações será definida na implementação.
 - Regra de serial aprovada: repetição para o mesmo proprietário atual bloqueia; para proprietário diferente avisa e permite cadastro, sem sugerir transferência. Sem serial, salva sem busca automática por proprietário + Tipo + Marca + Modelo. Serial é armazenado em caixa alta sem remover símbolos ou alterar espaços, inclusive no início/fim; `ABC-123` e `ABC123` são diferentes. Pesquisa de equipamentos é independente de duplicidade: localiza por proprietário/Pessoa/Cliente, Tipo, Marca, Modelo, serial e Status; Modelo aceita texto, serial aceita busca exata ou parcial, Status permite Ativo/Inativo/Todos e inativos ficam ocultos por padrão. Detalhes de pesquisa avançada/filtros combinados permanecem pendentes.
-- Equipamento exige funcionalmente Proprietário, Tipo de Equipamento, Marca, Modelo e Status; serial é opcional. O schema atual deixa `brand_id` e `model` opcionais e não tem status de Equipamento. Status funcionais são apenas Ativo/Inativo, com novo Equipamento Ativo; estados adicionais estão fora desta etapa.
+- Equipamento exige funcionalmente Proprietário, Tipo de Equipamento, Marca, Modelo e Status; serial é opcional. O schema e o banco atuais exigem `brand_id` e `model` e incluem `equipment.is_active` para o status Ativo/Inativo. Status funcionais são apenas Ativo/Inativo, com novo Equipamento Ativo; estados adicionais estão fora desta etapa.
 - `equipment_types` e `equipment_brands` não possuem status no schema atual. A regra funcional permite exclusão física apenas antes do uso; usados podem ser editados/inativados, mas não apagados, e inativos não são opções padrão em novos Equipamentos. Renomeação após uso é permitida: o catálogo mantém o nome atual e o histórico registra nome anterior/novo, data/hora e usuário quando disponível; snapshots em cada referência não serão adotados.
 - Tipo de Equipamento e Marca possuem catálogos iniciais aprovados como cadastros próprios expansíveis, não enums fixos; serão carregados por seed idempotente sob comando controlado, sem execução automática no startup. Regra geral de caixa alta, e-mail minúsculo com trim, telefone/CEP numéricos e pesquisa são comportamentos de aplicação. Telefone com 10 dígitos é aceito como fixo; com 11, como celular se o primeiro após DDD for 9; outros formatos entre 1 e 32 dígitos geram aviso não bloqueante com possibilidade de confirmar. Sem dígitos ou acima de 32, bloqueia no recorte aprovado. Na ficha, usuário autorizado pode alterar dados com ou sem histórico, sem justificativa obrigatória; mudanças são registradas automaticamente. Proprietário com histórico exige transferência formal. Isso não altera o ciclo de vida dos cadastros auxiliares de Tipo e Marca.
 - Usuário com permissão correspondente pode consultar histórico operacional básico de Pessoa, Equipamento e OS; Administrador pode consultar o histórico completo. Histórico do Aviso e histórico técnico/auditoria exigem Administrador ou permissão explícita equivalente. O schema Prisma/migration atual não contém essa estrutura, não impõe a matriz de permissões e não implementa a confirmação antes de salvar.
 - `people.person_type` PF/PJ é obrigatório e sem default; Nome/Razão Social também é obrigatório. Nome Fantasia, inscrições e Observações já existem como campos opcionais. Tipo de Contribuinte e Aviso, assim como os cadastros próprios de Tipo de Contato, Tipo de Contribuinte e Tipo de Endereço, continuam ausentes do schema.
 - `document` é opcional e unique no modelo físico. A API básica valida CPF numérico e CNPJ numérico ou alfanumérico oficial, normaliza o valor canônico, confere compatibilidade com PF/PJ e bloqueia duplicidade. `VARCHAR(14)` comporta os 14 caracteres do CNPJ. A coluna por si só não impõe cálculo dos dígitos, normalização ou compatibilidade; essas validações são realizadas no Backend.
 - Nome Fantasia não se aplica a PF, é opcional para PJ e a Razão Social serve como referência de exibição quando ausente. IE/IM são opcionais, principalmente para PJ, e não terão validação estadual/municipal nesta etapa. Tipo de Contribuinte é opcional no cadastro geral e necessário na emissão de nota fiscal; regras fiscais completas continuam pendentes.
-- As migrations inicial, de Pessoa básica, de contatos e de Auth foram aplicadas. As demais decisões funcionais descritas neste documento continuam pendentes.
+- As migrations inicial, de Pessoa básica, de contatos, de Auth e de OS foram aplicadas. As demais decisões funcionais descritas neste documento continuam pendentes.
 - Auth está implementado no Backend, e a migration `20261008120000_auth_foundation` está aplicada no banco principal. O seed de 24 permissões foi executado duas vezes sem duplicação; `admin.full`, `system.admin` e `Master` estão ausentes. O bootstrap criou um Administrador ativo; a segunda execução aborta antes de solicitar credenciais quando já há Administrador ativo. O controle transacional permanece no service, mas concorrência real de bootstrap não foi testada. Os principais testes HTTP autenticados locais confirmaram login, `/auth/me`, listagem paginada de Pessoas como Admin, CSRF, logout e rejeição da sessão revogada. As sete rotas de Pessoas exigem sessão/permissão. Frontend e CRUD HTTP de usuários seguem fora do recorte. Uma credencial administrativa foi exposta acidentalmente em teste manual; por decisão de Marcos não foi trocada agora, mas deverá ser substituída antes de uso real, rede compartilhada, produção ou demonstração externa; o fluxo definitivo de troca/reset segue pendente. O backend escuta somente em `127.0.0.1`; acesso externo segue proibido até 2FA e fronteira confiável. Vulnerabilidades high do `npm install` e a concessão MySQL antiga com `_` sem escape ainda precisam ser avaliadas/revisadas.
 
 ## Histórico de alterações

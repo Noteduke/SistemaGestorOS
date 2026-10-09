@@ -110,7 +110,7 @@ Equipamentos podem ser pesquisados ou filtrados por Proprietário/Pessoa/Cliente
 
 Usuários com permissão para editar Equipamento podem corrigir Tipo, Marca, Modelo e Número de Série com ou sem histórico. Proprietário sem histórico pode ser corrigido sem transferência formal; com histórico, a mudança deve ocorrer por transferência. Alterações não exigem justificativa obrigatória e são registradas automaticamente no histórico. Esta regra de permissão sobre a ficha não altera o ciclo de vida próprio dos cadastros auxiliares de Tipo e Marca.
 
-Transferência de titularidade pode ocorrer manualmente fora de OS ou durante atendimento/OS. Pode ser vinculada a uma OS, mas esse vínculo é opcional. A transferência nunca altera OS antigas. O schema Prisma e a migration do Recorte 1 já incluem a base de OS e o vínculo opcional da transferência; a migration foi validada em banco restaurado, mas ainda não foi aplicada ao banco principal. A execução funcional da transferência durante a OS permanece futura.
+Transferência de titularidade pode ocorrer manualmente fora de OS ou durante atendimento/OS. Pode ser vinculada a uma OS, mas esse vínculo é opcional. A transferência nunca altera OS antigas. O schema Prisma e a migration do Recorte 1 já incluem a base de OS e o vínculo opcional da transferência; a migration foi validada em banco restaurado e aplicada ao banco principal `gestor_os`. A execução funcional da transferência durante a OS permanece futura.
 
 Os catálogos iniciais serão carregados por seed idempotente, executado por comando controlado; não será executado automaticamente na inicialização do Backend. A execução repetida não duplica valores, cria os ausentes, usa identificadores estáveis quando aplicável e não desfaz renomeações manuais permitidas.
 

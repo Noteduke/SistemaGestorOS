@@ -1,15 +1,15 @@
 # Recorte 1 de OS — desenho técnico preliminar
 
-**Status:** desenho de referência; schema Prisma e migration criados, migration ainda pendente no banco principal.
+**Status:** desenho de referência; schema Prisma e migration aplicados no banco principal; implementação funcional pendente.
 **Data:** 08/10/2026.
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` em 09/10/2026. Ela ainda não foi aplicada ao banco principal. Fluxos, endpoints, permissões e frontend continuam pendentes; contratos HTTP marcados como candidatos ainda precisam de revisão antes de codificar.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Fluxos, endpoints, permissões e frontend continuam pendentes; contratos HTTP marcados como candidatos ainda precisam de revisão antes de codificar.
 
 ## 1. Conclusão executiva
 
-As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema real já materializa a estrutura necessária, ainda pendente de aplicação no banco principal.
+As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services transacionais ainda não foram implementados.
 
 O Recorte 1 fica tecnicamente pronto para iniciar a implementação após revisão da proposta de schema e dos contratos/permissões ainda candidatos. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
@@ -364,7 +364,7 @@ Testes de concorrência precisam usar MySQL/InnoDB real em ambiente isolado, nã
 
 ## 13. Arquivos prováveis na implementação futura
 
-- `backend/prisma/schema.prisma` e a migration `20261008180000_service_order_foundation` já criados e validados em banco isolado, ainda pendentes no principal.
+- `backend/prisma/schema.prisma` e a migration `20261008180000_service_order_foundation` já criados, validados em bancos isolado e restaurado e aplicados no principal.
 - Seed controlada e idempotente para permissões OS, se os códigos forem aprovados.
 - `backend/src/app.module.ts` para registrar o módulo.
 - `backend/src/modules/service-orders/service-orders.module.ts`.
@@ -390,14 +390,14 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 10. **JSON.** Banco garante tipo JSON, não o contrato interno; validação e evolução por `snapshotVersion` pertencem ao domínio. Snapshots contêm dados pessoais, então respostas/lista devem expor somente o necessário e respeitar permissão de leitura. Dados temporários de equipamento também precisam de retenção compatível com o ciclo da abertura.
 11. **Histórico como dado obrigatório.** Evento ausente não pode deixar OS/transferência/situação parcialmente atualizadas; todos ficam no mesmo commit transacional.
 12. **Índices.** Índices propostos devem acompanhar filtros e FKs. Locking reads precisam usar PK/índices adequados; tabela sem índice em consulta bloqueante pode ampliar locks.
-13. **Migration de OS pendente no principal.** O schema real contém a base de OS e o ensaio isolado passou. Não usar `db push` nem aplicar a migration no principal sem autorização e nova verificação dos dados existentes.
+13. **Migration de OS aplicada no principal.** A autorização explícita, a pré-checagem e o backup precederam o deploy; as seis tabelas, índices, FKs, CHECK singleton e contador foram verificados. A estrutura não libera os fluxos funcionais sem services transacionais.
 
 ## 15. Sequência recomendada para implementar
 
 1. Revisar a proposta de schema Prisma e fechar nomes finais de campos, relações, permissões e envelopes HTTP.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
-4. Concluído: aplicar e validar a cadeia de migrations em `gestor_os_migration_test` com MySQL 8.0.46. A aplicação no principal exige autorização separada.
+4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
 5. Implementar serviço de sequência/reserva e testes concorrentes do mesmo usuário e usuários distintos.
 6. Implementar ciclo de abertura persistida, consulta/retomada/cancelamento e eventos.
 7. Implementar salvamento temporário do novo equipamento e da intenção de transferência, sem efetivar cadastro/transferência antes da confirmação.

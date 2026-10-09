@@ -1,10 +1,10 @@
 # Recorte 1 de OS — proposta de schema Prisma
 
-**Status: estrutura incorporada ao schema Prisma; migration validada em banco isolado e pendente no banco principal.**
+**Status: estrutura incorporada ao schema Prisma; migration validada em bancos isolado e restaurado e aplicada ao banco principal.**
 
-Os modelos abaixo serviram de base para `backend/prisma/schema.prisma` e para a migration `20261008180000_service_order_foundation`. O schema passou em `prisma validate`. Em 09/10/2026, o primeiro ensaio em `gestor_os_migration_test` falhou por incompatibilidade entre CHECK e ação referencial de FK no MySQL 8.0.46. Após remover somente os cinco CHECKs incompatíveis, o ensaio completo passou e `prisma migrate status` ficou atualizado nesse banco isolado. A migration ainda não foi aplicada ao banco principal. Leia em conjunto com [o desenho técnico do Recorte 1](Recorte-1-OS-Desenho-Tecnico.md).
+Os modelos abaixo serviram de base para `backend/prisma/schema.prisma` e para a migration `20261008180000_service_order_foundation`. O schema passou em `prisma validate`. Em 09/10/2026, o primeiro ensaio em `gestor_os_migration_test` falhou por incompatibilidade entre CHECK e ação referencial de FK no MySQL 8.0.46. Após remover somente os cinco CHECKs incompatíveis, o ensaio completo passou e `prisma migrate status` ficou atualizado nesse banco isolado. A migration foi aplicada ao banco principal em 09/10/2026, após ensaio em cópia restaurada e autorização explícita. Leia em conjunto com [o desenho técnico do Recorte 1](Recorte-1-OS-Desenho-Tecnico.md).
 
-O schema implementado permanece a fonte dos nomes finais. Os blocos abaixo preservam o desenho de referência para Person, Equipment, User e EquipmentOwnership. Marca e Modelo já são obrigatórios no schema Prisma, mas continuam nullable no banco principal até a aplicação da migration. A implementação transacional do Backend, os contratos finais e as permissões do Recorte 1 ainda estão pendentes.
+O schema implementado permanece a fonte dos nomes finais. Os blocos abaixo preservam o desenho de referência para Person, Equipment, User e EquipmentOwnership. Marca e Modelo são obrigatórios no schema Prisma e no banco principal após a migration. A implementação transacional do Backend, os contratos finais e as permissões do Recorte 1 ainda estão pendentes.
 
 ## Decisões incorporadas
 
@@ -30,7 +30,7 @@ Exemplo de opção “Não identificado” no JSON temporário:
 
 ## Extensões incorporadas às entidades existentes no schema Prisma
 
-Os campos abaixo descrevem extensões já incorporadas ao schema Prisma e à migration de OS. O banco principal mantém a estrutura anterior até a aplicação autorizada dessa migration.
+Os campos abaixo descrevem extensões já incorporadas ao schema Prisma e à migration de OS. O banco principal já contém essas extensões após a aplicação autorizada da migration.
 
 ### Person
 
@@ -41,7 +41,7 @@ Os campos abaixo descrevem extensões já incorporadas ao schema Prisma e à mig
 
 ### Equipment
 
-O schema anterior não representava o estado Ativo/Inativo e permitia marca e modelo opcionais. A migration pendente torna marca e modelo obrigatórios no banco principal e acrescenta `is_active`. A futura lógica do Backend deverá impedir a seleção de equipamento inativo em nova OS. Equipamentos novos criados na confirmação iniciam ativos.
+O schema anterior não representava o estado Ativo/Inativo e permitia marca e modelo opcionais. A migration aplicada tornou Marca e Modelo obrigatórios no banco principal e acrescentou `is_active`. A futura lógica do Backend deverá impedir a seleção de equipamento inativo em nova OS. Equipamentos novos criados na confirmação iniciam ativos.
 
 ~~~prisma
   brandId              Int                    @map("brand_id")
@@ -307,10 +307,10 @@ A correspondência entre `ServiceOrder.newEquipmentSerialIdentificationStatus` e
 
 ## Compatibilidade e etapas antes da implementação
 
-- O schema real passou em `prisma format` e `prisma validate`; a migration corrigida aplicou em MySQL 8.0.46 isolado. O banco principal ainda não recebeu essa migration.
+- O schema real passou em `prisma format` e `prisma validate`; a migration corrigida aplicou em MySQL 8.0.46 isolado. O banco principal recebeu essa migration em 09/10/2026, com `prisma migrate status` atualizado.
 - MySQL não oferece índice único parcial; nullable unique impede dois marcadores ativos iguais. A coerência do marcador com o status e o iniciador será mantida pelo Backend transacional.
 - Cinco CHECKs que referenciavam colunas de FKs com ações referenciais foram removidos após falha MySQL 3823 no primeiro ensaio. A migration mantém a CHECK independente do singleton. Não usar `db push` como substituto da migration.
 - A migration insere a linha singleton com id 1, next_number 1, highest_reserved_number 0 e updated_at no instante de criação.
 - O seed/catálogo de Marca deverá garantir idempotentemente a opção controlada `Não informada`. `Não informado` é uma opção controlada do campo textual de Modelo, sem criar catálogo de modelos. Confirmar como identificar esses valores sem depender do ID numérico do seed.
-- Testar a migration em banco MySQL isolado antes de qualquer aplicação no principal.
+- Concluído: testar em banco MySQL isolado e em cópia restaurada antes da aplicação autorizada no principal.
 - Fechamento, cancelamento oficial, orçamento, inventário, financeiro e OS interna automática ficam fora do comportamento do Recorte 1.
