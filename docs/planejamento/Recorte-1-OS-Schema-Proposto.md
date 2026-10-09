@@ -4,7 +4,7 @@
 
 Os modelos abaixo serviram de base para `backend/prisma/schema.prisma` e para a migration `20261008180000_service_order_foundation`. O schema passou em `prisma validate`. Em 09/10/2026, o primeiro ensaio em `gestor_os_migration_test` falhou por incompatibilidade entre CHECK e ação referencial de FK no MySQL 8.0.46. Após remover somente os cinco CHECKs incompatíveis, o ensaio completo passou e `prisma migrate status` ficou atualizado nesse banco isolado. A migration foi aplicada ao banco principal em 09/10/2026, após ensaio em cópia restaurada e autorização explícita. Leia em conjunto com [o desenho técnico do Recorte 1](Recorte-1-OS-Desenho-Tecnico.md).
 
-O schema implementado permanece a fonte dos nomes finais. Os blocos abaixo preservam o desenho de referência para Person, Equipment, User e EquipmentOwnership. Marca e Modelo são obrigatórios no schema Prisma e no banco principal após a migration. A implementação transacional do Backend, os contratos finais e as permissões do Recorte 1 ainda estão pendentes.
+O schema implementado permanece a fonte dos nomes finais. Os blocos abaixo preservam o desenho de referência para Person, Equipment, User e EquipmentOwnership. Marca e Modelo são obrigatórios no schema Prisma e no banco principal após a migration. Os contratos e permissões propostos para o Recorte 1 estão em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; implementação transacional e seed controlado continuam pendentes.
 
 ## Decisões incorporadas
 

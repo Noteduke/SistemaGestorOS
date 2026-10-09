@@ -5,13 +5,13 @@
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Fluxos, endpoints, permissões e frontend continuam pendentes; contratos HTTP marcados como candidatos ainda precisam de revisão antes de codificar.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Fluxos, seed de permissões, endpoints e frontend continuam pendentes. O contrato HTTP e a matriz de permissões propostas foram consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md` para orientar a implementação.
 
 ## 1. Conclusão executiva
 
 As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services transacionais ainda não foram implementados.
 
-O Recorte 1 fica tecnicamente pronto para iniciar a implementação após revisão da proposta de schema e dos contratos/permissões ainda candidatos. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
+O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, incluindo seed controlado das permissões propostas e testes antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
 ## 2. Escopo funcional
 
@@ -80,7 +80,7 @@ Na liberação, a linha permanece `RELEASED`, sem `openingId`; a sequência pode
 | `resumedAt`, `confirmedAt`, `canceledAt` (`DateTime(3)?`) | Instantes de retomada/terminalidade; evento continua sendo trilha canônica. |
 | `createdAt`, `updatedAt` | Persistência e retomada após reinício. |
 
-`activeForUserId` é um marcador nullable com unique index, não um índice parcial. Usuários comuns consultam/alteram somente suas linhas; Admin ou `os.opening.manage` pode atuar sobre outra abertura. `attemptedNumberValue` aponta para o número reservado pela tentativa, mesmo que depois seja liberado; eventos preservam o resultado. Dados de equipamento novo ficam em `equipmentDraftJson` e só geram cadastro definitivo no commit da confirmação.
+`activeForUserId` é um marcador nullable com unique index, não um índice parcial. Usuários comuns consultam/alteram somente suas linhas; Admin ou `service_orders.opening.manage` pode atuar sobre outra abertura. `attemptedNumberValue` aponta para o número reservado pela tentativa, mesmo que depois seja liberado; eventos preservam o resultado. Dados de equipamento novo ficam em `equipmentDraftJson` e só geram cadastro definitivo no commit da confirmação.
 
 ### 3.4 `ServiceOrder`
 
@@ -101,7 +101,7 @@ O número visível será formatado como `OS-` + número decimal com no mínimo s
 
 ### 3.5 `ServiceOrderAssignment`
 
-Uma linha por funcionário atribuído à OS, com `serviceOrderId`, `userId`, `assignedByUserId` e `assignedAt`; unique composto em `(serviceOrderId, userId)`. A OS pode ter um ou mais funcionários atribuídos, conforme regra oficial. Atribuições padrão ao Administrador são iniciais e não exclusivas; o conjunto de funcionários disponíveis pode ser ampliado. Elegibilidade de usuários seguirá as regras centrais de usuários. Alterações substituem atomicamente o conjunto atual e registram as listas anterior/nova no evento. Não modelar efeitos de atribuição sobre transições ou dashboard além do que já estiver documentado.
+Uma linha por funcionário atribuído à OS, com `serviceOrderId`, `userId`, `assignedByUserId` e `assignedAt`; unique composto em `(serviceOrderId, userId)`. A regra funcional permite atribuir um ou mais funcionários, sem exigir que o conjunto permaneça não vazio. Atribuições padrão ao Administrador são iniciais e não exclusivas; o conjunto de funcionários disponíveis pode ser ampliado. Elegibilidade de usuários seguirá as regras centrais de usuários. Alterações substituem atomicamente o conjunto atual e registram as listas anterior/nova no evento. Não modelar efeitos de atribuição sobre transições ou dashboard além do que já estiver documentado.
 
 ### 3.6 `ServiceOrderEvent`
 
@@ -172,7 +172,7 @@ O primeiro ensaio da migration falhou com MySQL 3823: `active_for_user_id` e `in
 
 - Usuário autenticado inicia no máximo uma abertura própria. Tentativa de iniciar outra retorna `409 OPENING_ALREADY_EXISTS` com os dados públicos da existente.
 - Usuário comum só lê, altera, retoma, confirma ou cancela a própria abertura.
-- Administrador ou `os.opening.manage` pode consultar, retomar/assumir ou cancelar abertura de outro usuário. A ação não altera `initiatedByUserId` nem a unicidade da abertura.
+- Administrador ou `service_orders.opening.manage` pode consultar, retomar/assumir ou cancelar abertura de outro usuário. A ação não altera `initiatedByUserId` nem a unicidade da abertura.
 - O ator da sessão é gravado como `actorUserId`. Em ação administrativa, `initiatingUserId` permanece no evento; o ator Admin/gestor não substitui o iniciador original.
 - Retomada por outro usuário gera evento `ABERTURA_RETOMADA_POR_ADMIN`. Retomada pelo iniciador pode gerar `ABERTURA_RETOMADA` para rastrear retomada explícita.
 
@@ -227,40 +227,13 @@ O conjunto exato de valores opcionais é montado dos dados principais disponíve
 
 Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visível e payload JSON. Eventos administrativos incluem também usuário iniciador e ator que assumiu/cancelou. `ABERTURA_CONFIRMADA` relaciona evento à abertura e à OS. História é inserida na mesma transação da mudança que descreve; falha de evento reverte a operação. Não registrar edição campo a campo durante o rascunho.
 
-## 8. Endpoints REST preliminares
+## 8. Endpoints REST do Recorte 1
 
-Todos exigem sessão autenticada e CSRF em métodos mutáveis, conforme `docs/04-API.md`. O `userId` vem da sessão, nunca da entrada. As permissões abaixo são candidatos para seed controlada; Admin segue a política central do projeto. Respostas seguem envelope público `{ data, warnings? }`, sem expor `id` interno; listas usam paginação obrigatória conforme padrão existente.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada; nenhum endpoint de OS foi implementado.
 
-| Método e rota candidata | Objetivo e permissão | Entrada mínima | Sucesso | Erros principais |
-| --- | --- | --- | --- | --- |
-| `POST /api/v1/service-order-openings` | Iniciar abertura e reservar número. Permissão candidata `os.open`. | Sem user ID; corpo vazio ou dados temporários opcionais. | `201` com `openingPublicId`, `visibleNumber`, estado e timestamps. | `409 OPENING_ALREADY_EXISTS`, `409 NUMBER_STORAGE_CAPACITY_EXHAUSTED` somente no limite técnico de `BIGINT`, `401`, `403`, conflito técnico de sequência. |
-| `GET /api/v1/service-order-openings/current` | Consultar abertura própria persistida. Permissão candidata `os.read`. | Nenhuma. | `200` com abertura ou `404 OPENING_NOT_FOUND`. | `401`, `403`. Não escreve evento; retomada explícita usa rota abaixo. |
-| `GET /api/v1/service-order-openings/:publicId` | Consultar a própria ou, com gestão, de outro usuário. `os.read`; além de ownership, `os.opening.manage` aprovado para gestão. | `publicId`. | `200` com abertura e número. | `404 OPENING_NOT_FOUND` para inexistente; `403 FORBIDDEN` para existente sem acesso (ou política uniforme `404`, a alinhar ao padrão de segurança). |
-| `GET /api/v1/service-order-openings` | Listar aberturas pendentes administrativamente. `os.opening.manage`. | Filtros/paginação padrão. | `200` paginado; somente aberturas em andamento. | `401`, `403`, `400 INVALID_PAGINATION`. Não aparece na lista de OS. |
-| `POST /api/v1/service-order-openings/:publicId/resume` | Retomar própria ou assumir abertura alheia. `os.read` para própria; `os.opening.manage` para outra. | `publicId`. | `200` com estado atualizado; gera evento de retomada/assunção. | `404`, `403`, `409 OPENING_NOT_IN_PROGRESS`. |
-| `PATCH /api/v1/service-order-openings/:publicId` | Alterar dados temporários/cliente/equipamento e decisão explícita de titularidade. `os.open`; `os.opening.manage` para alheia. | Campos temporários opcionais e `ownershipDecision` quando houver divergência. | `200` com resumo da abertura. Não gera histórico detalhado de cada campo. | `400 VALIDATION_ERROR`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`, `409 OWNERSHIP_DECISION_REQUIRED`. |
-| `PUT /api/v1/service-order-openings/:publicId/equipment-draft` | Guardar ou substituir os dados temporários de um equipamento novo. `equipment.create` e acesso à abertura. | DTO validado como rascunho, armazenado em `equipmentDraftJson`; não cria linha em `equipment`. | `200` com indicação de dados temporários salvos. | `400`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`. |
-| `POST /api/v1/service-order-openings/:publicId/confirm` | Confirmar e criar OS, equipamento novo se houver, snapshot, histórico e eventual transferência em uma transação. `os.open`; `os.opening.manage` para abertura alheia; `equipment.create` se houver rascunho novo; `equipment.transfer_ownership` se transferência. | `customerPublicId` e uma opção: `equipmentPublicId` existente ou confirmar `equipmentDraftJson`; decisão explícita de titularidade quando necessária. | `201` com `publicId`, `visibleNumber`, `macroStatus: ABERTA`, `operationalSituation: TRIAGEM`; snapshot não precisa ser devolvido integralmente. | `400`, `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`, `409 CUSTOMER_REQUIRED`, `409 EQUIPMENT_REQUIRED`, `409 OWNERSHIP_DECISION_REQUIRED`, `409 TRANSFER_PERMISSION_REQUIRED`, conflito transacional. |
-| `POST /api/v1/service-order-openings/:publicId/cancel` | Cancelar/desistir da abertura. `os.open`; `os.opening.manage` para outra. | Sem motivo obrigatório. | `200` com estado, número e `numberReleased` boolean. | `403`, `404`, `409 OPENING_NOT_IN_PROGRESS`; erro de conflito/retry limitado. |
-| `GET /api/v1/service-orders` | Listar somente OS confirmadas. `os.read`. | `page`, `pageSize` obrigatórios; filtros futuros não obrigatórios. | `200` paginado, ordenação estável por número. | `400 INVALID_PAGINATION`, `401`, `403`. Nunca inclui rascunho ou abertura cancelada. |
-| `GET /api/v1/service-orders/:publicId` | Consultar OS confirmada. `os.read`. | `publicId`. | `200` com número, dados atuais, status/situação e referência de consulta ao snapshot. | `404 SERVICE_ORDER_NOT_FOUND`, `401`, `403`. |
-| `PATCH /api/v1/service-orders/:publicId/situation` | Alterar livremente situação aprovada. `os.update_situation` (candidato documentado). | `operationalSituation`. | `200` com situação atualizada e evento. | `400 INVALID_SITUATION`, `404`, `401`, `403`. Não executa fechamento/cancelamento/orçamento. |
-| `PUT /api/v1/service-orders/:publicId/assignments` | Substituir funcionários atribuídos. `os.assign` (candidato documentado). | Lista de `userPublicIds`. | `200` com atribuições atuais; evento contém lista anterior/nova. | `400 VALIDATION_ERROR`, `404`, `401`, `403`, `409 USER_NOT_ELIGIBLE`. |
-| `GET /api/v1/service-orders/:publicId/history` | Consultar eventos básicos da OS. `os.read` ou permissão de histórico a definir. | Paginação padrão. | `200` paginado, ator público/data/tipo/payload permitido. | `404`, `401`, `403`, `400 INVALID_PAGINATION`. |
+## 9. Permissões propostas do Recorte 1
 
-As rotas de abertura seguem a forma documentada `/service-order-openings`; as rotas de OS e situação seguem `/service-orders/:publicId/situation` e `/history`. São contratos preliminares, sujeitos a harmonização com o prefixo e envelope real de `docs/04-API.md`. Os nomes aprovados `os.opening.manage`, `equipment.transfer_ownership` e os candidatos já documentados `os.open`, `os.read`, `os.update_situation` e `os.assign` são preferidos aqui; qualquer novo código exige aprovação e inclusão idempotente no seed. Usar `409` para conflitos de estado de negócio, nunca retornar IDs numéricos internos.
-
-## 9. Permissões mínimas propostas
-
-- `os.open`: iniciar/editar/confirmar abertura própria, como nome candidato já registrado na documentação.
-- `os.read`: consultar abertura própria e listar/consultar OS conforme escopo aprovado.
-- `os.opening.manage`: assumir/consultar/cancelar abertura de terceiros; identificador aprovado para gestão de abertura.
-- `os.update_situation`: alterar situação operacional, candidato já registrado.
-- `os.assign`: atribuir funcionários, candidato já registrado.
-- `equipment.create`: criar equipamento usando permissão existente de cadastro.
-- `equipment.transfer_ownership`: transferência explícita durante a confirmação.
-
-`isAdmin` mantém autoridade máxima pela política central; não criar permissão `admin.full`, `system.admin` ou perfil Master. Nomes ainda candidatos precisam ser conferidos com o catálogo Auth e incluídos em seed idempotente aprovado antes de proteger endpoints.
+Usar a matriz em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`, com prefixo `service_orders.*` e permissões complementares `equipment.create` e `equipment.transfer_ownership`. Os códigos não foram adicionados ao seed. Admin mantém autoridade máxima conforme a política central; os antigos candidatos `os.*` desta proposta não são códigos paralelos para o Recorte 1.
 
 ## 10. Transações principais
 
@@ -304,7 +277,7 @@ Registrar escolha explícita como intenção temporária no rascunho, sem altera
 
 **Lê/bloqueia:** OS confirmada e usuários indicados, validando existência, elegibilidade e permissão do ator.
 **Escreve:** substitui o conjunto em `ServiceOrderAssignment` e insere `ATRIBUICOES_ALTERADAS` com atribuídos anteriores/novos.
-**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A regra oficial permite um ou mais funcionários e prevê histórico; atribuições padrão seguem a situação configurada e não são exclusivas.
+**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A regra oficial permite atribuir um ou mais funcionários, sem exigir mínimo permanente; atribuições padrão seguem a situação configurada e não são exclusivas.
 
 ## 11. Validações indispensáveis
 
@@ -332,7 +305,7 @@ Registrar escolha explícita como intenção temporária no rascunho, sem altera
 - algoritmo de reserva, reuso da ponta e número consumido quando maior foi reservado;
 - política de estados/retomada/cancelamento;
 - composição/versionamento/captura temporal dos snapshots;
-- autorização própria/Admin/`os.opening.manage`/transferência.
+- autorização própria/Admin/`service_orders.opening.manage`/transferência.
 
 ### Integração em MySQL isolado
 
@@ -394,7 +367,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 
 ## 15. Sequência recomendada para implementar
 
-1. Revisar a proposta de schema Prisma e fechar nomes finais de campos, relações, permissões e envelopes HTTP.
+1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões propostas consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; seed e implementação ainda pendentes.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
@@ -404,7 +377,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
 9. Implementar alteração de situação e de atribuições com eventos.
 10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
-11. Revisar status/diff/migration e solicitar autorização separada antes de qualquer aplicação no banco principal.
+11. Antes de liberar os endpoints, revisar status/diff, confirmar seed autorizado e resultados dos testes; a migration de OS já foi aplicada ao banco principal e não deve ser reaplicada por este roteiro.
 
 ## Referências técnicas oficiais
 

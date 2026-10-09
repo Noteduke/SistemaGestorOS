@@ -433,7 +433,7 @@ Decisões técnicas de snapshot cadastral aprovadas por Marcos em 08/10/2026.
 Abertura de OS persistida e limites do Recorte 1.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026 para orientar o primeiro recorte funcional. O modelo físico foi criado posteriormente no schema Prisma; a aplicação no banco principal e o contrato de API permanecem futuros.
+Aprovada por Marcos em 08/10/2026 para orientar o primeiro recorte funcional. O modelo físico foi criado posteriormente no schema Prisma e aplicado ao banco principal. O contrato técnico de API foi consolidado em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; sua implementação permanece futura.
 
 ## Contexto
 O número visível precisa ser reservado antes de existir uma OS oficialmente aberta, e o processo pode ser interrompido por fechamento do navegador ou reinício do computador.
@@ -447,7 +447,7 @@ Permitir continuidade e rastreabilidade da abertura sem apresentar rascunhos com
 
 ## Decisão adotada
 - A abertura em andamento é persistida no banco, sobrevive a interrupções e não é uma OS ativa; ainda não exige cliente/equipamento e não tem snapshot cadastral definitivo.
-- Cada usuário pode ter no máximo uma abertura em andamento. Usuário comum só retoma ou cancela a própria; Administrador ou usuário com a permissão futura sugerida `os.opening.manage` pode retomar/assumir ou cancelar abertura de outra pessoa.
+- Cada usuário pode ter no máximo uma abertura em andamento. Usuário comum só retoma ou cancela a própria; Administrador ou usuário com a permissão futura sugerida `service_orders.opening.manage` pode retomar/assumir ou cancelar abertura de outra pessoa. O identificador `os.opening.manage` usado na formulação inicial desta decisão foi substituído na proposta técnica do Recorte 1, sem alterar o alcance funcional aprovado.
 - Ações de terceiros registram usuário iniciador, usuário responsável, data/hora, número visível e ação. Registram-se eventos principais de criação, retomada/assunção, confirmação e cancelamento; edições temporárias não exigem histórico detalhado.
 - Aberturas em andamento e canceladas não aparecem na listagem comum de OS. As canceladas permanecem disponíveis para consulta administrativa/auditoria ou filtro técnico. Não há expiração automática obrigatória no Recorte 1.
 - A confirmação exige cliente e equipamento, cria OS com status macro ABERTA e situação TRIAGEM e grava os snapshots conforme DA-024.

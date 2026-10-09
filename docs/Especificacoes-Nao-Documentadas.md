@@ -49,49 +49,28 @@
 
 ### Análise de prontidão — primeiro recorte de OS
 
-As regras de negócio para o Recorte 1 e o armazenamento JSON dos snapshots foram aprovados. Este plano converte essas decisões em um roteiro técnico objetivo; nomes de modelos, campos físicos, índices, rotas e permissões abaixo são candidatos para revisão na implementação e não significam que schema, API ou código já existam.
+As regras de negócio para o Recorte 1 e o armazenamento JSON dos snapshots foram aprovados. Este plano converte essas decisões em um roteiro técnico objetivo; os nomes físicos desse plano eram candidatos e já foram definidos no schema/migration aplicada. Rotas e permissões do Recorte 1 foram consolidadas em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; services, API e seed ainda não existem.
 
 #### Escopo fechado do Recorte 1
 
 Implementar início e persistência da abertura em andamento, reserva/geração do número, retomada/cancelamento, confirmação com cliente e equipamento, criação opcional do equipamento durante a abertura vinculado ao cliente, tratamento explícito de titularidade e transferência autorizada, criação da OS ABERTA/TRIAGEM, snapshots cadastrais JSON, eventos básicos, listagem e consulta de OS confirmadas, atribuições e alteração livre da situação operacional. Excluir correção administrativa de cliente/equipamento após confirmação, fechamento, cancelamento de OS oficial, reabertura, orçamento, serviços, peças, estoque, financeiro, Equipamento comprado/Doado, OS interna automática, checklist/recebimento, impressão, relatórios de auditoria e frontend completo. O backend mínimo e uma interface técnica de uso interno para validação não equivalem ao frontend completo.
 
-#### Modelos e campos prováveis
+#### Modelos e campos físicos do Recorte 1
 
-| Modelo candidato | Campos prováveis |
-| --- | --- |
-| `ServiceOrderOpening` | `id`, `publicId`, número reservado, estado da abertura, usuário iniciador, timestamps de criação/atualização/retomada/confirmação/cancelamento, dados temporários opcionais e referências opcionais a cliente/equipamento enquanto em preenchimento. Uma abertura ativa por usuário deve ser garantida; o mecanismo físico ainda será escolhido. |
-| `ServiceOrder` | `id`, `publicId`, número visível, `customerId`, `equipmentId`, `macroStatus`, `situation`, defeito/reclamação opcional, datas do atendimento, `customerSnapshotJson`, `equipmentSnapshotJson`, criador e timestamps. |
-| Controle de sequência | Um registro global de sequência/reserva para emitir o número antes da confirmação e serializar reserva/liberação; nome e mecanismo final dependem da modelagem. |
-| Atribuições | Relação da OS com um ou mais usuários atribuídos, com ator e datas necessários para manter histórico. Pode ser tabela associativa própria. |
-| Eventos/histórico da OS | OS ou abertura, tipo do evento, ator, instante, dados de mudança e referências necessárias. Eventos mínimos conceituais: abertura criada, retomada/assunção, confirmação, cancelamento e mudança de situação/atribuição. Os códigos exatos não estão aprovados. |
-
+A base física aplicada contém `ServiceOrderNumberControl`, `ServiceOrderNumberAllocation`, `ServiceOrderOpening`, `ServiceOrder`, `ServiceOrderAssignment` e `ServiceOrderEvent`. Campos, relações, FKs e índices finais são os de `backend/prisma/schema.prisma` e da migration `20261008180000_service_order_foundation`; a descrição documental está em `docs/modelagem/Modelo-Banco.md`. Esta seção histórica não propõe novos modelos.
 Cada snapshot JSON contém `snapshotVersion: 1`, `capturedAt` na confirmação e valores textuais principais que continuem legíveis sem IDs internos. Os campos representam retrato histórico separado dos relacionamentos atuais e são imutáveis depois da confirmação. O plano não aprova snapshot completo, checklist ou formato textual final de todos os atributos.
 
-#### Enums, índices e integridade candidatos
+#### Enums, índices e integridade da base aplicada
 
 - Estado da abertura: `IN_PROGRESS`, `CONFIRMED`, `CANCELED`; somente `IN_PROGRESS` conta para o limite de uma abertura por usuário.
 - Situação operacional: enum com as dez situações aprovadas em `docs/02-Regras-de-Negocio.md`; início obrigatório em `TRIAGEM`, com alteração livre por usuário autorizado no Recorte 1. Rotinas dependentes de orçamento ainda fora do recorte não devem ser simuladas.
 - Status macro da OS: `ABERTA` no Recorte 1. `FECHADA` e `CANCELADA` são fases posteriores e não devem ser implementadas agora.
-- Candidatos a unicidade: `publicId` da abertura e da OS; número visível reservado/oficial sem duplicação; uma abertura ativa por usuário; linha única do sequenciador global. O mecanismo MySQL/Prisma para o limite por usuário e a semântica de reserva/reuso precisam ser escolhidos e testados.
-- Índices candidatos: abertura por iniciador/estado/data; sequência e número; OS por status macro/situação/data; cliente, equipamento e número visível; eventos por OS/data e abertura/data; atribuições por usuário/OS. FKs devem preservar referências históricas conforme as regras de exclusão de Pessoa, Equipamento e Usuário.
+- Unicidades implementadas: `publicId` da abertura e da OS, número da alocação e da OS, `activeForUserId` nullable unique para uma abertura em andamento por usuário e linha singleton do sequenciador. A regra de reserva/reuso e coerência condicional precisa ser implementada e testada nos services transacionais.
+- Índices e FKs de abertura, alocação, OS, eventos e atribuições constam da migration aplicada. Preservam referências históricas conforme as regras de exclusão de Pessoa, Equipamento e Usuário; detalhes físicos são descritos em `docs/modelagem/Modelo-Banco.md`.
 
-#### Endpoints mínimos candidatos
+#### Contratos e permissões do Recorte 1
 
-1. `POST /api/v1/service-order-openings` — iniciar e reservar número, ou retornar conflito/instrução para retomar a abertura já existente do usuário.
-2. `GET /api/v1/service-order-openings` e `GET /api/v1/service-order-openings/:publicId` — consultar próprias aberturas; listar/consultar de outros usuários somente para Administrador ou `os.opening.manage`.
-3. `PATCH /api/v1/service-order-openings/:publicId` — atualizar dados temporários antes da confirmação.
-4. `POST /api/v1/service-order-openings/:publicId/confirm` e `POST /api/v1/service-order-openings/:publicId/cancel` — confirmar ou desistir. Retomada/assunção pode ser uma ação explícita ou ocorrer ao consultar/atualizar, a decidir no contrato.
-5. `POST /api/v1/service-order-openings/:publicId/equipment` e `POST /api/v1/service-order-openings/:publicId/equipment/:equipmentPublicId/transfer-ownership` — criar equipamento no contexto da abertura ou solicitar transferência explícita, com as permissões de cadastro/transferência.
-6. `GET /api/v1/service-orders` e `GET /api/v1/service-orders/:publicId` — listar e consultar somente OS confirmadas.
-7. `PATCH /api/v1/service-orders/:publicId/situation` e `PUT /api/v1/service-orders/:publicId/assignments` — mudar situação e atribuições com histórico.
-8. `GET /api/v1/service-orders/:publicId/history` — consultar histórico conforme autorização de leitura da OS.
-
-As rotas são proposta, não contrato final. Aberturas em andamento e canceladas ficam fora da listagem comum. Códigos de erro, paginação, idempotência, retomada/assunção, formato de payload e se criação/transferência de Equipamento integra a confirmação ainda precisam de especificação técnica.
-
-#### Permissões candidatas
-
-Administrador tem autoridade máxima. Avaliar `os.open`, `os.opening.manage`, `os.read`, `os.update_situation` e `os.assign`; `equipment.transfer_ownership` já é o identificador aprovado para transferência. Os novos códigos são sugestões para o catálogo futuro, não estão implantados nem autorizam ações. Usuários comuns só retomam/cancelam suas próprias aberturas; Administrador ou `os.opening.manage` pode assumir/cancelar a de outro usuário.
-
+A lista de endpoints e permissões acima era preliminar e foi consolidada em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Para o Recorte 1, usar `/api/v1/service-orders/openings`, `/api/v1/service-orders` e permissões propostas `service_orders.*`, mais `equipment.create` e `equipment.transfer_ownership` quando aplicáveis. As rotas antigas `/service-order-openings`, `/situation`, `/history` e os candidatos `os.open`, `os.read`, `os.update_situation`, `os.assign` não são contratos concorrentes. O seed e os endpoints de OS ainda não foram implementados.
 #### Serviços, DTOs e validações prováveis
 
 - Módulo `service-orders` com controller, service de abertura, service de OS, serviço/transação de numeração e persistência de histórico/eventos.
@@ -107,13 +86,13 @@ Testes mínimos: unidade de regras de estado/numeração/snapshot/permissão; in
 
 #### Arquivos backend prováveis e sequência de implementação
 
-Arquivos prováveis: `backend/prisma/schema.prisma`, nova migration, `backend/src/app.module.ts`, módulo e controllers/services em `backend/src/modules/service-orders/`, DTOs e domínio em subpastas, infraestrutura de sequence/history se necessária e testes unitários/integrados/e2e. São previsões; nada disso foi criado nesta atualização documental.
+Próximos arquivos prováveis: `backend/src/app.module.ts`, módulo e controllers/services em `backend/src/modules/service-orders/`, DTOs e domínio em subpastas e testes unitários/integrados/e2e. `backend/prisma/schema.prisma` e a migration de OS já foram criados e aplicados no banco principal; não se prevê nova migration para executar o Recorte 1 com o modelo atual.
 
-Sequência recomendada: (1) revisar regras e fechar ambiguidades de número/reuso/idempotência; (2) desenhar modelos, índices, FKs e transações; (3) revisar contrato de API e permissões; (4) implementar sequência/reserva e teste concorrente; (5) implementar ciclo persistido de abertura; (6) implementar confirmação atômica, vínculos e snapshots; (7) implementar listagem/detalhe, situação, atribuições e histórico; (8) auditar segurança e escopo; (9) validar schema/migration em banco isolado e obter aprovação antes de aplicar no banco principal.
+Sequência atualizada: (1) usar o schema/migration já aplicados e o contrato técnico em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; (2) aprovar e executar seed idempotente das permissões propostas na etapa autorizada; (3) implementar e testar sequência/reserva e abertura persistida; (4) implementar confirmação atômica, vínculos e snapshots; (5) implementar listagem/detalhe, situação, atribuições e eventos; (6) auditar segurança/escopo e executar testes de concorrência, rollback e HTTP autenticado em MySQL isolado. Não reaplicar a migration de OS ao principal.
 
 #### Decisões técnicas ainda abertas
 
-Definir como a sequência representa reserva e reuso quando nenhum número maior foi usado, que reservas contam como “número maior usado”, retenção de registros de números reaproveitados, comportamento no limite `OS-999999`, estratégia de lock/isolation/retry/idempotência, mecanismo físico para impor uma abertura ativa por usuário, campos temporários exatos, política de exclusão/retensão do rascunho, formato final dos eventos, rotas/payloads/códigos de erro e como a situação “NÃO AUTORIZADO” interage com orçamento que ainda não pertence ao recorte. A criação de Equipamento e a transferência explícita durante a abertura fazem parte das regras aprovadas; o desenho deve definir como garantir consistência transacional. Não há expiração automática obrigatória no Recorte 1; eventual limpeza/expiração fica para decisão futura.
+Para o Recorte 1, o controle físico de número e abertura já está aplicado. O plano transacional de reserva, reuso, locking, eventos, rascunho, transferência, rotas, payloads e erros está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md` e deve ser implementado/testado; não é uma nova DDL. Continuam pendentes para recortes futuros a política de limpeza/expiração automática, o formato final de relatórios de auditoria e a interação das situações “NÃO AUTORIZADO” com orçamento, que ainda não pertence ao Recorte 1.
 
 #### Recortes posteriores
 
