@@ -5,7 +5,7 @@
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Fluxos, seed de permissões, endpoints e frontend continuam pendentes. O contrato HTTP e a matriz de permissões propostas foram consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md` para orientar a implementação.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente, ainda sem execução do seed; fluxos, endpoints e frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
 
 ## 1. Conclusão executiva
 
@@ -101,7 +101,7 @@ O número visível será formatado como `OS-` + número decimal com no mínimo s
 
 ### 3.5 `ServiceOrderAssignment`
 
-Uma linha por funcionário atribuído à OS, com `serviceOrderId`, `userId`, `assignedByUserId` e `assignedAt`; unique composto em `(serviceOrderId, userId)`. A regra funcional permite atribuir um ou mais funcionários, sem exigir que o conjunto permaneça não vazio. Atribuições padrão ao Administrador são iniciais e não exclusivas; o conjunto de funcionários disponíveis pode ser ampliado. Elegibilidade de usuários seguirá as regras centrais de usuários. Alterações substituem atomicamente o conjunto atual e registram as listas anterior/nova no evento. Não modelar efeitos de atribuição sobre transições ou dashboard além do que já estiver documentado.
+Uma linha por funcionário nominalmente atribuído à OS, com `serviceOrderId`, `userId`, `assignedByUserId` e `assignedAt`; unique composto em `(serviceOrderId, userId)`. A regra funcional permite atribuir um ou mais funcionários, sem exigir que o conjunto permaneça não vazio. A responsabilidade padrão da Administração é uma fila/grupo derivado da situação operacional, não uma linha em `ServiceOrderAssignment` e não uma escolha automática de usuário. Na confirmação em TRIAGEM, a OS pode ficar sem funcionário nominal. Elegibilidade de usuários seguirá as regras centrais de usuários. Alterações nominais explícitas substituem atomicamente o conjunto atual e registram as listas anterior/nova no evento.
 
 ### 3.6 `ServiceOrderEvent`
 
@@ -233,7 +233,7 @@ O contrato consolidado de rotas, request/response conceituais, erros e eventos e
 
 ## 9. Permissões propostas do Recorte 1
 
-Usar a matriz em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`, com prefixo `service_orders.*` e permissões complementares `equipment.create` e `equipment.transfer_ownership`. Os códigos não foram adicionados ao seed. Admin mantém autoridade máxima conforme a política central; os antigos candidatos `os.*` desta proposta não são códigos paralelos para o Recorte 1.
+Usar a matriz em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`, com prefixo `service_orders.*` e permissões complementares `equipment.create` e `equipment.transfer_ownership`. Os oito códigos de OS foram adicionados ao catálogo idempotente, mas o seed ainda não foi executado para eles. Admin mantém autoridade máxima conforme a política central; os antigos candidatos `os.*` desta proposta não são códigos paralelos para o Recorte 1.
 
 ## 10. Transações principais
 
@@ -253,8 +253,8 @@ Todas usam `PrismaService.$transaction` interativa. SQL raw é limitado a lockin
 
 ### Confirmar abertura
 
-**Lê/bloqueia:** controle; abertura/alocação; Pessoa e equipamento existente, se selecionado; titularidade; dados de tipo/marca e contatos para snapshots. Validar ativo/elegível e permissões. Para transferência, bloquear equipamento e revalidar `equipment.transfer_ownership`; para equipamento novo, validar o JSON temporário e `equipment.create`.
-**Escreve:** se houver equipamento novo, cria então o cadastro definitivo e o vínculo com o cliente; cria OS `ABERTA/TRIAGEM`; snapshots JSON a partir dos cadastros finais; alocação `CONFIRMED`; abertura `CONFIRMED` e marcador ativo nulo; eventual transferência e `equipment_ownership_events`; eventos de confirmação/criação/transferência.
+**Lê/bloqueia:** controle; abertura/alocação; Pessoa e equipamento existente, se selecionado; titularidade; dados de tipo/marca e contatos para snapshots. Validar ativo/elegível e permissões. Para transferência, bloquear equipamento e revalidar `equipment.transfer_ownership`; para equipamento novo, validar o JSON temporário e `equipment.create`. Se houver funcionários informados na confirmação, validar elegibilidade e `service_orders.assignment.manage`.
+**Escreve:** se houver equipamento novo, cria então o cadastro definitivo e o vínculo com o cliente; cria OS `ABERTA/TRIAGEM`; snapshots JSON a partir dos cadastros finais; alocação `CONFIRMED`; abertura `CONFIRMED` e marcador ativo nulo; eventual transferência e `equipment_ownership_events`; eventos de confirmação/criação/transferência. Somente se informada explicitamente, grava atribuição nominal e seu evento na mesma transação; sem indicação, TRIAGEM fica sem funcionários nominais.
 **Rollback:** qualquer falha cancela tudo, mantendo a abertura e reserva em andamento; não persiste OS, equipamento novo, snapshot, transferência ou evento parcial.
 
 ### Guardar equipamento temporário durante abertura
@@ -270,14 +270,14 @@ Registrar escolha explícita como intenção temporária no rascunho, sem altera
 ### Alterar situação operacional
 
 **Lê/bloqueia:** OS confirmada e autorização.
-**Escreve:** situação atual e evento `SITUACAO_OPERACIONAL_ALTERADA` com anterior/nova, ator, instante e número.
+**Escreve:** situação atual e evento `SITUACAO_OPERACIONAL_ALTERADA` com anterior/nova, ator, instante e número. A situação define se a OS está na fila administrativa; não cria `ServiceOrderAssignment` nem escolhe Administrador nominal.
 **Rollback:** a situação não muda se o evento não for persistido. Rejeitar a tentativa de gravar macrostatus de encerramento pelo endpoint.
 
 ### Alterar atribuições
 
 **Lê/bloqueia:** OS confirmada e usuários indicados, validando existência, elegibilidade e permissão do ator.
 **Escreve:** substitui o conjunto em `ServiceOrderAssignment` e insere `ATRIBUICOES_ALTERADAS` com atribuídos anteriores/novos.
-**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A regra oficial permite atribuir um ou mais funcionários, sem exigir mínimo permanente; atribuições padrão seguem a situação configurada e não são exclusivas.
+**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A regra oficial permite atribuir um ou mais funcionários, sem exigir mínimo permanente; a fila administrativa segue a situação configurada independentemente das atribuições nominais.
 
 ## 11. Validações indispensáveis
 
@@ -338,7 +338,7 @@ Testes de concorrência precisam usar MySQL/InnoDB real em ambiente isolado, nã
 ## 13. Arquivos prováveis na implementação futura
 
 - `backend/prisma/schema.prisma` e a migration `20261008180000_service_order_foundation` já criados, validados em bancos isolado e restaurado e aplicados no principal.
-- Seed controlada e idempotente para permissões OS, se os códigos forem aprovados.
+- Oito códigos de permissões OS já acrescentados ao catálogo idempotente; execução controlada do seed permanece pendente.
 - `backend/src/app.module.ts` para registrar o módulo.
 - `backend/src/modules/service-orders/service-orders.module.ts`.
 - Controllers: `service-order-openings.controller.ts`, `service-orders.controller.ts`.
@@ -367,7 +367,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 
 ## 15. Sequência recomendada para implementar
 
-1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões propostas consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; seed e implementação ainda pendentes.
+1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente, execução do seed e implementação ainda pendentes.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.

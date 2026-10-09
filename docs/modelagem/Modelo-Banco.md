@@ -14,7 +14,7 @@ O schema Prisma contém o recorte inicial, Pessoa básica, contatos, Auth e a es
 
 ## Escopo atual
 
-O schema Prisma inclui as tabelas iniciais de cadastros compartilhados e equipamentos, Pessoa básica, telefones/e-mails, Auth e os seis modelos de OS do Recorte 1. As cinco migrations, incluindo a de OS, estão aplicadas no banco principal. O bootstrap local criou um Administrador ativo; o seed tem 24 permissões, sem `admin.full`, `system.admin` ou perfil/usuário `Master`. Os principais testes HTTP autenticados passaram localmente. A API funcional de OS ainda não foi implementada e o sistema continua sem liberação para produção ou acesso externo.
+O schema Prisma inclui as tabelas iniciais de cadastros compartilhados e equipamentos, Pessoa básica, telefones/e-mails, Auth e os seis modelos de OS do Recorte 1. As cinco migrations, incluindo a de OS, estão aplicadas no banco principal. O bootstrap local criou um Administrador ativo; 24 permissões foram aplicadas anteriormente pelo seed, sem `admin.full`, `system.admin` ou perfil/usuário `Master`. O catálogo fonte recebeu mais oito códigos de OS, ainda sem execução do seed para eles. Os principais testes HTTP autenticados passaram localmente. A API funcional de OS ainda não foi implementada e o sistema continua sem liberação para produção ou acesso externo.
 
 ### Convenções
 

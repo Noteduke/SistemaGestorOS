@@ -49,7 +49,7 @@
 
 ### Análise de prontidão — primeiro recorte de OS
 
-As regras de negócio para o Recorte 1 e o armazenamento JSON dos snapshots foram aprovados. Este plano converte essas decisões em um roteiro técnico objetivo; os nomes físicos desse plano eram candidatos e já foram definidos no schema/migration aplicada. Rotas e permissões do Recorte 1 foram consolidadas em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; services, API e seed ainda não existem.
+As regras de negócio para o Recorte 1 e o armazenamento JSON dos snapshots foram aprovados. Este plano converte essas decisões em um roteiro técnico objetivo; os nomes físicos desse plano eram candidatos e já foram definidos no schema/migration aplicada. Rotas e permissões do Recorte 1 foram consolidadas em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; os oito códigos de OS estão no catálogo idempotente, sem execução do seed para eles. Services e API de OS ainda não existem.
 
 #### Escopo fechado do Recorte 1
 
@@ -70,7 +70,8 @@ Cada snapshot JSON contém `snapshotVersion: 1`, `capturedAt` na confirmação e
 
 #### Contratos e permissões do Recorte 1
 
-A lista de endpoints e permissões acima era preliminar e foi consolidada em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Para o Recorte 1, usar `/api/v1/service-orders/openings`, `/api/v1/service-orders` e permissões propostas `service_orders.*`, mais `equipment.create` e `equipment.transfer_ownership` quando aplicáveis. As rotas antigas `/service-order-openings`, `/situation`, `/history` e os candidatos `os.open`, `os.read`, `os.update_situation`, `os.assign` não são contratos concorrentes. O seed e os endpoints de OS ainda não foram implementados.
+A lista de endpoints e permissões acima era preliminar e foi consolidada em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Para o Recorte 1, usar `/api/v1/service-orders/openings`, `/api/v1/service-orders` e permissões `service_orders.*`, mais `equipment.create` e `equipment.transfer_ownership` quando aplicáveis. As rotas antigas `/service-order-openings`, `/situation`, `/history` e os candidatos `os.open`, `os.read`, `os.update_situation`, `os.assign` não são contratos concorrentes. O catálogo do seed recebeu os oito códigos de OS, mas o seed não foi executado para eles e os endpoints de OS ainda não foram implementados.
+
 #### Serviços, DTOs e validações prováveis
 
 - Módulo `service-orders` com controller, service de abertura, service de OS, serviço/transação de numeração e persistência de histórico/eventos.
@@ -88,7 +89,7 @@ Testes mínimos: unidade de regras de estado/numeração/snapshot/permissão; in
 
 Próximos arquivos prováveis: `backend/src/app.module.ts`, módulo e controllers/services em `backend/src/modules/service-orders/`, DTOs e domínio em subpastas e testes unitários/integrados/e2e. `backend/prisma/schema.prisma` e a migration de OS já foram criados e aplicados no banco principal; não se prevê nova migration para executar o Recorte 1 com o modelo atual.
 
-Sequência atualizada: (1) usar o schema/migration já aplicados e o contrato técnico em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; (2) aprovar e executar seed idempotente das permissões propostas na etapa autorizada; (3) implementar e testar sequência/reserva e abertura persistida; (4) implementar confirmação atômica, vínculos e snapshots; (5) implementar listagem/detalhe, situação, atribuições e eventos; (6) auditar segurança/escopo e executar testes de concorrência, rollback e HTTP autenticado em MySQL isolado. Não reaplicar a migration de OS ao principal.
+Sequência atualizada: (1) usar o schema/migration já aplicados e o contrato técnico em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; (2) executar o seed idempotente dos oito códigos já incluídos no catálogo somente em etapa autorizada; (3) implementar e testar sequência/reserva e abertura persistida; (4) implementar confirmação atômica, vínculos e snapshots; (5) implementar listagem/detalhe, situação, atribuições e eventos; (6) auditar segurança/escopo e executar testes de concorrência, rollback e HTTP autenticado em MySQL isolado. Não reaplicar a migration de OS ao principal.
 
 #### Decisões técnicas ainda abertas
 

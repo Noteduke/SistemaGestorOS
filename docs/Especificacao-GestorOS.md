@@ -78,7 +78,7 @@ As situações operacionais iniciais aprovadas são:
 9. **NÃO AUTORIZADO - REMONTAR EQUIPAMENTO:** atribuível a um ou mais funcionários. Ao salvar, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo.
 10. **NÃO AUTORIZADO - PRONTO PRA ENTREGA:** atribuível a um ou mais funcionários. Ao salvar, se ainda houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo.
 
-As atribuições padrão ao Administrador são iniciais e não exclusivas. Situações criadas futuramente poderão ser atribuídas a qualquer funcionário. A abertura inicia obrigatoriamente em TRIAGEM.
+As situações com responsabilidade padrão da Administração pertencem a uma fila/grupo administrativo, visível e acionável por Administradores ou usuários com permissão equivalente. Não se escolhe automaticamente um Administrador nominal; atribuição a funcionário específico exige escolha explícita e pode coexistir com a fila. Situações criadas futuramente poderão ser atribuídas a qualquer funcionário. A abertura inicia obrigatoriamente em TRIAGEM e pode ficar sem atribuição nominal.
 
 Os status macro são **ABERTA** (OS na loja, ainda não fechada/cancelada), **FECHADA** (OS entregue e faturada nos fluxos usuais; a OS externa encerrada como Equipamento comprado/Doado também fica FECHADA por exceção aprovada, sem pagamento ao cliente nesta etapa) e **CANCELADA** (OS entregue, serviço não executado e sem cobrança; encerrada operacionalmente, mas classificada como cancelada). O efeito fiscal/financeiro da exceção comprado/doado permanece pendente.
 

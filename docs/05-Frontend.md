@@ -117,7 +117,7 @@ A interface deve sinalizar pendências para peças UTILIZADAS que não foram usa
 
 ### 10.8 Situação operacional da OS — interface futura
 
-A interface deve apresentar separadamente situação operacional, status macro e resultado/status-motivo de encerramento. A abertura inicia em TRIAGEM e somente essa situação fica disponível nesse momento. As dez situações iniciais e seus padrões de atribuição constam em `docs/02-Regras-de-Negocio.md`; a atribuição padrão ao Administrador permite também incluir outros funcionários. Situações futuras podem ser atribuídas a qualquer funcionário.
+A interface deve apresentar separadamente situação operacional, status macro e resultado/status-motivo de encerramento. A abertura inicia em TRIAGEM e somente essa situação fica disponível nesse momento. Nas situações com responsabilidade padrão da Administração, a interface apresenta fila/grupo administrativo, acessível a Administradores e a usuários com permissão equivalente; não mostra um Administrador específico como responsável sem atribuição nominal explícita. A OS em TRIAGEM pode não ter funcionário nominal atribuído. Atribuições explícitas de outros funcionários são permitidas; situações futuras poderão ser atribuídas a qualquer funcionário.
 
 Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo. Registrar a escolha e todas as mudanças de situação/atribuição no histórico, incluindo usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. A UI ainda não está implementada.
 
