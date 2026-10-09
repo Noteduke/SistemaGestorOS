@@ -28,9 +28,9 @@ Exemplo de opção “Não identificado” no JSON temporário:
 }
 ~~~
 
-## Extensões propostas às entidades existentes
+## Extensões incorporadas às entidades existentes no schema Prisma
 
-Adicionar ou ajustar os campos abaixo nos modelos existentes. São deltas conceituais, não alterações já feitas no schema real.
+Os campos abaixo descrevem extensões já incorporadas ao schema Prisma e à migration de OS. O banco principal mantém a estrutura anterior até a aplicação autorizada dessa migration.
 
 ### Person
 
