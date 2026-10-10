@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from "@nestjs/common";
 import { RequireAuthenticated, RequirePermissions } from "../auth/decorators/auth-metadata.js";
 import type { AuthRequest } from "../auth/auth.types.js";
 import { requireEmptyOpeningBody } from "./dto/empty-opening-body.dto.js";
@@ -29,6 +29,7 @@ export class ServiceOrderOpeningsController {
 
   @Post(":publicId/cancel")
   @RequireAuthenticated()
+  @HttpCode(HttpStatus.OK)
   cancel(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
     requireEmptyOpeningBody(body);
     return this.openings.cancel(publicId, request.auth!);
