@@ -1,15 +1,15 @@
 # Recorte 1 de OS — desenho técnico preliminar
 
-**Status:** desenho de referência; schema Prisma e migration aplicados no banco principal; implementação funcional pendente.
+**Status:** desenho de referência; schema Prisma e migration aplicados no banco principal; primeiro fluxo de abertura implementado no Backend, com validação de integração pendente.
 **Data:** 08/10/2026.
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente e foram aplicados ao banco principal pelo seed oficial; fluxos, endpoints e frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente e foram aplicados ao banco principal pelo seed oficial. Quatro endpoints de abertura foram implementados no Backend; os demais fluxos, os testes de integração e o frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
 
 ## 1. Conclusão executiva
 
-As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services transacionais ainda não foram implementados.
+As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; o service transacional de iniciar e cancelar abertura foi implementado. Confirmação e demais services continuam pendentes.
 
 O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, com seed controlado das permissões já executado e testes ainda necessários antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
@@ -229,7 +229,7 @@ Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visí
 
 ## 8. Endpoints REST do Recorte 1
 
-O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada; nenhum endpoint de OS foi implementado.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém quatro endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId` e cancelar. Os demais endpoints e a validação HTTP/concorrência em MySQL isolado continuam pendentes.
 
 ## 9. Permissões propostas do Recorte 1
 
@@ -367,12 +367,12 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 
 ## 15. Sequência recomendada para implementar
 
-1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente e seed executado; implementação funcional ainda pendente.
+1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente e seed executado. Início, consultas pontuais e cancelamento da abertura foram implementados no Backend; liberação funcional ainda depende de testes de integração.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
-5. Implementar serviço de sequência/reserva e testes concorrentes do mesmo usuário e usuários distintos.
-6. Implementar ciclo de abertura persistida, consulta/retomada/cancelamento e eventos.
+5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado continuam pendentes.
+6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
 7. Implementar salvamento temporário do novo equipamento e da intenção de transferência, sem efetivar cadastro/transferência antes da confirmação.
 8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
 9. Implementar alteração de situação e de atribuições com eventos.

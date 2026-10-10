@@ -1,6 +1,6 @@
 # Recorte 1 de OS — contratos, permissões e transações
 
-**Status:** contrato técnico proposto para a implementação; estrutura Prisma e migration `20261008180000_service_order_foundation` já aplicadas no banco principal; oito permissões de OS incluídas no catálogo idempotente e aplicadas ao banco principal pelo seed oficial; endpoints e fluxos de OS não implementados.
+**Status:** contrato técnico aprovado para a implementação; estrutura Prisma e migration `20261008180000_service_order_foundation` já aplicadas no banco principal; oito permissões de OS incluídas no catálogo idempotente e aplicadas ao banco principal pelo seed oficial. O Backend implementa iniciar abertura, consultar a própria ativa, consultar por `publicId` e cancelar; os demais endpoints e a validação HTTP/concorrência MySQL isolada permanecem pendentes.
 **Fonte funcional:** `docs/02-Regras-de-Negocio.md`, DA-024/DA-025 em `docs/07-Decisoes-Arquiteturais.md` e `docs/planejamento/Recorte-1-OS-Desenho-Tecnico.md`. Este documento consolida o contrato HTTP do Recorte 1 e substitui as listas de rotas e permissões preliminares daqueles documentos, sem alterar as regras funcionais aprovadas.
 
 ## 1. Convenções e autorização
@@ -54,7 +54,7 @@ Em todos os endpoints: aplicar `401/403`, validar `publicId`, omitir IDs interno
 | `PUT /api/v1/service-orders/:publicId/assignments` | `service_orders.assignment.manage`; `AssignmentsPut`. | `200` com atribuídos nominais atuais; IDs distintos e usuários existentes/ativos/elegíveis; lista vazia é aceita e não remove a fila administrativa. | Lock da OS, substituição integral do conjunto nominal e `ATRIBUICOES_ALTERADAS` com conjuntos anterior/novo no mesmo commit; requisição idêntica pode retornar o estado sem evento novo. | `400 VALIDATION_ERROR`, `409 USER_NOT_ELIGIBLE`; `SERVICE_ORDER_NOT_FOUND`. |
 | `GET /api/v1/service-orders/:publicId/events` | `service_orders.events.read`; `page`, `pageSize`. | `200` paginado `EventView`, ordem estável por `occurredAt` e ID interno como desempate não exposto; somente eventos da OS, incluindo confirmação vinculada à abertura. | Leitura; nenhum evento. | `400 INVALID_PAGINATION`, `SERVICE_ORDER_NOT_FOUND`. |
 
-Não há endpoint separado para persistir Equipment durante a abertura ou executar a transferência imediatamente: o `PATCH` guarda intenção/rascunho e o `confirm` realiza os efeitos definitivos. A listagem administrativa de aberturas permite descobrir `publicId` de terceiros e localizar canceladas, mas não é listagem comum de OS nem relatório de auditoria; edição pós-confirmação e relatório técnico de aberturas canceladas ficam para contrato posterior. Nenhuma rota deste quadro está funcional até a implementação dos services, controllers e controles de acesso correspondentes.
+Não há endpoint separado para persistir Equipment durante a abertura ou executar a transferência imediatamente: o `PATCH` guardará intenção/rascunho e o `confirm` realizará os efeitos definitivos. A listagem administrativa de aberturas permitirá descobrir `publicId` de terceiros e localizar canceladas, mas não será listagem comum de OS nem relatório de auditoria; edição pós-confirmação e relatório técnico de aberturas canceladas ficam para contrato posterior. Quatro rotas de abertura deste quadro estão implementadas no Backend; as demais dependem dos respectivos services, controllers e controles de acesso. A liberação funcional das quatro rotas ainda depende de testes HTTP autenticados e de concorrência MySQL isolada.
 
 ## 4. Invariantes e responsabilidade transacional
 
@@ -71,7 +71,7 @@ O contador global é bloqueado primeiro por `SELECT ... FOR UPDATE` parametrizad
 ## 5. Ordem de implementação e testes para liberar rotas
 
 1. Os oito códigos constam do catálogo idempotente; o seed já foi executado de modo autorizado no banco principal e não concedeu permissões automaticamente a usuários comuns. Definir guards por rota e ownership no service, respeitando CSRF e falha fechada.
-2. Implementar domínio/DTOs de número, estado, rascunho, snapshots, eventos e validações; depois services transacionais de reserva/current/consulta/retomada/cancelamento, com teste de concorrência MySQL isolado.
+2. Implementação parcial: domínio/DTOs e service transacional de reserva, current, consulta por `publicId` e cancelamento, com testes isolados. Permanecem pendentes retomada explícita, rascunho, snapshots e teste de concorrência MySQL isolado.
 3. Implementar atualização temporária e confirmação com cliente/equipamento existente, depois equipamento novo e transferência autorizada; testar os cinco grupos de invariantes e rollback por falha injetada em snapshot/evento/transferência.
 4. Implementar leitura de OS, situação, atribuições e eventos; integrar controllers em `backend/src/app.module.ts`; liberar rotas somente após testes unitários, integração MySQL isolada e e2e autenticados/CSRF/autorização.
 
