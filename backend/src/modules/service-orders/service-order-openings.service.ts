@@ -6,10 +6,11 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { AuthPolicyService } from "../auth/auth-policy.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
+import type { OpeningPatchInput } from "./dto/opening-patch.dto.js";
 import { formatServiceOrderNumber } from "./domain/service-order-number-format.js";
 import { toOpeningResponse } from "./domain/opening-response.js";
 
@@ -141,6 +142,9 @@ export class ServiceOrderOpeningsService {
       where: { activeForUserId: actor.id },
       include: {
         initiator: { select: { publicId: true } },
+        customer: { select: { publicId: true } },
+        equipment: { select: { publicId: true } },
+        transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
       },
     });
@@ -155,6 +159,9 @@ export class ServiceOrderOpeningsService {
       where: { publicId },
       include: {
         initiator: { select: { publicId: true } },
+        customer: { select: { publicId: true } },
+        equipment: { select: { publicId: true } },
+        transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
       },
     });
@@ -168,6 +175,170 @@ export class ServiceOrderOpeningsService {
       if (opening.status === "IN_PROGRESS") assertActiveOpening(opening);
     }
     return { data: toOpeningResponse(opening, opening.initiator.publicId) };
+  }
+
+  async update(publicId: string, patch: OpeningPatchInput, actor: AuthenticatedUser) {
+    assertPublicId(publicId);
+    const target = await this.prisma.serviceOrderOpening.findUnique({
+      where: { publicId },
+      select: { id: true, initiatedByUserId: true },
+    });
+    if (!target) throw openingNotFound();
+    if (target.initiatedByUserId === actor.id) {
+      await this.authPolicy.assertAllowed(actor, ["service_orders.opening.create"]);
+    } else {
+      await this.assertCanManageOrHide(actor);
+    }
+    if (patch.equipmentDraft) await this.authPolicy.assertAllowed(actor, ["equipment.create"]);
+    if (patch.ownershipDecision === "TRANSFER_TO_CUSTOMER") {
+      await this.authPolicy.assertAllowed(actor, ["equipment.transfer_ownership"]);
+    }
+
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const locked = await lockOpening(tx, target.id);
+        if (!locked || locked.public_id !== publicId || locked.initiated_by_user_id !== target.initiatedByUserId) throw openingNotFound();
+        if (locked.status !== "IN_PROGRESS") {
+          throw new ConflictException({ code: "OPENING_NOT_IN_PROGRESS", message: "A abertura não está em andamento." });
+        }
+        const opening = await tx.serviceOrderOpening.findUniqueOrThrow({
+          where: { id: target.id },
+          include: { numberAllocation: { select: { numberValue: true, status: true, openingId: true } } },
+        });
+        assertActiveOpening(opening);
+        if (await tx.serviceOrder.findFirst({ where: { openingId: opening.id }, select: { id: true } })) {
+          throw inconsistentState("A abertura já possui uma OS vinculada.");
+        }
+
+        let customerId = opening.customerId;
+        let equipmentId = opening.equipmentId;
+        let draft = opening.equipmentDraftJson;
+        let draftVersion = opening.equipmentDraftVersion;
+        let transferRequested = opening.transferRequested;
+        let transferRequestedByUserId = opening.transferRequestedByUserId;
+        let transferRequestedAt = opening.transferRequestedAt;
+        let selectionChanged = false;
+
+        if (patch.customerPublicId !== undefined) {
+          customerId = patch.customerPublicId === null ? null : await eligibleCustomerId(tx, patch.customerPublicId);
+          selectionChanged ||= customerId !== opening.customerId;
+        }
+        if (patch.equipmentPublicId !== undefined) {
+          if (patch.equipmentPublicId === null) {
+            selectionChanged ||= equipmentId !== null;
+            equipmentId = null;
+          }
+          else {
+            const equipment = await tx.equipment.findUnique({ where: { publicId: patch.equipmentPublicId }, select: { id: true, isActive: true } });
+            if (!equipment) throw new NotFoundException({ code: "EQUIPMENT_NOT_FOUND", message: "Equipamento não encontrado." });
+            if (!equipment.isActive) throw new ConflictException({ code: "EQUIPMENT_INACTIVE", message: "Equipamento inativo." });
+            selectionChanged ||= equipmentId !== equipment.id || draft !== null;
+            equipmentId = equipment.id;
+            draft = null;
+            draftVersion = null;
+          }
+        }
+        if (patch.equipmentDraft !== undefined) {
+          if (patch.equipmentDraft === null) {
+            selectionChanged ||= draft !== null;
+            draft = null;
+            draftVersion = null;
+          } else {
+            const [type, brand] = await Promise.all([
+              tx.equipmentType.findUnique({ where: { publicId: patch.equipmentDraft.typePublicId }, select: { id: true } }),
+              tx.equipmentBrand.findUnique({ where: { publicId: patch.equipmentDraft.brandPublicId }, select: { id: true } }),
+            ]);
+            if (!type || !brand) throw new NotFoundException({ code: "EQUIPMENT_CATALOG_NOT_FOUND", message: "Tipo ou marca não encontrado." });
+            selectionChanged = true;
+            draft = patch.equipmentDraft as unknown as Prisma.JsonObject;
+            draftVersion = 1;
+            equipmentId = null;
+          }
+        }
+        if (equipmentId !== null && draft !== null) {
+          throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Seleção de equipamento incoerente." });
+        }
+        if (selectionChanged || patch.ownershipDecision === null) {
+          transferRequested = false;
+          transferRequestedByUserId = null;
+          transferRequestedAt = null;
+        }
+        if (patch.ownershipDecision === "CANCEL_SELECTION") {
+          equipmentId = null;
+          draft = null;
+          draftVersion = null;
+        }
+
+        const equipment = equipmentId === null ? null : await tx.equipment.findUnique({
+          where: { id: equipmentId }, select: { id: true, ownerId: true, isActive: true },
+        });
+        if (equipmentId !== null && (!equipment || !equipment.isActive)) {
+          throw new ConflictException({ code: "EQUIPMENT_INACTIVE", message: "Equipamento selecionado indisponível." });
+        }
+        if (patch.ownershipDecision === "USE_CURRENT_OWNER") {
+          if (!equipment) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Selecione um equipamento existente." });
+          const owner = await tx.person.findUnique({ where: { id: equipment.ownerId }, select: { publicId: true } });
+          if (!owner) throw inconsistentState("Proprietário do equipamento ausente.");
+          customerId = await eligibleCustomerId(tx, owner.publicId);
+          transferRequested = false;
+          transferRequestedByUserId = null;
+          transferRequestedAt = null;
+        }
+        if (customerId !== null) {
+          const customer = await tx.person.findUnique({
+            where: { id: customerId }, select: { isActive: true, roles: { where: { role: "CUSTOMER" }, select: { role: true } } },
+          });
+          if (!customer?.isActive || customer.roles.length === 0) {
+            throw new ConflictException({ code: "CUSTOMER_NOT_ELIGIBLE", message: "Cliente indisponível para a abertura." });
+          }
+        }
+        if (patch.ownershipDecision === "TRANSFER_TO_CUSTOMER") {
+          if (!equipment || customerId === null || equipment.ownerId === customerId) {
+            throw new BadRequestException({ code: "VALIDATION_ERROR", message: "A intenção exige cliente e equipamento existente de outro proprietário." });
+          }
+          transferRequested = true;
+          transferRequestedByUserId = actor.id;
+          transferRequestedAt = new Date();
+        }
+        if (equipment && customerId !== null && equipment.ownerId !== customerId && !transferRequested) {
+          throw new ConflictException({ code: "OWNERSHIP_DECISION_REQUIRED", message: "Informe a decisão de titularidade." });
+        }
+        if (transferRequested && (!equipment || customerId === null || equipment.ownerId === customerId || !transferRequestedByUserId || !transferRequestedAt)) {
+          throw inconsistentState("Intenção de transferência incoerente.");
+        }
+
+        const saved = await tx.serviceOrderOpening.update({
+          where: { id: opening.id },
+          data: {
+            customerId, equipmentId,
+            equipmentDraftJson: draft === null ? Prisma.DbNull : draft as Prisma.InputJsonValue,
+            equipmentDraftVersion: draftVersion,
+            transferRequested, transferRequestedByUserId, transferRequestedAt,
+            complaint: patch.complaint === undefined ? opening.complaint : patch.complaint,
+          },
+          include: {
+            customer: { select: { publicId: true } },
+            equipment: { select: { publicId: true } },
+            transferRequester: { select: { publicId: true } },
+          },
+        });
+        if (actor.id !== opening.initiatedByUserId) {
+          await tx.adminAuditLog.create({
+            data: {
+              eventCode: "OS_OPENING_UPDATED_BY_ADMIN",
+              actorUserId: actor.id,
+              targetUserId: opening.initiatedByUserId,
+              detailsJson: { openingPublicId: publicId, changedFields: Object.keys(patch) },
+            },
+          });
+        }
+        return saved;
+      }, TRANSACTION_OPTIONS);
+      const initiator = await this.prisma.user.findUniqueOrThrow({ where: { id: target.initiatedByUserId }, select: { publicId: true } });
+      return { data: toOpeningResponse(updated, initiator.publicId) };
+    } catch (error) {
+      throw mapTransactionError(error);
+    }
   }
 
   async cancel(publicId: string, actor: AuthenticatedUser) {
@@ -222,6 +393,11 @@ export class ServiceOrderOpeningsService {
         const canceled = await tx.serviceOrderOpening.update({
           where: { id: opening.id },
           data: { status: "CANCELED", activeForUserId: null, canceledAt },
+          include: {
+            customer: { select: { publicId: true } },
+            equipment: { select: { publicId: true } },
+            transferRequester: { select: { publicId: true } },
+          },
         });
         await tx.serviceOrderNumberAllocation.update({
           where: { numberValue },
@@ -306,6 +482,18 @@ async function lockAllocation(tx: Prisma.TransactionClient, numberValue: bigint)
     FROM service_order_number_allocations WHERE number_value = ${numberValue} FOR UPDATE
   `;
   return rows[0] ?? null;
+}
+
+async function eligibleCustomerId(tx: Prisma.TransactionClient, publicId: string): Promise<number> {
+  const customer = await tx.person.findUnique({
+    where: { publicId },
+    select: { id: true, isActive: true, roles: { where: { role: "CUSTOMER" }, select: { role: true } } },
+  });
+  if (!customer) throw new NotFoundException({ code: "CUSTOMER_NOT_FOUND", message: "Cliente não encontrado." });
+  if (!customer.isActive || customer.roles.length === 0) {
+    throw new ConflictException({ code: "CUSTOMER_NOT_ELIGIBLE", message: "Pessoa não está ativa como Cliente." });
+  }
+  return customer.id;
 }
 
 function assertActiveOpening(opening: {

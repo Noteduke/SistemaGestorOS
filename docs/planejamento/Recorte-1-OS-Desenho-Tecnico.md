@@ -229,7 +229,7 @@ Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visí
 
 ## 8. Endpoints REST do Recorte 1
 
-O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém quatro endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId` e cancelar. A validação HTTP/concorrência em MySQL isolado das quatro rotas passou; os demais endpoints continuam pendentes.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém cinco endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId`, cancelar e editar temporariamente por `PATCH`. A validação HTTP/concorrência em MySQL isolado das quatro rotas iniciais passou; o PATCH temporário também foi implementado e validado nesse banco. Confirmação e demais endpoints continuam pendentes.
 
 ## 9. Permissões propostas do Recorte 1
 
@@ -373,7 +373,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
 5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado passaram.
 6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
-7. Implementar salvamento temporário do novo equipamento e da intenção de transferência, sem efetivar cadastro/transferência antes da confirmação.
+7. Implementado: PATCH temporário de cliente, equipamento existente ou rascunho novo, reclamação e decisão de titularidade, sem efetivar cadastro/transferência. Intenção de transferência exige `equipment.transfer_ownership` ou Admin já no PATCH e será revalidada na confirmação futura. Edição administrativa alheia é registrada no Log Administrativo.
 8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
 9. Implementar alteração de situação e de atribuições com eventos.
 10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.

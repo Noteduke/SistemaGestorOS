@@ -68,6 +68,7 @@ try {
   const owner = await createUser("owner", [create, read]);
   const outsider = await createUser("outsider", []);
   const manager = await createUser("manager", [manage]);
+  const transferManager = await createUser("transfer_manager", [manage, "equipment.transfer_ownership"]);
   const simultaneous = await createUser("simultaneous", [create, read]);
   const second = await createUser("second", [create]);
   const third = await createUser("third", [create]);
@@ -163,11 +164,121 @@ try {
   expectStatus(ownedOpening, 201, "Criar abertura usuário comum");
   assert.equal(ownedOpening.body.data.numberValue, adminOpening.body.data.numberValue, "Número liberado não foi reutilizado");
   const ownedPath = `/service-orders/openings/${ownedOpening.body.data.publicId}`;
+  const firstCustomer = await prisma.person.create({ data: { personType: "PF", name: `CLIENTE TESTE ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
+  const secondCustomer = await prisma.person.create({ data: { personType: "PF", name: `OUTRO CLIENTE ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
+  const type = await prisma.equipmentType.create({ data: { name: `TIPO TESTE ${suffix}` } });
+  const brand = await prisma.equipmentBrand.create({ data: { name: `MARCA TESTE ${suffix}` } });
+  const existing = await prisma.equipment.create({ data: { ownerId: firstCustomer.id, typeId: type.id, brandId: brand.id, model: "MODELO TESTE" } });
+  const draft = {
+    typePublicId: type.publicId, brandPublicId: brand.publicId, model: "Não informado",
+    serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null,
+  };
+  expectStatus(await request("PATCH", ownedPath, { cookie: ownerSession.cookie, body: { complaint: "Teste" } }), 403, "PATCH sem CSRF");
+  expectStatus(await request("PATCH", ownedPath, { ...outsiderSession, body: { complaint: "Negado" } }), 404, "PATCH alheio sem permissão");
+  expectStatus(await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: existing.publicId, equipmentDraft: draft } }), 400, "Equipamentos simultâneos");
+  const customerPatch = await request("PATCH", ownedPath, { ...ownerSession, body: { customerPublicId: firstCustomer.publicId, complaint: "Queixa inicial" } });
+  expectStatus(customerPatch, 200, "PATCH próprio");
+  assert.equal(customerPatch.body.data.customerPublicId, firstCustomer.publicId);
+  assert.equal(customerPatch.body.data.complaint, "QUEIXA INICIAL");
+  assert.equal(Object.hasOwn(customerPatch.body.data, "customerId"), false);
+  const omitted = await request("PATCH", ownedPath, { ...ownerSession, body: { complaint: "Queixa atualizada" } });
+  expectStatus(omitted, 200, "PATCH campo omitido");
+  assert.equal(omitted.body.data.customerPublicId, firstCustomer.publicId);
+  expectStatus(await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentDraft: draft } }), 403, "Rascunho sem equipment.create");
+  const adminOwn = await request("PATCH", ownedPath, { ...adminSession, body: { equipmentDraft: draft } });
+  expectStatus(adminOwn, 200, "PATCH rascunho por Admin");
+  assert.equal(adminOwn.body.data.equipmentPublicId, null);
+  assert.equal(adminOwn.body.data.equipmentDraft.model, "NÃO INFORMADO");
+  assert.equal(adminOwn.body.data.equipmentDraft.serialNumber, null);
+  assert.equal(adminOwn.body.data.equipmentDraft.serialIdentificationStatus, "NOT_IDENTIFIED");
+  assert.equal(await prisma.equipment.count({ where: { model: "NÃO INFORMADO" } }), 0, "Rascunho criou Equipment definitivo");
+  const existingPatch = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: existing.publicId } });
+  expectStatus(existingPatch, 200, "PATCH equipamento existente");
+  assert.equal(existingPatch.body.data.equipmentPublicId, existing.publicId);
+  assert.equal(existingPatch.body.data.equipmentDraft, null);
+  expectStatus(await request("PATCH", ownedPath, { ...adminSession, body: {
+    equipmentDraft: { ...draft, serialNumber: "FALSO" },
+  } }), 400, "Serial não identificado com texto");
+  const newMode = await request("PATCH", ownedPath, { ...adminSession, body: { equipmentDraft: draft } });
+  expectStatus(newMode, 200, "Modo novo substitui existente");
+  assert.equal(newMode.body.data.equipmentPublicId, null);
+  assert.equal(newMode.body.data.equipmentDraft.serialIdentificationStatus, "NOT_IDENTIFIED");
+  const existingAgain = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: existing.publicId } });
+  expectStatus(existingAgain, 200, "Modo existente substitui novo");
+  assert.equal(existingAgain.body.data.equipmentDraft, null);
+  const mismatch = await request("PATCH", ownedPath, { ...ownerSession, body: { customerPublicId: secondCustomer.publicId } });
+  expectStatus(mismatch, 409, "Divergência exige decisão");
+  assert.equal(mismatch.body.code, "OWNERSHIP_DECISION_REQUIRED");
+  expectStatus(await request("PATCH", ownedPath, { ...ownerSession, body: { customerPublicId: secondCustomer.publicId, ownershipDecision: "TRANSFER_TO_CUSTOMER" } }), 403, "Intenção sem permissão");
+  const transferSession = await login(transferManager);
+  const intended = await request("PATCH", ownedPath, { ...transferSession, body: { customerPublicId: secondCustomer.publicId, ownershipDecision: "TRANSFER_TO_CUSTOMER" } });
+  expectStatus(intended, 200, "Intenção de transferência autorizada");
+  assert.equal(intended.body.data.transferRequested, true);
+  assert.equal(intended.body.data.customerPublicId, secondCustomer.publicId);
+  assert.equal((await prisma.equipment.findUniqueOrThrow({ where: { id: existing.id } })).ownerId, firstCustomer.id, "Titularidade foi alterada");
+  const currentOwner = await request("PATCH", ownedPath, { ...ownerSession, body: { ownershipDecision: "USE_CURRENT_OWNER" } });
+  expectStatus(currentOwner, 200, "Usar proprietário atual");
+  assert.equal(currentOwner.body.data.customerPublicId, firstCustomer.publicId);
+  assert.equal(currentOwner.body.data.transferRequested, false);
+  const cleared = await request("PATCH", ownedPath, { ...ownerSession, body: { customerPublicId: null } });
+  expectStatus(cleared, 200, "Limpar cliente");
+  assert.equal(cleared.body.data.customerPublicId, null);
+  assert.equal(cleared.body.data.transferRequested, false);
+  const noEquipment = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: null, complaint: null } });
+  expectStatus(noEquipment, 200, "Limpar equipamento e reclamação");
+  assert.equal(noEquipment.body.data.equipmentPublicId, null);
+  assert.equal(noEquipment.body.data.complaint, null);
+  const identified = await request("PATCH", ownedPath, { ...adminSession, body: { equipmentDraft: {
+    ...draft, serialIdentificationStatus: "IDENTIFIED", serialNumber: "abc-123",
+  } } });
+  expectStatus(identified, 200, "Rascunho com série identificada");
+  assert.equal(identified.body.data.equipmentDraft.serialNumber, "ABC-123");
+  const noDraft = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentDraft: null } });
+  expectStatus(noDraft, 200, "Limpar rascunho");
+  assert.equal(noDraft.body.data.equipmentDraft, null);
+  expectStatus(await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: existing.publicId } }), 200, "Reselecionar equipamento");
+  const selectionCanceled = await request("PATCH", ownedPath, { ...ownerSession, body: { ownershipDecision: "CANCEL_SELECTION" } });
+  expectStatus(selectionCanceled, 200, "Cancelar seleção");
+  assert.equal(selectionCanceled.body.data.equipmentPublicId, null);
+  assert.equal(selectionCanceled.body.data.equipmentDraft, null);
+  const currentPatch = await request("GET", `/service-orders/openings/current`, { cookie: ownerSession.cookie });
+  expectStatus(currentPatch, 200, "GET após PATCH");
+  assert.equal(currentPatch.body.data.equipmentPublicId, null);
+  const audit = await prisma.adminAuditLog.findFirst({ where: { eventCode: "OS_OPENING_UPDATED_BY_ADMIN", targetUserId: owner.id, actorUserId: transferManager.id } });
+  assert.ok(audit, "Edição administrativa sem auditoria");
+  const beforeAuditFailure = await prisma.serviceOrderOpening.findUniqueOrThrow({ where: { publicId: ownedOpening.body.data.publicId } });
+  const auditCount = await prisma.adminAuditLog.count({ where: { eventCode: "OS_OPENING_UPDATED_BY_ADMIN", targetUserId: owner.id } });
+  let auditAttempted = false;
+  const failingAuditClient = {
+    serviceOrderOpening: prisma.serviceOrderOpening,
+    user: prisma.user,
+    $transaction: (callback, options) => prisma.$transaction((tx) => callback(new Proxy(tx, {
+      get(target, key, receiver) {
+        if (key === "adminAuditLog") return new Proxy(target.adminAuditLog, {
+          get(delegate, method) {
+            if (method === "create") return async () => { auditAttempted = true; throw new Error("INJECTED_AUDIT_FAILURE"); };
+            return Reflect.get(delegate, method);
+          },
+        });
+        return Reflect.get(target, key, receiver);
+      },
+    })), options),
+  };
+  const failingUpdate = new ServiceOrderOpeningsService(failingAuditClient, { assertAllowed: async () => {} });
+  await assert.rejects(
+    failingUpdate.update(ownedOpening.body.data.publicId, { complaint: "FALHA INJETADA" }, admin),
+    /INJECTED_AUDIT_FAILURE/,
+  );
+  assert.equal(auditAttempted, true);
+  const afterAuditFailure = await prisma.serviceOrderOpening.findUniqueOrThrow({ where: { publicId: ownedOpening.body.data.publicId } });
+  assert.equal(afterAuditFailure.complaint, beforeAuditFailure.complaint, "Falha de auditoria não reverteu o PATCH");
+  assert.equal(await prisma.adminAuditLog.count({ where: { eventCode: "OS_OPENING_UPDATED_BY_ADMIN", targetUserId: owner.id } }), auditCount);
   expectStatus(await request("GET", ownedPath, { cookie: outsiderSession.cookie }), 404, "Consulta alheia sem permissão");
   expectStatus(await request("POST", `${ownedPath}/cancel`, { ...outsiderSession }), 404, "Cancelamento alheio sem permissão");
   expectStatus(await request("GET", ownedPath, { cookie: managerSession.cookie }), 200, "Consulta alheia com manage");
   const managerCancel = await request("POST", `${ownedPath}/cancel`, { ...managerSession });
   expectStatus(managerCancel, 200, "Cancelamento alheio com manage");
+  expectStatus(await request("PATCH", ownedPath, { ...ownerSession, body: { complaint: "Terminal" } }), 409, "PATCH abertura cancelada");
   const ownedRow = await prisma.serviceOrderOpening.findUniqueOrThrow({ where: { publicId: ownedOpening.body.data.publicId } });
   const administrativeEvents = await prisma.serviceOrderEvent.findMany({ where: { openingId: ownedRow.id }, orderBy: { id: "asc" } });
   assert.deepEqual(administrativeEvents.map(({ eventType }) => eventType), [

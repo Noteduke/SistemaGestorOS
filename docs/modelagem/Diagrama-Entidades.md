@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Apresentar os relacionamentos já aplicados no banco principal, incluindo a base do Recorte 1 de OS. Os diagramas resumem as relações principais; quatro endpoints de abertura estão implementados no Backend, enquanto os demais fluxos de OS continuam pendentes.
+Apresentar os relacionamentos já aplicados no banco principal, incluindo a base do Recorte 1 de OS. Os diagramas resumem as relações principais; cinco endpoints de abertura estão implementados no Backend, enquanto os demais fluxos de OS continuam pendentes.
 
 ## Status
 
