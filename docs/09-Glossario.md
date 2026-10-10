@@ -101,7 +101,7 @@ Acesso considerado somente interno neste momento; o Backend não está pronto pa
 Acesso externo é proibido neste momento. Só poderá ser liberado depois que 2FA e uma fronteira confiável estiverem implementados; qualquer proxy reverso, VPN, túnel ou publicação exige nova decisão documental. Não se deve confiar em IP, `X-Forwarded-For` ou headers de proxy para classificar a origem antes dessa decisão.
 
 ## Guard
-Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards de autenticação, CSRF e permissão foram implementados no primeiro recorte; as rotas de Pessoas e contatos exigem sessão e permissão correspondente. Bootstrap, migration e seed de 24 permissões foram concluídos no banco local principal.
+Componente do Backend que verifica autenticação ou autorização de uma requisição antes de permitir o acesso à rota. Guards de autenticação, CSRF e permissão foram implementados no primeiro recorte; as rotas de Pessoas e contatos exigem sessão e permissão correspondente. Bootstrap, migration e seed inicial de 24 permissões de Auth foram concluídos no banco local principal; o seed posterior de OS elevou o total do banco a 32 permissões.
 
 ## CSRF
 Falsificação de requisição entre sites. Métodos mutáveis `POST`, `PUT`, `PATCH` e `DELETE`, inclusive login, exigem proteção CSRF; `GET` não exige token. Antes do login, o token é obtido por `GET /api/v1/auth/csrf`, enviado em `X-CSRF-Token` e associado a contexto temporário de 15 minutos; depois do login, a sessão autenticada usa controle CSRF próprio.
@@ -283,7 +283,7 @@ Modelo Prisma e tabela da migration Auth criada para persistir temporariamente o
 ## Administrador bootstrapado
 Primeiro Administrador criado por comando interno controlado, fora de auto-registro e das rotas HTTP de usuários. O primeiro uso do sistema fica restrito a essa conta até a gestão de usuários ser implementada.
 
-O bootstrap local foi concluído e há um Administrador ativo e 24 permissões. Uma segunda execução foi validada para abortar antes de solicitar username e senha quando já existe Administrador ativo. A transação protege contra concorrência no service, mas o teste concorrente real permanece pendente. O primeiro uso é restrito ao Administrador bootstrapado; a tabela `users` contém essa conta.
+O bootstrap local foi concluído e há um Administrador ativo e 32 permissões após o seed de OS. Uma segunda execução foi validada para abortar antes de solicitar username e senha quando já existe Administrador ativo. A transação protege contra concorrência no service, mas o teste concorrente real permanece pendente. O primeiro uso é restrito ao Administrador bootstrapado; a tabela `users` contém essa conta.
 
 ## `isAdmin`
 Campo do modelo Prisma que indica que a conta tem nível máximo de Administrador. A migration correspondente foi aplicada no banco principal. Não é a permissão `admin.full` ou `system.admin` e não substitui a política explícita de cada rota.

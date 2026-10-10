@@ -5,13 +5,13 @@
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente, ainda sem execução do seed; fluxos, endpoints e frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente e foram aplicados ao banco principal pelo seed oficial; fluxos, endpoints e frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
 
 ## 1. Conclusão executiva
 
 As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services transacionais ainda não foram implementados.
 
-O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, incluindo seed controlado das permissões propostas e testes antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
+O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, com seed controlado das permissões já executado e testes ainda necessários antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
 ## 2. Escopo funcional
 
@@ -233,7 +233,7 @@ O contrato consolidado de rotas, request/response conceituais, erros e eventos e
 
 ## 9. Permissões propostas do Recorte 1
 
-Usar a matriz em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`, com prefixo `service_orders.*` e permissões complementares `equipment.create` e `equipment.transfer_ownership`. Os oito códigos de OS foram adicionados ao catálogo idempotente, mas o seed ainda não foi executado para eles. Admin mantém autoridade máxima conforme a política central; os antigos candidatos `os.*` desta proposta não são códigos paralelos para o Recorte 1.
+Usar a matriz em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`, com prefixo `service_orders.*` e permissões complementares `equipment.create` e `equipment.transfer_ownership`. Os oito códigos de OS foram adicionados ao catálogo idempotente e aplicados ao banco principal pelo seed oficial, executado duas vezes sem duplicação. O banco contém 32 permissões, incluindo `equipment.transfer_ownership` uma única vez. Admin mantém autoridade máxima conforme a política central; os antigos candidatos `os.*` desta proposta não são códigos paralelos para o Recorte 1.
 
 ## 10. Transações principais
 
@@ -338,7 +338,7 @@ Testes de concorrência precisam usar MySQL/InnoDB real em ambiente isolado, nã
 ## 13. Arquivos prováveis na implementação futura
 
 - `backend/prisma/schema.prisma` e a migration `20261008180000_service_order_foundation` já criados, validados em bancos isolado e restaurado e aplicados no principal.
-- Oito códigos de permissões OS já acrescentados ao catálogo idempotente; execução controlada do seed permanece pendente.
+- Oito códigos de permissões OS acrescentados ao catálogo idempotente e aplicados ao banco principal pelo seed oficial, executado duas vezes com total estável de 32 permissões.
 - `backend/src/app.module.ts` para registrar o módulo.
 - `backend/src/modules/service-orders/service-orders.module.ts`.
 - Controllers: `service-order-openings.controller.ts`, `service-orders.controller.ts`.
@@ -367,7 +367,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 
 ## 15. Sequência recomendada para implementar
 
-1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente, execução do seed e implementação ainda pendentes.
+1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente e seed executado; implementação funcional ainda pendente.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
@@ -377,7 +377,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
 9. Implementar alteração de situação e de atribuições com eventos.
 10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
-11. Antes de liberar os endpoints, revisar status/diff, confirmar seed autorizado e resultados dos testes; a migration de OS já foi aplicada ao banco principal e não deve ser reaplicada por este roteiro.
+11. Antes de liberar os endpoints, revisar status/diff, confirmar o resultado do seed já executado e dos testes; a migration de OS já foi aplicada ao banco principal e não deve ser reaplicada por este roteiro.
 
 ## Referências técnicas oficiais
 

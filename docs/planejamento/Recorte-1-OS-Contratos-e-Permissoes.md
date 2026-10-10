@@ -1,13 +1,13 @@
 # Recorte 1 de OS — contratos, permissões e transações
 
-**Status:** contrato técnico proposto para a implementação; estrutura Prisma e migration `20261008180000_service_order_foundation` já aplicadas no banco principal; oito permissões de OS incluídas no catálogo idempotente, ainda sem execução do seed; endpoints e fluxos de OS não implementados.
+**Status:** contrato técnico proposto para a implementação; estrutura Prisma e migration `20261008180000_service_order_foundation` já aplicadas no banco principal; oito permissões de OS incluídas no catálogo idempotente e aplicadas ao banco principal pelo seed oficial; endpoints e fluxos de OS não implementados.
 **Fonte funcional:** `docs/02-Regras-de-Negocio.md`, DA-024/DA-025 em `docs/07-Decisoes-Arquiteturais.md` e `docs/planejamento/Recorte-1-OS-Desenho-Tecnico.md`. Este documento consolida o contrato HTTP do Recorte 1 e substitui as listas de rotas e permissões preliminares daqueles documentos, sem alterar as regras funcionais aprovadas.
 
 ## 1. Convenções e autorização
 
 Todas as rotas usam `/api/v1`, sessão autenticada e autorização no Backend; mutações exigem CSRF. `actorUserId` vem da sessão e nunca do corpo. IDs numéricos internos, hashes e segredos não saem na API. Identificadores de entidades são `publicId`; o número da OS é string formatada `OS-` com no mínimo seis dígitos, inclusive acima de `999999`. Respostas de sucesso seguem `{ data, warnings? }`, com paginação no padrão da API; erros seguem `{ code, message, details? }`. Listagens exigem `page` e `pageSize`, inteiros positivos, `pageSize` até 100, com ordenação estável. O `publicId` inválido recebe `400`; recurso inexistente, `404`; sessão ausente, `401`; CSRF ou autorização negada, `403`; conflito de estado, `409`. Respostas de abertura de terceiros devem seguir política uniforme de não revelar dados a quem não tenha acesso.
 
-Os oito códigos do Recorte 1 foram incluídos em `PERMISSION_CATALOG`; sua gravação no banco ainda depende da execução controlada do seed idempotente:
+Os oito códigos do Recorte 1 foram incluídos em `PERMISSION_CATALOG` e gravados no banco principal pelo seed idempotente oficial. Duas execuções mantiveram o total em 32 permissões, sem duplicidade:
 
 | Código | Alcance no Recorte 1 |
 | --- | --- |
@@ -22,7 +22,7 @@ Os oito códigos do Recorte 1 foram incluídos em `PERMISSION_CATALOG`; sua grav
 
 `equipment.create` também é exigida para gravar/alterar um rascunho de equipamento novo no `PATCH` e quando a confirmação o converte em cadastro definitivo. `equipment.transfer_ownership` continua no módulo de Equipamentos e é exigida na confirmação com transferência. Admin (`isAdmin`) segue a política central de autoridade máxima. Para abertura alheia, `service_orders.opening.manage` substitui o requisito de ownership/permite acesso, mas não dispensa `service_orders.create`, `equipment.create` ou `equipment.transfer_ownership` quando aplicáveis. Para abertura própria, criar/retomar/editar/cancelar exige `service_orders.opening.create`; ler exige `service_orders.opening.read`; confirmar exige `service_orders.opening.create` **e** `service_orders.create`. O frontend apenas oculta ações sem permissão; os guards e services revalidam no servidor.
 
-O prefixo `service_orders.*` é a nomenclatura deste recorte. Referências anteriores a `os.open`, `os.read`, `os.update_situation`, `os.assign` e `os.opening.manage` em propostas preliminares não são códigos adicionais e não entraram no catálogo. Códigos `os.*` citados para fechamento, reabertura ou correção pós-confirmação são sugestões históricas de recortes futuros, fora deste contrato; sua nomenclatura terá decisão própria antes da implementação. Acrescentar códigos ao catálogo não concede permissões a usuários nem executa o seed; a gravação das novas permissões no banco e eventual concessão exigem etapas próprias.
+O prefixo `service_orders.*` é a nomenclatura deste recorte. Referências anteriores a `os.open`, `os.read`, `os.update_situation`, `os.assign` e `os.opening.manage` em propostas preliminares não são códigos adicionais e não entraram no catálogo. Códigos `os.*` citados para fechamento, reabertura ou correção pós-confirmação são sugestões históricas de recortes futuros, fora deste contrato; sua nomenclatura terá decisão própria antes da implementação. A inclusão dos códigos no catálogo e o seed não concedem permissões automaticamente a usuários comuns; a concessão individual exige etapa própria. `equipment.transfer_ownership` já existia e permaneceu única após o seed.
 
 ## 2. DTOs conceituais e formatos
 
@@ -54,7 +54,7 @@ Em todos os endpoints: aplicar `401/403`, validar `publicId`, omitir IDs interno
 | `PUT /api/v1/service-orders/:publicId/assignments` | `service_orders.assignment.manage`; `AssignmentsPut`. | `200` com atribuídos nominais atuais; IDs distintos e usuários existentes/ativos/elegíveis; lista vazia é aceita e não remove a fila administrativa. | Lock da OS, substituição integral do conjunto nominal e `ATRIBUICOES_ALTERADAS` com conjuntos anterior/novo no mesmo commit; requisição idêntica pode retornar o estado sem evento novo. | `400 VALIDATION_ERROR`, `409 USER_NOT_ELIGIBLE`; `SERVICE_ORDER_NOT_FOUND`. |
 | `GET /api/v1/service-orders/:publicId/events` | `service_orders.events.read`; `page`, `pageSize`. | `200` paginado `EventView`, ordem estável por `occurredAt` e ID interno como desempate não exposto; somente eventos da OS, incluindo confirmação vinculada à abertura. | Leitura; nenhum evento. | `400 INVALID_PAGINATION`, `SERVICE_ORDER_NOT_FOUND`. |
 
-Não há endpoint separado para persistir Equipment durante a abertura ou executar a transferência imediatamente: o `PATCH` guarda intenção/rascunho e o `confirm` realiza os efeitos definitivos. A listagem administrativa de aberturas permite descobrir `publicId` de terceiros e localizar canceladas, mas não é listagem comum de OS nem relatório de auditoria; edição pós-confirmação e relatório técnico de aberturas canceladas ficam para contrato posterior. Nenhuma rota deste quadro está funcional até a implementação e o seed correspondente.
+Não há endpoint separado para persistir Equipment durante a abertura ou executar a transferência imediatamente: o `PATCH` guarda intenção/rascunho e o `confirm` realiza os efeitos definitivos. A listagem administrativa de aberturas permite descobrir `publicId` de terceiros e localizar canceladas, mas não é listagem comum de OS nem relatório de auditoria; edição pós-confirmação e relatório técnico de aberturas canceladas ficam para contrato posterior. Nenhuma rota deste quadro está funcional até a implementação dos services, controllers e controles de acesso correspondentes.
 
 ## 4. Invariantes e responsabilidade transacional
 
@@ -70,7 +70,7 @@ O contador global é bloqueado primeiro por `SELECT ... FOR UPDATE` parametrizad
 
 ## 5. Ordem de implementação e testes para liberar rotas
 
-1. Os oito códigos já constam do catálogo idempotente; executar o seed somente em etapa autorizada e não conceder automaticamente a usuários comuns. Definir guards por rota e ownership no service, respeitando CSRF e falha fechada.
+1. Os oito códigos constam do catálogo idempotente; o seed já foi executado de modo autorizado no banco principal e não concedeu permissões automaticamente a usuários comuns. Definir guards por rota e ownership no service, respeitando CSRF e falha fechada.
 2. Implementar domínio/DTOs de número, estado, rascunho, snapshots, eventos e validações; depois services transacionais de reserva/current/consulta/retomada/cancelamento, com teste de concorrência MySQL isolado.
 3. Implementar atualização temporária e confirmação com cliente/equipamento existente, depois equipamento novo e transferência autorizada; testar os cinco grupos de invariantes e rollback por falha injetada em snapshot/evento/transferência.
 4. Implementar leitura de OS, situação, atribuições e eventos; integrar controllers em `backend/src/app.module.ts`; liberar rotas somente após testes unitários, integração MySQL isolada e e2e autenticados/CSRF/autorização.
