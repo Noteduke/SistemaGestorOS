@@ -229,7 +229,7 @@ Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visí
 
 ## 8. Endpoints REST do Recorte 1
 
-O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém quatro endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId` e cancelar. Os demais endpoints e a validação HTTP/concorrência em MySQL isolado continuam pendentes.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém quatro endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId` e cancelar. A validação HTTP/concorrência em MySQL isolado das quatro rotas passou; os demais endpoints continuam pendentes.
 
 ## 9. Permissões propostas do Recorte 1
 
@@ -367,11 +367,11 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 
 ## 15. Sequência recomendada para implementar
 
-1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente e seed executado. Início, consultas pontuais e cancelamento da abertura foram implementados no Backend; liberação funcional ainda depende de testes de integração.
+1. Concluído para a base física: schema e migration de OS aplicados. Contratos HTTP e permissões consolidados em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`; códigos no catálogo idempotente e seed executado. Início, consultas pontuais e cancelamento da abertura foram implementados no Backend; a primeira fatia de abertura/cancelamento passou em testes de integração HTTP/MySQL isolados.
 2. Concluído: incorporar relações a Person/Equipment/User, nullable unique, CHECK do singleton, campos temporários de equipamento e alocação BigInt no schema real.
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
-5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado continuam pendentes.
+5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado passaram.
 6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
 7. Implementar salvamento temporário do novo equipamento e da intenção de transferência, sem efetivar cadastro/transferência antes da confirmação.
 8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
