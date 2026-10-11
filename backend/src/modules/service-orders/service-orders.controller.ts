@@ -5,13 +5,16 @@ import { parseListServiceOrdersQuery } from "./dto/list-service-orders-query.dto
 import { parseOperationalSituationPatch } from "./dto/operational-situation-patch.dto.js";
 import { ServiceOrderOperationalSituationService } from "./service-order-operational-situation.service.js";
 import { parseAssignmentsPut } from "./dto/assignments-put.dto.js";
+import { parseListServiceOrderEventsQuery } from "./dto/list-service-order-events-query.dto.js";
 import { ServiceOrderAssignmentsService } from "./service-order-assignments.service.js";
+import { ServiceOrderEventsReadService } from "./service-order-events-read.service.js";
 import { ServiceOrdersReadService } from "./service-orders-read.service.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
   constructor(
     private readonly orders: ServiceOrdersReadService,
+    private readonly events: ServiceOrderEventsReadService,
     private readonly situations: ServiceOrderOperationalSituationService,
     private readonly assignments: ServiceOrderAssignmentsService,
   ) {}
@@ -26,6 +29,12 @@ export class ServiceOrdersController {
   @RequirePermissions("service_orders.read")
   getByPublicId(@Param("publicId") publicId: string) {
     return this.orders.getByPublicId(publicId);
+  }
+
+  @Get(":publicId/events")
+  @RequirePermissions("service_orders.events.read")
+  listEvents(@Param("publicId") publicId: string, @Query() query: Record<string, unknown>) {
+    return this.events.list(publicId, parseListServiceOrderEventsQuery(query));
   }
 
   @Patch(":publicId/operational-situation")

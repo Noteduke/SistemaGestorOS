@@ -119,7 +119,7 @@ A interface deve sinalizar pendências para peças UTILIZADAS que não foram usa
 
 A interface deve apresentar separadamente situação operacional, status macro e resultado/status-motivo de encerramento. A abertura inicia em TRIAGEM e somente essa situação fica disponível nesse momento. Nas situações com responsabilidade padrão da Administração, a interface apresenta fila/grupo administrativo, acessível a Administradores e a usuários com permissão equivalente; não mostra um Administrador específico como responsável sem atribuição nominal explícita. A OS em TRIAGEM pode não ter funcionário nominal atribuído. Atribuições explícitas de outros funcionários são permitidas; situações futuras poderão ser atribuídas a qualquer funcionário.
 
-Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo. Registrar a escolha e todas as mudanças de situação/atribuição no histórico, incluindo usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. A UI ainda não está implementada.
+Ao selecionar uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja removê-lo e colocá-lo no histórico ou mantê-lo. Registrar a escolha e todas as mudanças de situação/atribuição no histórico, incluindo usuário, data/hora, OS, situação anterior/nova e funcionários atribuídos antes/depois quando aplicável. A API de consulta paginada de eventos da OS está implementada em `GET /api/v1/service-orders/:publicId/events`, protegida por `service_orders.events.read`; a tela ainda não está implementada.
 
 ### 10.9 Reabertura e encerramento da OS — interface futura
 
