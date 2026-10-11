@@ -165,6 +165,8 @@ Recorte posterior: correção administrativa de vínculos, fechamento, cancelame
 
 ## 4. UX, relatórios e comunicação
 
+- **Login visual e consulta de OS — validação operacional concluída em 11/10/2026:** o formulário foi submetido no navegador local com Vite/proxy `/api` e Backend real ligado temporariamente apenas a `gestor_os_opening_test`. O fluxo de CSRF, login e consulta da identidade funcionou com cookie `HttpOnly`; a consulta autenticada de lista, detalhe, snapshots e eventos também foi verificada. Senha incorreta foi rejeitada e limpa; logout e recarga sem sessão voltaram ao login. O usuário descartável terminou inativo, sem sessão ativa; não foi encontrada persistência de senha/token sensível em `localStorage`/`sessionStorage`, e nenhum endpoint mutável de OS foi chamado. Essa validação não implementa abertura, confirmação, edição, situação ou atribuições de OS no Frontend; esses fluxos permanecem pendentes.
+
 - Catálogo de relatórios por área foi aprovado, mas campos, filtros, permissões, exportações e fórmulas de cada relatório não estão especificados.
 - Relatório diário de OS prontas aguardando retirada foi aprovado; horário de corte, destinatários e canal de entrega não estão definidos.
 - Dashboard operacional foi aprovado em nível de conteúdo (pendências, indicadores e atalhos); indicadores e cálculos não estão enumerados.
