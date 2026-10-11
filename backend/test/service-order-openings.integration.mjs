@@ -33,7 +33,7 @@ try {
   const permissionCount = await prisma.permission.count();
   assert.equal(permissionCount, 32, "Seed de permissões ausente no banco isolado");
   const initialOrders = await prisma.serviceOrder.count();
-  assert.equal(initialOrders, 0, "O banco isolado contém OS confirmada inesperada");
+  const initialUnspecifiedEquipment = await prisma.equipment.count({ where: { model: "NÃO INFORMADO" } });
 
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
@@ -191,7 +191,7 @@ try {
   assert.equal(adminOwn.body.data.equipmentDraft.model, "NÃO INFORMADO");
   assert.equal(adminOwn.body.data.equipmentDraft.serialNumber, null);
   assert.equal(adminOwn.body.data.equipmentDraft.serialIdentificationStatus, "NOT_IDENTIFIED");
-  assert.equal(await prisma.equipment.count({ where: { model: "NÃO INFORMADO" } }), 0, "Rascunho criou Equipment definitivo");
+  assert.equal(await prisma.equipment.count({ where: { model: "NÃO INFORMADO" } }), initialUnspecifiedEquipment, "Rascunho criou Equipment definitivo");
   const existingPatch = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: existing.publicId } });
   expectStatus(existingPatch, 200, "PATCH equipamento existente");
   assert.equal(existingPatch.body.data.equipmentPublicId, existing.publicId);
@@ -383,7 +383,7 @@ try {
   assert.equal(Number(invalidAllocationCount[0].total), 0);
   assert.equal(Number(duplicateActiveCount[0].total), 0);
   assert.equal(Number(duplicateNumbers[0].total), 0);
-  assert.equal(await prisma.serviceOrder.count(), 0);
+  assert.equal(await prisma.serviceOrder.count(), initialOrders);
   console.log(JSON.stringify({
     database: database[0].name,
     http: "auth/csrf/permissions passed",

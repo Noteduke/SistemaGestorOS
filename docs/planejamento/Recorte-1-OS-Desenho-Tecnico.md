@@ -373,8 +373,8 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
 5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado passaram.
 6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
-7. Implementado: PATCH temporário de cliente, equipamento existente ou rascunho novo, reclamação e decisão de titularidade, sem efetivar cadastro/transferência. Intenção de transferência exige `equipment.transfer_ownership` ou Admin já no PATCH e será revalidada na confirmação futura. Edição administrativa alheia é registrada no Log Administrativo.
-8. Implementar confirmação atômica, criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, eventos e listagem/detalhe.
+7. Implementado: PATCH temporário de cliente, equipamento existente ou rascunho novo, reclamação e decisão de titularidade, sem efetivar cadastro/transferência. Intenção de transferência exige `equipment.transfer_ownership` ou Admin no PATCH e é revalidada na confirmação. Edição administrativa alheia é registrada no Log Administrativo.
+8. Implementada a confirmação atômica com criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, alocação confirmada e eventos. Testes HTTP/MySQL isolados cobriram esses caminhos e rollback por falha no evento. Listagem/detalhe de OS confirmada permanecem pendentes.
 9. Implementar alteração de situação e de atribuições com eventos.
 10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
 11. Antes de liberar os endpoints, revisar status/diff, confirmar o resultado do seed já executado e dos testes; a migration de OS já foi aplicada ao banco principal e não deve ser reaplicada por este roteiro.

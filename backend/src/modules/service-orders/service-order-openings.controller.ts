@@ -3,11 +3,13 @@ import { RequireAuthenticated, RequirePermissions } from "../auth/decorators/aut
 import type { AuthRequest } from "../auth/auth.types.js";
 import { requireEmptyOpeningBody } from "./dto/empty-opening-body.dto.js";
 import { parseOpeningPatch } from "./dto/opening-patch.dto.js";
+import { parseConfirmOpening } from "./dto/confirm-opening.dto.js";
+import { ServiceOrderConfirmationService } from "./service-order-confirmation.service.js";
 import { ServiceOrderOpeningsService } from "./service-order-openings.service.js";
 
 @Controller("service-orders/openings")
 export class ServiceOrderOpeningsController {
-  constructor(private readonly openings: ServiceOrderOpeningsService) {}
+  constructor(private readonly openings: ServiceOrderOpeningsService, private readonly confirmation: ServiceOrderConfirmationService) {}
 
   @Post()
   @RequirePermissions("service_orders.opening.create")
@@ -40,5 +42,11 @@ export class ServiceOrderOpeningsController {
   cancel(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
     requireEmptyOpeningBody(body);
     return this.openings.cancel(publicId, request.auth!);
+  }
+
+  @Post(":publicId/confirm")
+  @RequireAuthenticated()
+  confirm(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.confirmation.confirm(publicId, parseConfirmOpening(body), request.auth!);
   }
 }
