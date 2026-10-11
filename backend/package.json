@@ -10,6 +10,7 @@
     "start:prod": "node dist/main.js",
     "auth:bootstrap-admin": "npm run build && node dist/scripts/bootstrap-admin.js",
     "auth:seed-permissions": "npm run build && node dist/scripts/seed-permissions.js",
+    "equipment:seed-unspecified-brand": "npm run build && node dist/scripts/seed-unspecified-brand.js",
     "prisma:generate": "prisma generate",
     "prisma:format": "prisma format",
     "prisma:validate": "prisma validate"

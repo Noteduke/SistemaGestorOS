@@ -166,7 +166,7 @@ A estrutura física de OS está aplicada no banco principal. A primeira fatia fu
 
 ### 10.9 Retrato cadastral e correção de vínculos da OS — contrato futuro
 
-Ao confirmar a abertura, a API deverá capturar uma única vez um retrato histórico cadastral parcial, nunca durante a abertura em andamento. O retrato inclui no mínimo nome do cliente e identificação principal do equipamento; quando disponíveis, documento, telefone/e-mail principais, endereço, tipo, marca, modelo, serial e observações/campos principais do equipamento. A captura ocorre junto à confirmação da OS. Reabertura e correção de vínculo não recriam nem substituem o retrato.
+Ao confirmar a abertura, a API deverá capturar uma única vez um retrato histórico cadastral parcial, nunca durante a abertura em andamento. O retrato inclui no mínimo nome do cliente e identificação principal do equipamento; quando disponíveis, documento, telefone/e-mail principais, endereço, tipo, marca, modelo, serial e observações/campos principais do equipamento. A captura ocorre junto à confirmação da OS. Para equipamento novo, o `brandPublicId` do rascunho deverá apontar para Marca já existente, inclusive a opção controlada “Não informada”, que precisa ser preparada antes; a confirmação não cria Marca. O Modelo “Não informado” permanece texto controlado. Reabertura e correção de vínculo não recriam nem substituem o retrato.
 
 O retrato será imutável e consultável no histórico por usuário com permissão para visualizar a OS, identificado como dados cadastrais no momento da abertura. A tela e a impressão padrão devem obter dados atuais dos cadastros vinculados; não se exige aviso automático de divergência e não haverá impressão própria do retrato. O retrato não representa checklist ou recebimento físico.
 
