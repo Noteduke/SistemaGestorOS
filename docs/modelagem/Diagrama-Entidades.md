@@ -6,11 +6,11 @@ Apresentar os relacionamentos já aplicados no banco principal, incluindo a base
 
 ## Status
 
-O banco principal `gestor_os`, em MySQL Community Server 8.0.46, tem cinco migrations aplicadas, até `20261008180000_service_order_foundation`. A migration de OS passou em banco isolado vazio e em cópia restaurada do principal antes do deploy autorizado. As seis tabelas de OS, seus índices e FKs e o CHECK singleton foram conferidos no principal; o seed posterior das oito permissões de OS foi executado duas vezes, resultando em 32 permissões sem duplicidade. `equipment.transfer_ownership` permanece única. O diagrama de OS abaixo mostra a base física aplicada, ainda sem services, controllers ou endpoints funcionais.
+O banco principal `gestor_os`, em MySQL Community Server 8.0.46, tem cinco migrations aplicadas, até `20261008180000_service_order_foundation`. A migration de OS passou em banco isolado vazio e em cópia restaurada do principal antes do deploy autorizado. As seis tabelas de OS, seus índices e FKs e o CHECK singleton foram conferidos no principal; o seed posterior das oito permissões de OS foi executado duas vezes, resultando em 32 permissões sem duplicidade. `equipment.transfer_ownership` permanece única. O diagrama de OS abaixo mostra a base física aplicada. O Backend já implementa iniciar, consultar a própria abertura ativa, consultar por `publicId`, editar por `PATCH` e cancelar a abertura; a confirmação em OS oficial e os demais fluxos de OS ainda estão pendentes.
 
 ## Última atualização
 
-09/10/2026.
+11/10/2026.
 
 ## Diagrama
 

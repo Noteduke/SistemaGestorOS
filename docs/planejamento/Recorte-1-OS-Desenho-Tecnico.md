@@ -125,9 +125,9 @@ Eventos são append-only na aplicação. FKs de usuários são restritivas porqu
 - `ServiceOrderNumberAllocationStatus`: `RESERVED`, `CONFIRMED`, `CONSUMED`, `RELEASED`.
 - `ServiceOrderMacroStatus`: apenas `ABERTA` no primeiro recorte. Não implementar `FECHADA` ou `CANCELADA` como ações do módulo nesta etapa.
 - `ServiceOrderOperationalSituation`: dez valores documentados em `docs/02-Regras-de-Negocio.md`; inicial `TRIAGEM`. A mudança é livre entre as situações aprovadas por usuário autorizado. Não implementar efeitos de orçamento/encerramento associados a recortes futuros.
-- `ServiceOrderEventType` (códigos propostos): `ABERTURA_EM_ANDAMENTO_CRIADA`, `ABERTURA_RETOMADA`, `ABERTURA_RETOMADA_POR_ADMIN`, `ABERTURA_CONFIRMADA`, `ABERTURA_CANCELADA`, `ABERTURA_CANCELADA_POR_ADMIN`, `SITUACAO_OPERACIONAL_ALTERADA`, `ATRIBUICOES_ALTERADAS`, `EQUIPAMENTO_CRIADO_NA_CONFIRMACAO`, `TITULARIDADE_TRANSFERIDA_NA_CONFIRMACAO`.
+- `ServiceOrderEventType` (códigos propostos, com nomes oficiais aprovados para os eventos de equipamento e titularidade do Recorte 1): `ABERTURA_EM_ANDAMENTO_CRIADA`, `ABERTURA_RETOMADA`, `ABERTURA_RETOMADA_POR_ADMIN`, `ABERTURA_CONFIRMADA`, `ABERTURA_CANCELADA`, `ABERTURA_CANCELADA_POR_ADMIN`, `SITUACAO_OPERACIONAL_ALTERADA`, `ATRIBUICOES_ALTERADAS`, `EQUIPAMENTO_CRIADO_DURANTE_ABERTURA`, `TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA`.
 
-Os códigos de eventos são proposta de implementação e podem ser enum Prisma ou strings controladas pelo domínio; manter compatibilidade com o Log Administrativo sem duplicar eventos do módulo no `admin_audit_log` quando forem eventos operacionais comuns.
+Os códigos de eventos são proposta de implementação, exceto os dois nomes oficiais de equipamento e titularidade acima, e podem ser enum Prisma ou strings controladas pelo domínio; manter compatibilidade com o Log Administrativo sem duplicar eventos do módulo no `admin_audit_log` quando forem eventos operacionais comuns. A criação definitiva do Equipamento e a transferência efetiva ocorrem tecnicamente na confirmação, mas esses eventos pertencem ao fluxo de abertura da OS.
 
 ## 4. Mecanismo de numeração e concorrência
 
@@ -222,8 +222,8 @@ O conjunto exato de valores opcionais é montado dos dados principais disponíve
 | `ABERTURA_CANCELADA_POR_ADMIN` | Evento adicional quando Admin/gestor cancela a abertura de outra pessoa | iniciador, ator, número e `numberReleased`. O evento canônico `ABERTURA_CANCELADA` também é gravado para todo cancelamento. |
 | `SITUACAO_OPERACIONAL_ALTERADA` | Situação muda | situação anterior/nova, ator, OS/número. |
 | `ATRIBUICOES_ALTERADAS` | Conjunto de funcionários atribuídos muda | IDs públicos dos atribuídos anteriores/novos, ator, OS/número. |
-| `EQUIPAMENTO_CRIADO_NA_CONFIRMACAO` | Rascunho de equipamento é convertido em cadastro definitivo na confirmação | opening/OS, número, equipamento público, ator, proprietário. |
-| `TITULARIDADE_TRANSFERIDA_NA_CONFIRMACAO` | Transferência aplicada na confirmação | equipamento, proprietário anterior/novo, ator, abertura/OS, número e confirmação explícita. |
+| `EQUIPAMENTO_CRIADO_DURANTE_ABERTURA` | Rascunho de equipamento é convertido em cadastro definitivo na confirmação | opening/OS, número, equipamento público, ator, proprietário. |
+| `TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA` | Transferência aplicada na confirmação | equipamento, proprietário anterior/novo, ator, abertura/OS, número e confirmação explícita. |
 
 Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visível e payload JSON. Eventos administrativos incluem também usuário iniciador e ator que assumiu/cancelou. `ABERTURA_CONFIRMADA` relaciona evento à abertura e à OS. História é inserida na mesma transação da mudança que descreve; falha de evento reverte a operação. Não registrar edição campo a campo durante o rascunho.
 
