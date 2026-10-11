@@ -27,7 +27,7 @@ const summarySelect = {
   } },
 } as const satisfies Prisma.ServiceOrderSelect;
 
-const detailSelect = {
+export const serviceOrderDetailSelect = {
   ...summarySelect,
   complaint: true,
   intakeObservations: true,
@@ -41,6 +41,7 @@ const detailSelect = {
 } as const satisfies Prisma.ServiceOrderSelect;
 
 type SummaryOrder = Prisma.ServiceOrderGetPayload<{ select: typeof summarySelect }>;
+type DetailOrder = Prisma.ServiceOrderGetPayload<{ select: typeof serviceOrderDetailSelect }>;
 
 const macroLabels: Record<ServiceOrderMacroStatus, string> = { OPEN: "ABERTA" };
 const situationLabels: Record<ServiceOrderOperationalSituation, string> = {
@@ -80,6 +81,21 @@ function toSummary(order: SummaryOrder) {
   };
 }
 
+export function toServiceOrderDetailView(order: DetailOrder) {
+  return {
+    ...toSummary(order),
+    complaint: order.complaint,
+    intakeObservations: order.intakeObservations,
+    newEquipmentSerialIdentificationStatus: order.newEquipmentSerialIdentificationStatus,
+    createdByUserPublicId: order.createdBy.publicId,
+    assignedUserPublicIds: order.assignments.map(({ user }) => user.publicId),
+    snapshotVersion: order.snapshotVersion,
+    snapshotCapturedAt: order.snapshotCapturedAt,
+    customerSnapshotJson: order.customerSnapshotJson,
+    equipmentSnapshotJson: order.equipmentSnapshotJson,
+  };
+}
+
 @Injectable()
 export class ServiceOrdersReadService {
   constructor(private readonly prisma: PrismaService) {}
@@ -104,20 +120,9 @@ export class ServiceOrdersReadService {
   async getByPublicId(publicId: string) {
     const order = await this.prisma.serviceOrder.findFirst({
       where: { ...confirmedWhere, publicId },
-      select: detailSelect,
+      select: serviceOrderDetailSelect,
     });
     if (!order) throw new NotFoundException({ code: "SERVICE_ORDER_NOT_FOUND", message: "Ordem de Serviço não encontrada." });
-    return { data: {
-      ...toSummary(order),
-      complaint: order.complaint,
-      intakeObservations: order.intakeObservations,
-      newEquipmentSerialIdentificationStatus: order.newEquipmentSerialIdentificationStatus,
-      createdByUserPublicId: order.createdBy.publicId,
-      assignedUserPublicIds: order.assignments.map(({ user }) => user.publicId),
-      snapshotVersion: order.snapshotVersion,
-      snapshotCapturedAt: order.snapshotCapturedAt,
-      customerSnapshotJson: order.customerSnapshotJson,
-      equipmentSnapshotJson: order.equipmentSnapshotJson,
-    } };
+    return { data: toServiceOrderDetailView(order) };
   }
 }

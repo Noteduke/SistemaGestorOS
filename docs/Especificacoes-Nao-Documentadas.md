@@ -70,7 +70,7 @@ Cada snapshot JSON contém `snapshotVersion: 1`, `capturedAt` na confirmação e
 
 #### Contratos e permissões do Recorte 1
 
-A lista de endpoints e permissões acima era preliminar e foi consolidada em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Para o Recorte 1, usar `/api/v1/service-orders/openings`, `/api/v1/service-orders` e permissões `service_orders.*`, mais `equipment.create` e `equipment.transfer_ownership` quando aplicáveis. As rotas antigas `/service-order-openings`, `/situation`, `/history` e os candidatos `os.open`, `os.read`, `os.update_situation`, `os.assign` não são contratos concorrentes. O catálogo do seed recebeu os oito códigos de OS, e o seed oficial os aplicou ao banco principal. Quatro endpoints de abertura estão implementados no Backend; os demais endpoints continuam pendentes.
+A lista de endpoints e permissões acima era preliminar e foi consolidada em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Para o Recorte 1, usar `/api/v1/service-orders/openings`, `/api/v1/service-orders` e permissões `service_orders.*`, mais `equipment.create` e `equipment.transfer_ownership` quando aplicáveis. As rotas antigas `/service-order-openings`, `/situation`, `/history` e os candidatos `os.open`, `os.read`, `os.update_situation`, `os.assign` não são contratos concorrentes; o PATCH de situação usa somente a rota oficial `/api/v1/service-orders/:publicId/operational-situation`. O catálogo do seed recebeu os oito códigos de OS, e o seed oficial os aplicou ao banco principal. Abertura, listagem/consulta de OS confirmada e alteração de situação operacional estão implementadas no Backend; atribuições nominais e consulta de eventos permanecem pendentes.
 
 #### Serviços, DTOs e validações prováveis
 

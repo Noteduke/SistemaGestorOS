@@ -221,7 +221,7 @@ Cada mudança de situação e de atribuição deve gerar histórico com usuário
 
 ### Alteração de situação, status macro e reabertura
 
-Depois de abrir em TRIAGEM, usuários autorizados na OS podem mudar livremente sua situação operacional para qualquer outra situação ativa disponível. Não há sequência rígida entre situações; toda mudança gera histórico. Essa liberdade não remove validações específicas: o encerramento continua bloqueado enquanto houver pendência aberta de conferência de estoque.
+Depois de abrir em TRIAGEM, usuários autorizados na OS podem mudar livremente sua situação operacional para qualquer outra situação ativa disponível. Não há sequência rígida entre situações; toda mudança efetiva gera histórico. Reenviar a situação já vigente é uma operação sem alteração e não gera evento duplicado. Essa liberdade não remove validações específicas: o encerramento continua bloqueado enquanto houver pendência aberta de conferência de estoque.
 
 Somente Administrador ou usuário com permissão específica pode alterar o status macro para FECHADA ou CANCELADA. São permissões futuras sugeridas `os.close` e `os.cancel`. Mudanças de situação operacional continuam sujeitas às permissões de acesso à OS, sem exigir que o usuário tenha uma dessas permissões de status macro.
 
