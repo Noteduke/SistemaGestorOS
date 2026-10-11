@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { AuthApiError, getCurrentIdentity, login, logout } from "./api/auth";
+import type { AuthIdentity } from "./api/auth";
+import { LoginPage } from "./pages/auth/LoginPage";
 import { ServiceOrderDetailPage } from "./pages/service-orders/ServiceOrderDetailPage";
 import { ServiceOrderListPage } from "./pages/service-orders/ServiceOrderListPage";
 
@@ -44,6 +47,46 @@ function useHashRoute(): [Route, (hash: string) => void] {
 
 export function App() {
   const [route, navigate] = useHashRoute();
+  const [session, setSession] = useState<
+    | { status: "checking" }
+    | { status: "anonymous"; message?: string }
+    | { status: "authenticated"; identity: AuthIdentity }
+  >({ status: "checking" });
+  const [logoutMessage, setLogoutMessage] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getCurrentIdentity(controller.signal).then(
+      (identity) => setSession({ status: "authenticated", identity }),
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof AuthApiError && error.status === 401) {
+          setSession({ status: "anonymous" });
+        } else {
+          setSession({ status: "anonymous", message: "Não foi possível verificar sua sessão. Você pode tentar entrar." });
+        }
+      },
+    );
+    return () => controller.abort();
+  }, []);
+
+  async function handleLogin(username: string, password: string) {
+    const identity = await login(username, password);
+    setSession({ status: "authenticated", identity });
+    navigate("/service-orders");
+  }
+
+  async function handleLogout() {
+    if (session.status !== "authenticated") return;
+    setLogoutMessage("");
+    try {
+      await logout(session.identity.csrfToken);
+      setSession({ status: "anonymous" });
+      navigate("/service-orders");
+    } catch {
+      setLogoutMessage("Não foi possível encerrar a sessão. Tente novamente.");
+    }
+  }
 
   function openOrder(publicId: string) {
     navigate(`/service-orders/${encodeURIComponent(publicId)}`);
@@ -63,6 +106,14 @@ export function App() {
     navigate(`/service-orders/${encodeURIComponent(route.publicId)}?${query}`);
   }
 
+  if (session.status === "checking") {
+    return <main className="session-check" role="status">Verificando sessão…</main>;
+  }
+
+  if (session.status === "anonymous") {
+    return <LoginPage onLogin={handleLogin} sessionMessage={session.message} />;
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -70,7 +121,12 @@ export function App() {
           <span className="brand-mark" aria-hidden="true">G</span>
           <span><strong>Gestor OS</strong><small>Operação técnica</small></span>
         </a>
-        <div className="topbar-meta"><span className="connection-dot" /> Consulta de Ordens de Serviço</div>
+        <div className="topbar-meta">
+          <span className="connection-dot" />
+          <span>{session.identity.username}</span>
+          {logoutMessage && <span role="status">{logoutMessage}</span>}
+          <button className="text-button logout-button" type="button" onClick={() => void handleLogout()}>Sair</button>
+        </div>
       </header>
       <main className="content">
         {route.view === "list" ? (

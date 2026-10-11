@@ -105,6 +105,24 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 .event-payload dd { font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
+.session-check { min-height: 100vh; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 28px 16px; background: radial-gradient(ellipse at top, #e6f1f4 0, #f4f6f8 56%); }
+.login-card { width: min(100%, 420px); padding: 38px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: 0 18px 55px rgba(22, 43, 62, .09); }
+.login-brand-mark { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 28px; border-radius: 15px; color: #fff; background: linear-gradient(145deg, #2588a4, #14506b); box-shadow: 0 6px 14px #176b8733; font-size: 24px; font-weight: 800; }
+.login-card h1 { margin-bottom: 8px; font-size: 28px; letter-spacing: -.04em; }
+.login-intro { margin-bottom: 26px; color: var(--muted); font-size: 14px; }
+.login-form { display: grid; gap: 10px; }
+.login-form label { margin-top: 5px; color: #40586b; font-size: 12px; font-weight: 700; }
+.login-form input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #d8e1e7; border-radius: 9px; color: var(--ink); background: #fff; font: inherit; outline: none; }
+.login-form input:focus { border-color: #3c91a9; box-shadow: 0 0 0 3px #2588a41c; }
+.login-submit { min-height: 45px; margin-top: 12px; color: #fff; background: var(--blue-dark); font-size: 14px; }
+.login-submit:not(:disabled):hover { background: #0b4057; }
+.login-error, .login-notice { margin: 5px 0 0; padding: 11px 12px; border-radius: 9px; font-size: 12px; line-height: 1.5; }
+.login-error { color: #8f3932; border: 1px solid #efd0cc; background: #fff7f6; }
+.login-notice { margin-bottom: 18px; color: #765820; border: 1px solid #efdfb6; background: #fffaf0; }
+.login-security-note { margin: 22px 0 0; color: #82909b; font-size: 11px; line-height: 1.5; text-align: center; }
+.logout-button { padding: 5px 8px; }
+
 @media (max-width: 760px) {
   .topbar { height: 66px; }
   .topbar-meta { font-size: 0; }
@@ -117,6 +135,7 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 
 @media (max-width: 500px) {
   .content { width: min(100% - 28px, 1160px); }
+  .login-card { padding: 28px 22px; }
   .detail-heading { align-items: start; flex-direction: column; }
   .info-card, .snapshot-card { padding: 17px; }
   .detail-grid, .snapshot-grid { grid-template-columns: 1fr; }

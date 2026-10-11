@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { App } from "./App";
 
@@ -30,9 +31,22 @@ function response(body: unknown) {
   return { ok: true, status: 200, json: async () => body };
 }
 
+function unauthorized() {
+  return { ok: false, status: 401, json: async () => ({ error: { message: "Sessão inválida." } }) };
+}
+
 it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () => {
   window.location.hash = "#/service-orders";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "usuario.teste",
+    isAdmin: true,
+    permissions: ["service_orders.read", "service_orders.events.read"],
+    csrfToken: "csrf-session",
+    session: { expiresAt: "2026-10-11T20:00:00.000Z" },
+  };
   const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: [order], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
     .mockResolvedValueOnce(response({ data: order }));
   vi.stubGlobal("fetch", fetchMock);
@@ -41,6 +55,88 @@ it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () 
   expect(await screen.findByText("OS-000128")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Ver detalhes/ }));
   expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+});
+
+it("autentica com CSRF, consulta a sessão e libera a leitura de OS", async () => {
+  window.location.hash = "#/service-orders";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "validacao.frontend",
+    isAdmin: true,
+    permissions: ["service_orders.read", "service_orders.events.read"],
+    csrfToken: "csrf-session-memory-only",
+    session: { expiresAt: "2026-10-11T20:00:00.000Z" },
+  };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(unauthorized())
+    .mockResolvedValueOnce(response({ data: { csrfToken: "csrf-prelogin" } }))
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+
+  await userEvent.type(await screen.findByLabelText("Usuário"), "validacao.frontend");
+  await userEvent.type(screen.getByLabelText("Senha"), "senha-descartavel");
+  await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
+
+  expect(await screen.findByText("Ainda não há Ordens de Serviço confirmadas.")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/auth/me", expect.objectContaining({ method: "GET", credentials: "include" }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/auth/csrf", expect.objectContaining({ method: "GET", credentials: "include" }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/auth/login", expect.objectContaining({
+    method: "POST",
+    credentials: "include",
+    headers: expect.objectContaining({ "X-CSRF-Token": "csrf-prelogin" }),
+    body: JSON.stringify({ username: "validacao.frontend", password: "senha-descartavel" }),
+  }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/auth/me", expect.objectContaining({ method: "GET" }));
+  expect(fetchMock.mock.calls.slice(0, 5).every(([, options]) => options.credentials === "include")).toBe(true);
+  expect(window.localStorage.length).toBe(0);
+});
+
+it("mostra erro genérico de credenciais e limpa a senha após falha", async () => {
+  const invalidCredentials = { ok: false, status: 401, json: async () => ({ error: { message: "Usuário ou senha inválidos." } }) };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(unauthorized())
+    .mockResolvedValueOnce(response({ data: { csrfToken: "csrf-prelogin" } }))
+    .mockResolvedValueOnce(invalidCredentials);
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+
+  await userEvent.type(await screen.findByLabelText("Usuário"), "usuario.teste");
+  const password = screen.getByLabelText("Senha");
+  await userEvent.type(password, "senha-nao-persistida");
+  await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Usuário ou senha inválidos.");
+  expect(password).toHaveValue("");
+  expect(window.localStorage.length).toBe(0);
+});
+
+it("encerra somente a sessão atual usando o token CSRF da sessão", async () => {
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "usuario.teste",
+    isAdmin: true,
+    permissions: ["service_orders.read"],
+    csrfToken: "csrf-session-memory-only",
+    session: { expiresAt: "2026-10-11T20:00:00.000Z" },
+  };
+  const noContent = { ok: true, status: 204, json: async () => null };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }))
+    .mockResolvedValueOnce(noContent);
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Sair" }));
+  expect(await screen.findByRole("heading", { name: "Acesse sua conta" })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/auth/logout", expect.objectContaining({
+    method: "POST",
+    credentials: "include",
+    headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session-memory-only" }),
+  }));
 });
