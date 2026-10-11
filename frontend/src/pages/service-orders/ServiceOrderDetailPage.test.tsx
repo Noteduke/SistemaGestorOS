@@ -27,6 +27,14 @@ const detail = {
   customerSnapshotJson: { snapshotVersion: 1, capturedAt: "2026-10-10T13:00:00.000Z", name: "Marina Costa", document: null },
   equipmentSnapshotJson: { snapshotVersion: 1, capturedAt: "2026-10-10T13:00:00.000Z", type: "Notebook", brand: "Lenovo", model: "ThinkPad", serialNumber: "SN-45" },
 };
+const assignableUsers = [
+  { publicId: "a1000000-0000-4000-8000-000000000001", username: "ana.tech" },
+  { publicId: "b2000000-0000-4000-8000-000000000002", username: "bruno.tech" },
+];
+
+function assignableResponse(users = assignableUsers, page = 1, totalPages = 1, total = users.length) {
+  return response({ data: users, pagination: { page, pageSize: 100, total, totalPages } });
+}
 
 function response(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -135,6 +143,155 @@ describe("ServiceOrderDetailPage", () => {
     await screen.findByRole("heading", { name: "OS-000128" });
     fireEvent.change(screen.getByRole("combobox", { name: "Nova situação" }), { target: { value: "REPAIR_AUTHORIZED" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar situação" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  });
+
+  it("carrega usuários atribuíveis, mostra nomes atuais e não envia PUT para conjunto equivalente em outra ordem", async () => {
+    const existing = { ...detail, assignedUserPublicIds: [assignableUsers[0].publicId, assignableUsers[1].publicId] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: existing }))
+      .mockResolvedValueOnce(assignableResponse())
+      .mockResolvedValueOnce(assignableResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: "OS-000128" });
+    expect(await screen.findByRole("list", { name: "Responsáveis nominais atuais" })).toHaveTextContent("ana.tech");
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    const ana = await screen.findByRole("checkbox", { name: "ana.tech" });
+    const bruno = screen.getByRole("checkbox", { name: "bruno.tech" });
+    expect(ana).toBeChecked();
+    expect(bruno).toBeChecked();
+    expect(await screen.findByRole("list", { name: "Responsáveis nominais atuais" })).toHaveTextContent("ana.tech");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remover ana.tech" }));
+    fireEvent.click(ana);
+    expect(screen.getByRole("button", { name: "Salvar responsáveis" })).toBeDisabled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/assignments"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/users/assignable?page=1&pageSize=100"))).toBe(true);
+  });
+
+  it("permite buscar e paginar usuários sem perder a seleção", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(assignableResponse([assignableUsers[0]], 1, 2, 2))
+      .mockResolvedValueOnce(assignableResponse([assignableUsers[1]], 2, 2, 2))
+      .mockResolvedValueOnce(assignableResponse([assignableUsers[0]], 1, 1, 1));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
+    fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
+    expect(await screen.findByRole("checkbox", { name: "bruno.tech" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "bruno.tech" })).not.toBeChecked();
+    expect(screen.getByText("ana.tech")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Buscar usuário por username" }), { target: { value: "ana" } });
+    fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
+    expect(await screen.findByRole("checkbox", { name: "ana.tech" })).toBeChecked();
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users/assignable?page=1&pageSize=100", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/users/assignable?page=2&pageSize=100", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/users/assignable?page=1&pageSize=100&search=ana", expect.objectContaining({ method: "GET" }));
+  });
+
+  it("envia a substituição integral com CSRF e preserva situação, macrostatus, cliente, equipamento e snapshots", async () => {
+    const updated = { ...detail, assignedUserPublicIds: [assignableUsers[0].publicId] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(assignableResponse())
+      .mockResolvedValueOnce(response({ data: updated }))
+      .mockResolvedValueOnce(response({
+        data: [{ eventType: "ATRIBUICOES_ALTERADAS", occurredAt: "2026-10-11T13:00:00.000Z", visibleNumber: "OS-000128", numberValue: "128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { newUserPublicIds: [assignableUsers[0].publicId] } }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const props = { publicId, csrfToken: "csrf-in-memory", eventsPage: 1, onSectionChange: vi.fn(), onEventsPageChange: vi.fn(), onBack: vi.fn() };
+    const view = render(<ServiceOrderDetailPage {...props} section="details" />);
+
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Responsáveis da OS atualizados.");
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/${publicId}/assignments`, expect.objectContaining({
+      method: "PUT",
+      credentials: "include",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory", "Content-Type": "application/json" }),
+      body: JSON.stringify({ userPublicIds: [assignableUsers[0].publicId] }),
+    }));
+    expect(await screen.findByRole("list", { name: "Responsáveis nominais atuais" })).toHaveTextContent("ana.tech");
+    expect(screen.getAllByText("TRIAGEM").length).toBeGreaterThan(0);
+    expect(screen.getByText("ABERTA")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Retrato do cliente" })).toHaveTextContent("Marina Costa");
+    expect(screen.getByRole("region", { name: "Retrato do equipamento" })).toHaveTextContent("ThinkPad");
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).includes("/assignments") && options.method === "PATCH")).toBe(false);
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes("/service-orders/") || String(url).includes("/users/assignable"))).toBe(true);
+
+    view.rerender(<ServiceOrderDetailPage {...props} section="events" />);
+    expect(await screen.findByText("ATRIBUICOES ALTERADAS")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/${publicId}/events?page=1&pageSize=20`, expect.objectContaining({ method: "GET" }));
+  });
+
+  it("envia lista vazia para remover todos os responsáveis", async () => {
+    const existing = { ...detail, assignedUserPublicIds: [assignableUsers[0].publicId] };
+    const updated = { ...detail, assignedUserPublicIds: [] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: existing }))
+      .mockResolvedValueOnce(assignableResponse([assignableUsers[0]]))
+      .mockResolvedValueOnce(assignableResponse([assignableUsers[0]]))
+      .mockResolvedValueOnce(response({ data: updated }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await screen.findByRole("checkbox", { name: "ana.tech" });
+    fireEvent.click(screen.getByRole("button", { name: "Remover ana.tech" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Responsáveis da OS atualizados.");
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `/api/v1/service-orders/${publicId}/assignments`, expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ userPublicIds: [] }),
+    }));
+    expect(screen.getByText("Nenhum responsável nominal atribuído.")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["list", 401, "Sua sessão expirou ou não está autenticada"],
+    ["list", 403, "Você não tem permissão para consultar usuários atribuíveis e alterar responsáveis da OS"],
+  ] as const)("exibe mensagem apropriada quando a consulta de usuários retorna %s", async (_context, status, message) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(response({ message: "blocked" }, status));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  });
+
+  it.each([
+    [401, "Sua sessão expirou ou não está autenticada"],
+    [403, "Você não tem permissão para alterar os responsáveis da OS"],
+    [404, "Ordem de Serviço não encontrada"],
+    [400, "A lista de responsáveis é inválida"],
+    [422, "A lista de responsáveis é inválida"],
+    [409, "Um usuário selecionado não existe mais ou está inativo"],
+  ])("apresenta mensagem apropriada para PUT de atribuições com HTTP %s", async (status, message) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(assignableResponse())
+      .mockResolvedValueOnce(response({ message: "failed" }, status));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 });

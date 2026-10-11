@@ -53,6 +53,11 @@ export interface ServiceOrderEvent {
   payload: Record<string, unknown> | null;
 }
 
+export interface AssignableUser {
+  publicId: string;
+  username: string;
+}
+
 export const operationalSituationOptions = [
   { value: "TRIAGE", label: "TRIAGEM" },
   { value: "AWAITING_EVALUATION_BUDGET", label: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO" },
@@ -131,6 +136,42 @@ export async function updateServiceOrderOperationalSituation(
   return body as { data: ServiceOrderDetail };
 }
 
+export function listAssignableUsers(page: number, pageSize: number, search = "", signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) query.set("search", search.trim());
+  return get<Paginated<AssignableUser>>(`/api/v1/users/assignable?${query}`, signal);
+}
+
+export async function replaceServiceOrderAssignments(
+  publicId: string,
+  userPublicIds: string[],
+  csrfToken: string,
+): Promise<{ data: ServiceOrderDetail }> {
+  const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/assignments`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ userPublicIds }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível alterar os responsáveis da OS.",
+    );
+  }
+
+  return body as { data: ServiceOrderDetail };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -170,6 +211,22 @@ export function operationalSituationErrorMessage(error: unknown): string {
     if (error.status === 404) return "Ordem de Serviço não encontrada.";
     if (error.status === 400 || error.status === 422) return "A situação selecionada é inválida.";
     return error.message;
+  }
+  return "Não foi possível conectar ao serviço. Tente novamente.";
+}
+
+export function assignmentsErrorMessage(error: unknown, context: "list" | "update"): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return context === "list"
+      ? "Sua sessão expirou ou não está autenticada. Entre novamente para consultar responsáveis."
+      : "Sua sessão expirou ou não está autenticada. Entre novamente para alterar responsáveis.";
+    if (error.status === 403) return context === "list"
+      ? "Você não tem permissão para consultar usuários atribuíveis e alterar responsáveis da OS."
+      : "Você não tem permissão para alterar os responsáveis da OS.";
+    if (error.status === 404) return "Ordem de Serviço não encontrada.";
+    if (error.status === 400 || error.status === 422) return "A lista de responsáveis é inválida. Revise a seleção e tente novamente.";
+    if (error.status === 409) return "Um usuário selecionado não existe mais ou está inativo. Remova-o da seleção e tente novamente.";
+    return context === "list" ? "Não foi possível carregar os usuários atribuíveis." : "Não foi possível salvar os responsáveis da OS.";
   }
   return "Não foi possível conectar ao serviço. Tente novamente.";
 }

@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import {
+  assignmentsErrorMessage,
   errorMessage,
   getServiceOrder,
+  listAssignableUsers,
   listServiceOrderEvents,
   operationalSituationErrorMessage,
   operationalSituationOptions,
+  replaceServiceOrderAssignments,
   updateServiceOrderOperationalSituation,
+  type AssignableUser,
   type OperationalSituation,
   type Paginated,
   type ServiceOrderDetail,
@@ -16,6 +21,7 @@ import { PaginationControls } from "../../components/PaginationControls";
 import { SnapshotCard } from "../../components/SnapshotCard";
 
 const PAGE_SIZE = 20;
+const ASSIGNABLE_PAGE_SIZE = 100;
 
 interface ServiceOrderDetailPageProps {
   publicId: string;
@@ -56,6 +62,25 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
   const [updatingSituation, setUpdatingSituation] = useState(false);
   const [situationMessage, setSituationMessage] = useState<string | null>(null);
   const [situationError, setSituationError] = useState<string | null>(null);
+  const [editingAssignments, setEditingAssignments] = useState(false);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [assignablePages, setAssignablePages] = useState<Paginated<AssignableUser>["pagination"] | null>(null);
+  const [assignableLoading, setAssignableLoading] = useState(false);
+  const [assignableError, setAssignableError] = useState<string | null>(null);
+  const [assignableSearchInput, setAssignableSearchInput] = useState("");
+  const [assignableSearch, setAssignableSearch] = useState("");
+  const [assignablePage, setAssignablePage] = useState(1);
+  const [assignmentLabels, setAssignmentLabels] = useState<Record<string, string>>({});
+  const assignmentLabelsRef = useRef<Record<string, string>>({});
+  const [selectedUserPublicIds, setSelectedUserPublicIds] = useState<string[]>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
+  const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+
+  function mergeAssignmentLabels(labels: Record<string, string>) {
+    assignmentLabelsRef.current = { ...assignmentLabelsRef.current, ...labels };
+    setAssignmentLabels(assignmentLabelsRef.current);
+  }
 
   const currentSituation = operationalSituationOptions.find(({ label }) => label === order?.operationalSituation)?.value;
 
@@ -94,6 +119,66 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
     return () => controller.abort();
   }, [publicId, section, eventsPage, reload, eventsReload]);
 
+  const assignedIdsKey = order?.assignedUserPublicIds.join(",") ?? "";
+  useEffect(() => {
+    if (!order?.assignedUserPublicIds.length) return;
+    const unresolvedAtStart = order.assignedUserPublicIds.filter((id) => !assignmentLabelsRef.current[id]);
+    if (!unresolvedAtStart.length) return;
+    const controller = new AbortController();
+    async function resolveAssignedUsernames() {
+      let unresolved = unresolvedAtStart;
+      let page = 1;
+      let totalPages = 1;
+      while (unresolved.length && page <= totalPages && !controller.signal.aborted) {
+        const result = await listAssignableUsers(page, ASSIGNABLE_PAGE_SIZE, "", controller.signal);
+        totalPages = result.pagination.totalPages;
+        const labels = Object.fromEntries(result.data.map((user) => [user.publicId, user.username]));
+        mergeAssignmentLabels(labels);
+        unresolved = unresolved.filter((id) => !labels[id]);
+        page += 1;
+      }
+    }
+    // Leitores sem permissão continuam vendo o detalhe; nesse caso os nomes não são consultáveis.
+    void resolveAssignedUsernames().catch(() => undefined);
+    return () => controller.abort();
+  }, [publicId, assignedIdsKey]);
+
+  useEffect(() => {
+    if (!editingAssignments) return;
+    const controller = new AbortController();
+    setAssignableLoading(true);
+    setAssignableError(null);
+    listAssignableUsers(assignablePage, ASSIGNABLE_PAGE_SIZE, assignableSearch, controller.signal)
+      .then(async (result) => {
+        if (controller.signal.aborted) return;
+        setAssignableUsers(result.data);
+        setAssignablePages(result.pagination);
+        mergeAssignmentLabels(Object.fromEntries(result.data.map((user) => [user.publicId, user.username])));
+
+        // Os detalhes guardam os identificadores públicos atuais. Procura apenas os nomes ainda não
+        // resolvidos, percorrendo páginas limitadas pelo total informado pelo servidor.
+        if (assignablePage === 1 && !assignableSearch && order?.assignedUserPublicIds.length) {
+          let unresolved = order.assignedUserPublicIds.filter((id) => !assignmentLabels[id]
+            && !result.data.some((user) => user.publicId === id));
+          let page = 2;
+          while (unresolved.length && page <= result.pagination.totalPages && !controller.signal.aborted) {
+            const next = await listAssignableUsers(page, ASSIGNABLE_PAGE_SIZE, "", controller.signal);
+            const labels = Object.fromEntries(next.data.map((user) => [user.publicId, user.username]));
+            mergeAssignmentLabels(labels);
+            unresolved = unresolved.filter((id) => !labels[id]);
+            page += 1;
+          }
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setAssignableError(assignmentsErrorMessage(reason, "list"));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAssignableLoading(false);
+      });
+    return () => controller.abort();
+  }, [editingAssignments, assignablePage, assignableSearch, publicId]);
+
   async function saveSituation() {
     if (!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation) return;
     setUpdatingSituation(true);
@@ -110,6 +195,59 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
       setSituationError(operationalSituationErrorMessage(reason));
     } finally {
       setUpdatingSituation(false);
+    }
+  }
+
+  function sameUserSet(left: string[], right: string[]): boolean {
+    return left.length === right.length && left.every((id) => right.includes(id));
+  }
+
+  function openAssignmentsEditor() {
+    if (!order) return;
+    setSelectedUserPublicIds(order.assignedUserPublicIds);
+    setAssignableSearchInput("");
+    setAssignableSearch("");
+    setAssignablePage(1);
+    setAssignmentMessage(null);
+    setAssignmentError(null);
+    setEditingAssignments(true);
+  }
+
+  function submitAssignableSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAssignablePage(1);
+    setAssignableSearch(assignableSearchInput.trim());
+  }
+
+  function toggleSelectedUser(publicId: string) {
+    setSelectedUserPublicIds((current) => current.includes(publicId)
+      ? current.filter((id) => id !== publicId)
+      : [...current, publicId]);
+    setAssignmentMessage(null);
+    setAssignmentError(null);
+  }
+
+  async function saveAssignments() {
+    if (!order || savingAssignments) return;
+    if (sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)) {
+      setAssignmentMessage("Nenhuma alteração nos responsáveis.");
+      return;
+    }
+    setSavingAssignments(true);
+    setAssignmentMessage(null);
+    setAssignmentError(null);
+    try {
+      const response = await replaceServiceOrderAssignments(publicId, selectedUserPublicIds, csrfToken);
+      setOrder(response.data);
+      setSelectedUserPublicIds(response.data.assignedUserPublicIds);
+      mergeAssignmentLabels(Object.fromEntries(assignableUsers.map((user) => [user.publicId, user.username])));
+      setAssignmentMessage("Responsáveis da OS atualizados.");
+      setEditingAssignments(false);
+      setEventsReload((value) => value + 1);
+    } catch (reason) {
+      setAssignmentError(assignmentsErrorMessage(reason, "update"));
+    } finally {
+      setSavingAssignments(false);
     }
   }
 
@@ -170,6 +308,72 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
                 </div>
                 {situationError && <p className="form-message form-message--error" role="alert">{situationError}</p>}
                 {situationMessage && <p className="form-message form-message--success" role="status">{situationMessage}</p>}
+              </section>
+              <section className="info-card assignments-editor" aria-labelledby="assignments-title">
+                <div className="section-heading">
+                  <div><h2 id="assignments-title">Responsáveis nominais</h2><p>Administração é uma fila; responsáveis nominais são escolhidos explicitamente.</p></div>
+                </div>
+                {order.assignedUserPublicIds.length ? (
+                  <ul className="assignment-current-list" aria-label="Responsáveis nominais atuais">
+                    {order.assignedUserPublicIds.map((userPublicId) => (
+                      <li key={userPublicId}>{assignmentLabels[userPublicId] ?? "Usuário indisponível"}</li>
+                    ))}
+                  </ul>
+                ) : <p className="muted">Nenhum responsável nominal atribuído.</p>}
+                {assignmentMessage && <p className="form-message form-message--success" role="status">{assignmentMessage}</p>}
+                {!editingAssignments ? (
+                  <button className="button button--secondary" type="button" onClick={openAssignmentsEditor}>Editar responsáveis</button>
+                ) : (
+                  <div className="assignment-form">
+                    <form className="assignment-search" onSubmit={submitAssignableSearch}>
+                      <label htmlFor="assignable-user-search">Buscar usuário por username</label>
+                      <div>
+                        <input id="assignable-user-search" value={assignableSearchInput} onChange={(event) => setAssignableSearchInput(event.target.value)} maxLength={50} />
+                        <button className="button button--secondary" type="submit" disabled={assignableLoading}>Buscar</button>
+                      </div>
+                    </form>
+                    {assignableError && <p className="form-message form-message--error" role="alert">{assignableError}</p>}
+                    {assignableLoading ? <p role="status">Carregando usuários atribuíveis…</p> : null}
+                    {!assignableLoading && !assignableError && (
+                      <>
+                        <p className="muted">Selecione os responsáveis. Salvar substitui a lista atual; deixe a seleção vazia para remover todos.</p>
+                        <ul className="assignable-user-list" aria-label="Usuários atribuíveis">
+                          {assignableUsers.map((user) => (
+                            <li key={user.publicId}>
+                              <label><input type="checkbox" checked={selectedUserPublicIds.includes(user.publicId)} onChange={() => toggleSelectedUser(user.publicId)} /> {user.username}</label>
+                            </li>
+                          ))}
+                        </ul>
+                        {!assignableUsers.length && <p className="muted">Nenhum usuário ativo encontrado para esta busca.</p>}
+                        {assignablePages && assignablePages.totalPages > 1 && (
+                          <div className="assignment-pagination" aria-label="Paginação dos usuários atribuíveis">
+                            <button className="button button--secondary" type="button" disabled={assignablePage <= 1 || assignableLoading} onClick={() => setAssignablePage((page) => page - 1)}>Anterior</button>
+                            <span>Página {assignablePages.page} de {assignablePages.totalPages}</span>
+                            <button className="button button--secondary" type="button" disabled={assignablePage >= assignablePages.totalPages || assignableLoading} onClick={() => setAssignablePage((page) => page + 1)}>Próxima</button>
+                          </div>
+                        )}
+                        <div className="assignment-selected">
+                          <h3>Selecionados ({selectedUserPublicIds.length})</h3>
+                          {selectedUserPublicIds.length ? (
+                            <ul>
+                              {selectedUserPublicIds.map((id) => {
+                                const label = assignmentLabels[id] ?? assignableUsers.find((user) => user.publicId === id)?.username ?? "Usuário indisponível";
+                                return <li key={id}><span>{label}</span><button className="text-button" type="button" onClick={() => toggleSelectedUser(id)} aria-label={`Remover ${label}`}>Remover</button></li>;
+                              })}
+                            </ul>
+                          ) : <p className="muted">Nenhum usuário selecionado.</p>}
+                        </div>
+                      </>
+                    )}
+                    <div className="assignment-actions">
+                      <button className="button button--primary" type="button" onClick={() => void saveAssignments()} disabled={assignableLoading || savingAssignments || Boolean(assignableError) || sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)}>
+                        {savingAssignments ? "Salvando…" : "Salvar responsáveis"}
+                      </button>
+                      <button className="button button--secondary" type="button" onClick={() => { setEditingAssignments(false); setAssignmentError(null); }} disabled={savingAssignments}>Cancelar</button>
+                    </div>
+                    {assignmentError && <p className="form-message form-message--error" role="alert">{assignmentError}</p>}
+                  </div>
+                )}
               </section>
               <div className="snapshot-grid-cards">
                 <SnapshotCard title="Retrato do cliente" snapshot={order.customerSnapshotJson} />
