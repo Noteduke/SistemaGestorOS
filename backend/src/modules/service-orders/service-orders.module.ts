@@ -5,12 +5,13 @@ import { ServiceOrderOpeningsController } from "./service-order-openings.control
 import { ServiceOrderOpeningsService } from "./service-order-openings.service.js";
 import { ServiceOrderConfirmationService } from "./service-order-confirmation.service.js";
 import { ServiceOrderOperationalSituationService } from "./service-order-operational-situation.service.js";
+import { ServiceOrderAssignmentsService } from "./service-order-assignments.service.js";
 import { ServiceOrdersController } from "./service-orders.controller.js";
 import { ServiceOrdersReadService } from "./service-orders-read.service.js";
 
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [ServiceOrderOpeningsController, ServiceOrdersController],
-  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrdersReadService],
+  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrderAssignmentsService, ServiceOrdersReadService],
 })
 export class ServiceOrdersModule {}

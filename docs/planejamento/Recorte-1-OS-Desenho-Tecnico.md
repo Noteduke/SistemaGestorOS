@@ -1,15 +1,15 @@
 # Recorte 1 de OS — desenho técnico preliminar
 
-**Status:** desenho de referência; schema Prisma e migration aplicados no banco principal; primeiro fluxo de abertura implementado no Backend, com validação de integração pendente.
+**Status:** schema Prisma e migration aplicados no banco principal; abertura, consulta/listagem, situação operacional e atribuições nominais implementadas e validadas em banco isolado; consulta de eventos permanece pendente.
 **Data:** 08/10/2026.
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
 
-> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente e foram aplicados ao banco principal pelo seed oficial. Quatro endpoints de abertura foram implementados no Backend; os demais fluxos, os testes de integração e o frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
+> A estrutura de persistência do Recorte 1 está no schema Prisma e na migration `20261008180000_service_order_foundation`, validada em `gestor_os_migration_test` e `gestor_os_restore_test` e aplicada ao banco principal em 09/10/2026. Os oito códigos de permissão de OS constam do catálogo idempotente e foram aplicados ao banco principal pelo seed oficial. Abertura, edição e confirmação, consulta/listagem de OS, alteração de situação operacional e substituição nominal de atribuições foram implementadas e validadas por testes HTTP/MySQL isolados. Consulta própria de eventos e frontend continuam pendentes. O contrato HTTP está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`.
 
 ## 1. Conclusão executiva
 
-As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services de abertura e confirmação foram implementados, incluindo a captura dos snapshots na confirmação. A consulta/listagem de OS confirmadas foi posteriormente implementada e validada em HTTP/MySQL isolado; os demais services continuam pendentes.
+As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services de abertura e confirmação foram implementados, incluindo a captura dos snapshots na confirmação. Consulta/listagem de OS, situação operacional e atribuições nominais também foram implementadas e validadas em HTTP/MySQL isolado; consulta de eventos continua pendente.
 
 O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, com seed controlado das permissões já executado e testes ainda necessários antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
@@ -229,7 +229,7 @@ Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visí
 
 ## 8. Endpoints REST do Recorte 1
 
-O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`; o alias `/api/v1/service-orders/:publicId/situation` não é implementado. A base física já está aplicada. O Backend contém seis endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId`, cancelar, editar temporariamente por `PATCH` e confirmar. As rotas de abertura e a confirmação com captura dos snapshots foram validadas em HTTP/MySQL isolado. `GET /api/v1/service-orders` e `GET /api/v1/service-orders/:publicId` foram implementados e validados em HTTP/MySQL isolado; o detalhe expõe os snapshots históricos armazenados sem recálculo. `PATCH /api/v1/service-orders/:publicId/operational-situation` altera a situação da OS confirmada em transação com evento e foi validado em HTTP/MySQL isolado. Permanecem pendentes a substituição de atribuições nominais e a consulta de eventos.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`; os aliases `/api/v1/service-orders/:publicId/situation` e `PATCH /api/v1/service-orders/:publicId/assignments` não são implementados. A base física já está aplicada. O Backend contém seis endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId`, cancelar, editar temporariamente por `PATCH` e confirmar. As rotas de abertura e a confirmação com captura dos snapshots foram validadas em HTTP/MySQL isolado. `GET /api/v1/service-orders` e `GET /api/v1/service-orders/:publicId` foram implementados e validados em HTTP/MySQL isolado; o detalhe expõe os snapshots históricos armazenados sem recálculo. `PATCH /api/v1/service-orders/:publicId/operational-situation` altera a situação da OS confirmada em transação com evento e `PUT /api/v1/service-orders/:publicId/assignments` substitui as atribuições nominais com evento; ambas foram validadas em HTTP/MySQL isolado. Consulta de eventos permanece pendente.
 
 ## 9. Permissões propostas do Recorte 1
 
@@ -275,9 +275,9 @@ Registrar escolha explícita como intenção temporária no rascunho, sem altera
 
 ### Alterar atribuições
 
-**Lê/bloqueia:** OS confirmada e usuários indicados, validando existência, elegibilidade e permissão do ator.
-**Escreve:** substitui o conjunto em `ServiceOrderAssignment` e insere `ATRIBUICOES_ALTERADAS` com atribuídos anteriores/novos.
-**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A regra oficial permite atribuir um ou mais funcionários, sem exigir mínimo permanente; a fila administrativa segue a situação configurada independentemente das atribuições nominais.
+**Lê/bloqueia:** OS confirmada e usuários indicados, validando existência, atividade, elegibilidade e permissão do ator.
+**Escreve:** `PUT /api/v1/service-orders/:publicId/assignments` substitui integralmente o conjunto em `ServiceOrderAssignment`, usando `userPublicIds` distintos; conjunto equivalente, mesmo em outra ordem, é no-op. Uma alteração efetiva atualiza `updatedAt` e insere `ATRIBUICOES_ALTERADAS` com atribuídos anteriores/novos, adicionados/removidos, ator, instante e número.
+**Rollback:** se qualquer vínculo ou evento falhar, preservar integralmente o conjunto anterior. A lista vazia é permitida, sem exigir mínimo permanente; a fila administrativa segue a situação configurada independentemente das atribuições nominais.
 
 ## 11. Validações indispensáveis
 
@@ -375,7 +375,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
 7. Implementado: PATCH temporário de cliente, equipamento existente ou rascunho novo, reclamação e decisão de titularidade, sem efetivar cadastro/transferência. Intenção de transferência exige `equipment.transfer_ownership` ou Admin no PATCH e é revalidada na confirmação. Edição administrativa alheia é registrada no Log Administrativo.
 8. Implementada a confirmação atômica com criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, alocação confirmada e eventos. Testes HTTP/MySQL isolados cobriram esses caminhos e rollback por falha no evento. Listagem/detalhe de OS confirmada também foram implementados.
-9. Implementada a alteração da situação operacional pela rota oficial `PATCH /api/v1/service-orders/:publicId/operational-situation`, com autorização `service_orders.situation.update`, CSRF, lock, atualização e evento na mesma transação; reenvio da situação vigente não duplica evento. Substituição de atribuições nominais e consulta de eventos continuam pendentes.
+9. Implementada a alteração da situação operacional pela rota oficial `PATCH /api/v1/service-orders/:publicId/operational-situation`, com autorização `service_orders.situation.update`, CSRF, lock, atualização e evento na mesma transação; reenvio da situação vigente não duplica evento. A substituição nominal foi implementada em `PUT /api/v1/service-orders/:publicId/assignments`, com evento `ATRIBUICOES_ALTERADAS`; consulta de eventos continua pendente.
 10. Executar testes unitários, integração MySQL isolado, e2e Auth/CSRF e auditoria focada do Recorte 1.
 11. Antes de liberar os endpoints, revisar status/diff, confirmar o resultado do seed já executado e dos testes; a migration de OS já foi aplicada ao banco principal e não deve ser reaplicada por este roteiro.
 

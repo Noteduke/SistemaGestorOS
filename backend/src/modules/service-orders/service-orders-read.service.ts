@@ -37,7 +37,7 @@ export const serviceOrderDetailSelect = {
   snapshotVersion: true,
   snapshotCapturedAt: true,
   createdBy: { select: { publicId: true } },
-  assignments: { select: { user: { select: { publicId: true } } }, orderBy: { userId: "asc" } },
+  assignments: { select: { userId: true, user: { select: { publicId: true } } }, orderBy: { userId: "asc" } },
 } as const satisfies Prisma.ServiceOrderSelect;
 
 type SummaryOrder = Prisma.ServiceOrderGetPayload<{ select: typeof summarySelect }>;
