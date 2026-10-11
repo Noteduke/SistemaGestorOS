@@ -84,6 +84,10 @@ Responsável exclusivamente pela interface com o usuário.
 
 Não conterá regras de negócio.
 
+# 7.1 Base frontend inicial
+
+O diretório `frontend/` contém a aplicação inicial em React + TypeScript + Vite. No desenvolvimento, o Vite escuta somente em `127.0.0.1` e encaminha `/api` para `http://127.0.0.1:3000`, mantendo o Backend sem configuração de CORS. A primeira fatia consome somente os GETs de listagem, detalhe e eventos de OS confirmadas; operações de negócio continuam no Backend.
+
 # 8. Backend
 
 Centralizará:

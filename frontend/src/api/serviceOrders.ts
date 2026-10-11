@@ -1,0 +1,119 @@
+export interface Pagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface Paginated<T> {
+  data: T[];
+  pagination: Pagination;
+}
+
+export interface ServiceOrderSummary {
+  publicId: string;
+  openingPublicId: string;
+  visibleNumber: string;
+  numberValue: string;
+  macroStatus: string;
+  operationalSituation: string;
+  customer: { publicId: string; name: string };
+  equipment: {
+    publicId: string;
+    type: string;
+    brand: string;
+    model: string;
+    serialNumber: string | null;
+    ownerPublicId: string;
+  };
+  openedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  confirmedAt: string;
+}
+
+export interface ServiceOrderDetail extends ServiceOrderSummary {
+  complaint: string | null;
+  intakeObservations: string | null;
+  newEquipmentSerialIdentificationStatus: string | null;
+  createdByUserPublicId: string;
+  assignedUserPublicIds: string[];
+  snapshotVersion: number;
+  snapshotCapturedAt: string;
+  customerSnapshotJson: unknown;
+  equipmentSnapshotJson: unknown;
+}
+
+export interface ServiceOrderEvent {
+  eventType: string;
+  occurredAt: string;
+  visibleNumber: string;
+  numberValue: string;
+  actor: { publicId: string; username: string } | null;
+  payload: Record<string, unknown> | null;
+}
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | undefined,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível concluir a consulta.",
+    );
+  }
+
+  return body as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return get<Paginated<ServiceOrderSummary>>(`/api/v1/service-orders?${query}`, signal);
+}
+
+export function getServiceOrder(publicId: string, signal?: AbortSignal) {
+  return get<{ data: ServiceOrderDetail }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}`, signal);
+}
+
+export function listServiceOrderEvents(publicId: string, page: number, pageSize: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return get<Paginated<ServiceOrderEvent>>(
+    `/api/v1/service-orders/${encodeURIComponent(publicId)}/events?${query}`,
+    signal,
+  );
+}
+
+export function errorMessage(error: unknown, context: "list" | "detail" | "events"): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sua sessão é necessária para consultar as Ordens de Serviço.";
+    if (error.status === 403) return "Seu usuário não tem permissão para consultar estas informações.";
+    if (error.status === 404 && context !== "list") return "Ordem de Serviço não encontrada.";
+    if (error.status === 400 && error.code === "INVALID_PAGINATION") return "A paginação solicitada é inválida.";
+    return error.message;
+  }
+  return "Não foi possível conectar ao serviço. Tente novamente.";
+}

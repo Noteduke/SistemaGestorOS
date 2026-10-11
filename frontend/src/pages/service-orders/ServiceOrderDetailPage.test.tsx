@@ -1,0 +1,76 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { vi } from "vitest";
+import { ServiceOrderDetailPage } from "./ServiceOrderDetailPage";
+
+const publicId = "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
+const detail = {
+  publicId,
+  openingPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435",
+  visibleNumber: "OS-000128",
+  numberValue: "128",
+  macroStatus: "ABERTA",
+  operationalSituation: "TRIAGEM",
+  customer: { publicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf", name: "Marina Costa" },
+  equipment: { publicId: "a23a7f29-8a4c-4704-9ce4-593c3ba013a0", type: "Notebook", brand: "Lenovo", model: "ThinkPad", serialNumber: "SN-45", ownerPublicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf" },
+  openedAt: "2026-10-10T13:00:00.000Z",
+  createdAt: "2026-10-10T13:00:00.000Z",
+  updatedAt: "2026-10-10T13:00:00.000Z",
+  confirmedAt: "2026-10-10T13:00:00.000Z",
+  complaint: "Não liga",
+  intakeObservations: null,
+  newEquipmentSerialIdentificationStatus: null,
+  createdByUserPublicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+  assignedUserPublicIds: [],
+  snapshotVersion: 1,
+  snapshotCapturedAt: "2026-10-10T13:00:00.000Z",
+  customerSnapshotJson: { snapshotVersion: 1, capturedAt: "2026-10-10T13:00:00.000Z", name: "Marina Costa", document: null },
+  equipmentSnapshotJson: { snapshotVersion: 1, capturedAt: "2026-10-10T13:00:00.000Z", type: "Notebook", brand: "Lenovo", model: "ThinkPad", serialNumber: "SN-45" },
+};
+
+function response(body: unknown, status = 200) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+describe("ServiceOrderDetailPage", () => {
+  it("exibe detalhes e snapshots históricos sem recalculá-los", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderDetailPage publicId={publicId} section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+
+    expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
+    expect(screen.getByText("Não liga")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Retrato do cliente" })).toHaveTextContent("Marina Costa");
+    expect(screen.getByRole("region", { name: "Retrato do equipamento" })).toHaveTextContent("ThinkPad");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/v1/service-orders/${publicId}`);
+  });
+
+  it("carrega e apresenta o histórico somente por GET paginado", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(response({
+        data: [{ eventType: "ABERTURA_CONFIRMADA", occurredAt: "2026-10-10T13:00:00.000Z", visibleNumber: "OS-000128", numberValue: "128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { macroStatus: "ABERTA" } }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onSectionChange = vi.fn();
+    const props = { publicId, eventsPage: 1, onSectionChange, onEventsPageChange: vi.fn(), onBack: vi.fn() };
+    const view = render(<ServiceOrderDetailPage {...props} section="details" />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(onSectionChange).toHaveBeenCalledWith("events");
+    view.rerender(<ServiceOrderDetailPage {...props} section="events" />);
+    expect(await screen.findByText("ABERTURA CONFIRMADA")).toBeInTheDocument();
+    expect(screen.getByText("marina.admin")).toBeInTheDocument();
+    expect(screen.getByText("ABERTA")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/${publicId}/events?page=1&pageSize=20`, expect.objectContaining({ method: "GET" }));
+    expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("mostra OS não encontrada quando o detalhe responde 404", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ code: "SERVICE_ORDER_NOT_FOUND", message: "Not found" }, 404)));
+    render(<ServiceOrderDetailPage publicId={publicId} section="details" eventsPage={1} onSectionChange={vi.fn()} onEventsPageChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ordem de Serviço não encontrada");
+  });
+});
