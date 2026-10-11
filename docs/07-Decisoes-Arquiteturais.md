@@ -311,7 +311,7 @@ Regras de numeração visível, abertura e titularidade operacional da OS aprova
 Retrato cadastral histórico e correção de cliente/equipamento da OS.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026. A base física de OS e os campos JSON do retrato foram aplicados ao principal; contratos de API, captura transacional, consulta histórica e correções permanecem futuros.
+Aprovada por Marcos em 08/10/2026. A base física de OS e os campos JSON do retrato foram aplicados ao principal; a captura transacional foi posteriormente implementada na confirmação da abertura. A consulta histórica pelas rotas de leitura de OS confirmadas e as correções permanecem futuras.
 
 ## Contexto
 A OS permanece vinculada aos cadastros atuais de Pessoa e Equipamento, mas precisa preservar como os dados principais estavam quando a abertura foi confirmada. Também é necessário corrigir vínculos após a confirmação sem apagar a origem histórica.
@@ -331,7 +331,7 @@ Definir o momento, finalidade e imutabilidade do retrato cadastral; estabelecer 
 Preservar evidência histórica da abertura sem tornar dados desatualizados a apresentação operacional, permitindo correção rastreável dos vínculos quando necessário.
 
 ## Impactos
-A entidade OS e os campos JSON do retrato já existem no schema Prisma e no banco principal. Permanecem futuras a captura imutável, o histórico de correções, os contratos finais de API e a autorização. A DA-024 define o formato inicial do snapshot, cuja validação caberá aos services transacionais.
+A entidade OS e os campos JSON do retrato já existem no schema Prisma e no banco principal. A captura única dos snapshots na confirmação foi implementada no Backend conforme a DA-024. Permanecem futuras a consulta histórica pelas rotas de leitura de OS confirmadas, sua exibição no Frontend e o histórico de correções; as regras de autorização dos fluxos futuros ainda dependerão de suas implementações.
 
 ## Data de aprovação
 08/10/2026.
@@ -390,7 +390,7 @@ Política complementar de correção administrativa de cliente/equipamento aprov
 Formato estruturado dos snapshots cadastrais da OS.
 
 ## Situação
-Aprovada por Marcos em 08/10/2026 para o primeiro recorte. Entidade OS, campos JSON e migration já foram aplicados ao principal; captura e consulta funcionais permanecem futuras.
+Aprovada por Marcos em 08/10/2026 para o primeiro recorte. Entidade OS, campos JSON e migration já foram aplicados ao principal; a captura funcional dos snapshots foi posteriormente implementada na confirmação. A consulta histórica pelas rotas de leitura de OS confirmadas permanece futura.
 
 ## Contexto
 A DA-022 aprovou capturar uma única vez um retrato histórico cadastral parcial na confirmação da abertura, mas deixou seu formato físico em aberto.
@@ -414,7 +414,7 @@ Preservar valores cadastrais que continuem legíveis e auditáveis sem depender 
 JSON versionado permite preservar os valores principais do momento da abertura e evoluir seu formato sem perder a interpretação de retratos antigos, mantendo separados estado cadastral histórico e vínculos operacionais atuais.
 
 ## Impactos
-Os campos JSON e a entidade OS básica já estão no schema Prisma e no banco principal. Os futuros services deverão validar o conteúdo, capturar os dados de forma consistente na confirmação e impedir sua alteração posterior; contratos e histórico funcional permanecem pendentes. Esta decisão documental não implementa esses fluxos.
+Os campos JSON e a entidade OS básica já estão no schema Prisma e no banco principal. O service de confirmação já valida e captura os dados de forma consistente uma única vez; os snapshots armazenados não devem ser recalculados nem alterados posteriormente. A consulta histórica pelas rotas de leitura de OS confirmadas e os fluxos futuros de histórico permanecem pendentes. Esta decisão documental não implementa esses fluxos.
 
 ## Data de aprovação
 08/10/2026.

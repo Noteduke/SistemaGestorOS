@@ -9,7 +9,7 @@
 
 ## 1. Conclusão executiva
 
-As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; o service transacional de iniciar e cancelar abertura foi implementado. Confirmação e demais services continuam pendentes.
+As decisões complementares aprovadas definem a reserva temporária de número, a consolidação tardia de equipamento novo, a transferência efetiva apenas na confirmação e a exibição da numeração com no mínimo seis dígitos, sem teto funcional em 999999. O schema Prisma e o banco principal já contêm a estrutura necessária; os services de abertura e confirmação foram implementados, incluindo a captura dos snapshots na confirmação. A consulta/listagem de OS confirmadas e os demais services continuam pendentes.
 
 O Recorte 1 tem schema e migration aplicados e contrato técnico documentado para iniciar a implementação, com seed controlado das permissões já executado e testes ainda necessários antes de liberar endpoints. As transações mantêm confirmação, criação de equipamento novo, transferência, snapshots e eventos atômicos.
 
@@ -229,7 +229,7 @@ Todos os eventos incluem `actorUserId`, `occurredAt`, `eventType`, número visí
 
 ## 8. Endpoints REST do Recorte 1
 
-O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém cinco endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId`, cancelar e editar temporariamente por `PATCH`. A validação HTTP/concorrência em MySQL isolado das quatro rotas iniciais passou; o PATCH temporário também foi implementado e validado nesse banco. Confirmação e demais endpoints continuam pendentes.
+O contrato consolidado de rotas, request/response conceituais, erros e eventos está em `docs/planejamento/Recorte-1-OS-Contratos-e-Permissoes.md`. Esse documento substitui as rotas preliminares de abertura em `/service-order-openings`, situação em `/situation` e histórico em `/history`. A base física já está aplicada. O Backend contém seis endpoints de abertura: iniciar, consultar a própria ativa, consultar por `publicId`, cancelar, editar temporariamente por `PATCH` e confirmar. As rotas de abertura e a confirmação com captura dos snapshots foram validadas em HTTP/MySQL isolado. `GET /api/v1/service-orders`, `GET /api/v1/service-orders/:publicId`, a consulta histórica dos snapshots e os demais endpoints continuam pendentes.
 
 ## 9. Permissões propostas do Recorte 1
 
