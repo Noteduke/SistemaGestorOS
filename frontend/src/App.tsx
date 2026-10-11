@@ -138,6 +138,7 @@ export function App() {
         ) : (
           <ServiceOrderDetailPage
             publicId={route.publicId}
+            csrfToken={session.identity.csrfToken}
             section={route.section}
             eventsPage={route.eventsPage}
             onSectionChange={changeDetailSection}
@@ -146,7 +147,7 @@ export function App() {
           />
         )}
       </main>
-      <footer className="app-footer">Sistema Gestor OS <span>·</span> consulta somente leitura</footer>
+      <footer className="app-footer">Sistema Gestor OS <span>·</span> consultas e atualização operacional</footer>
     </div>
   );
 }

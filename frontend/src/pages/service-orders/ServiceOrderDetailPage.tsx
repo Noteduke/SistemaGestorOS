@@ -3,6 +3,10 @@ import {
   errorMessage,
   getServiceOrder,
   listServiceOrderEvents,
+  operationalSituationErrorMessage,
+  operationalSituationOptions,
+  updateServiceOrderOperationalSituation,
+  type OperationalSituation,
   type Paginated,
   type ServiceOrderDetail,
   type ServiceOrderEvent,
@@ -15,6 +19,7 @@ const PAGE_SIZE = 20;
 
 interface ServiceOrderDetailPageProps {
   publicId: string;
+  csrfToken: string;
   section: "details" | "events";
   eventsPage: number;
   onSectionChange: (section: "details" | "events") => void;
@@ -38,7 +43,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, section, eventsPage, onSectionChange, onEventsPageChange, onBack }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPage, onSectionChange, onEventsPageChange, onBack }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +51,24 @@ export function ServiceOrderDetailPage({ publicId, section, eventsPage, onSectio
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [eventsReload, setEventsReload] = useState(0);
+  const [selectedSituation, setSelectedSituation] = useState<OperationalSituation | "">("");
+  const [updatingSituation, setUpdatingSituation] = useState(false);
+  const [situationMessage, setSituationMessage] = useState<string | null>(null);
+  const [situationError, setSituationError] = useState<string | null>(null);
+
+  const currentSituation = operationalSituationOptions.find(({ label }) => label === order?.operationalSituation)?.value;
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     getServiceOrder(publicId, controller.signal)
-      .then((response) => setOrder(response.data))
+      .then((response) => {
+        setOrder(response.data);
+        const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
+        setSelectedSituation(current ?? "");
+      })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(reason, "detail"));
       })
@@ -76,7 +92,26 @@ export function ServiceOrderDetailPage({ publicId, section, eventsPage, onSectio
         if (!controller.signal.aborted) setEventsLoading(false);
       });
     return () => controller.abort();
-  }, [publicId, section, eventsPage, reload]);
+  }, [publicId, section, eventsPage, reload, eventsReload]);
+
+  async function saveSituation() {
+    if (!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation) return;
+    setUpdatingSituation(true);
+    setSituationMessage(null);
+    setSituationError(null);
+    try {
+      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken);
+      setOrder(response.data);
+      const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
+      setSelectedSituation(current ?? "");
+      setSituationMessage("Situação operacional atualizada.");
+      if (section === "events") setEventsReload((value) => value + 1);
+    } catch (reason) {
+      setSituationError(operationalSituationErrorMessage(reason));
+    } finally {
+      setUpdatingSituation(false);
+    }
+  }
 
   return (
     <section className="page-section">
@@ -115,6 +150,27 @@ export function ServiceOrderDetailPage({ publicId, section, eventsPage, onSectio
                   {order.intakeObservations && <div className="detail-grid__wide"><dt>Observações de entrada</dt><dd>{order.intakeObservations}</dd></div>}
                 </dl>
               </section>
+              <section className="info-card situation-editor" aria-labelledby="situation-editor-title">
+                <div className="section-heading">
+                  <div><h2 id="situation-editor-title">Situação operacional</h2><p>A regra de transição e a autorização são validadas pelo Backend.</p></div>
+                </div>
+                <div className="situation-form">
+                  <label htmlFor="operational-situation">Nova situação</label>
+                  <select
+                    id="operational-situation"
+                    value={selectedSituation}
+                    onChange={(event) => { setSelectedSituation(event.target.value as OperationalSituation); setSituationMessage(null); setSituationError(null); }}
+                    disabled={!currentSituation || updatingSituation}
+                  >
+                    {operationalSituationOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                  <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
+                    {updatingSituation ? "Salvando…" : "Salvar situação"}
+                  </button>
+                </div>
+                {situationError && <p className="form-message form-message--error" role="alert">{situationError}</p>}
+                {situationMessage && <p className="form-message form-message--success" role="status">{situationMessage}</p>}
+              </section>
               <div className="snapshot-grid-cards">
                 <SnapshotCard title="Retrato do cliente" snapshot={order.customerSnapshotJson} />
                 <SnapshotCard title="Retrato do equipamento" snapshot={order.equipmentSnapshotJson} />
@@ -123,7 +179,7 @@ export function ServiceOrderDetailPage({ publicId, section, eventsPage, onSectio
           ) : (
             <section className="history-section">
               <div className="section-heading"><div><h2>Histórico da OS</h2><p>Eventos registrados pelo sistema, do mais recente para o mais antigo.</p></div></div>
-              <AsyncState loading={eventsLoading} error={eventsError} empty={!eventsLoading && !eventsError && !events?.data.length} emptyMessage="Esta OS ainda não possui eventos para exibir." onRetry={() => setReload((value) => value + 1)} />
+              <AsyncState loading={eventsLoading} error={eventsError} empty={!eventsLoading && !eventsError && !events?.data.length} emptyMessage="Esta OS ainda não possui eventos para exibir." onRetry={() => setEventsReload((value) => value + 1)} />
               {events?.data.length ? (
                 <>
                   <ol className="timeline">

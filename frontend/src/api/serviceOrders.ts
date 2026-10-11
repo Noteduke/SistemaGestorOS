@@ -53,6 +53,21 @@ export interface ServiceOrderEvent {
   payload: Record<string, unknown> | null;
 }
 
+export const operationalSituationOptions = [
+  { value: "TRIAGE", label: "TRIAGEM" },
+  { value: "AWAITING_EVALUATION_BUDGET", label: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO" },
+  { value: "AWAITING_BUDGET_APPROVAL", label: "AGUARDANDO APROVAÇÃO DO ORÇAMENTO" },
+  { value: "REPAIR_AUTHORIZED", label: "AUTORIZADO REPARO" },
+  { value: "AWAITING_PART_PURCHASE", label: "AGUARDANDO COMPRA DE PEÇA" },
+  { value: "AWAITING_PART_ARRIVAL", label: "AGUARDANDO CHEGADA DE PEÇA" },
+  { value: "READY_TO_NOTIFY_CUSTOMER", label: "PRONTO AVISAR CLIENTE" },
+  { value: "READY_CUSTOMER_NOTIFIED", label: "PRONTO CLIENTE AVISADO" },
+  { value: "NOT_AUTHORIZED_REASSEMBLE", label: "NÃO AUTORIZADO - REMONTAR EQUIPAMENTO" },
+  { value: "NOT_AUTHORIZED_READY_DELIVERY", label: "NÃO AUTORIZADO - PRONTO PRA ENTREGA" },
+] as const;
+
+export type OperationalSituation = (typeof operationalSituationOptions)[number]["value"];
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -86,6 +101,36 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return body as T;
 }
 
+export async function updateServiceOrderOperationalSituation(
+  publicId: string,
+  operationalSituation: OperationalSituation,
+  csrfToken: string,
+): Promise<{ data: ServiceOrderDetail }> {
+  const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/operational-situation`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ operationalSituation }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível alterar a situação operacional.",
+    );
+  }
+
+  return body as { data: ServiceOrderDetail };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -113,6 +158,17 @@ export function errorMessage(error: unknown, context: "list" | "detail" | "event
     if (error.status === 403) return "Seu usuário não tem permissão para consultar estas informações.";
     if (error.status === 404 && context !== "list") return "Ordem de Serviço não encontrada.";
     if (error.status === 400 && error.code === "INVALID_PAGINATION") return "A paginação solicitada é inválida.";
+    return error.message;
+  }
+  return "Não foi possível conectar ao serviço. Tente novamente.";
+}
+
+export function operationalSituationErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sua sessão expirou ou não está autenticada. Entre novamente para alterar a situação.";
+    if (error.status === 403) return "Você não tem permissão para alterar a situação operacional.";
+    if (error.status === 404) return "Ordem de Serviço não encontrada.";
+    if (error.status === 400 || error.status === 422) return "A situação selecionada é inválida.";
     return error.message;
   }
   return "Não foi possível conectar ao serviço. Tente novamente.";

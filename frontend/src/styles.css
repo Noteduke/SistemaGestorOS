@@ -61,6 +61,16 @@ tbody tr:hover { background: #fbfcfd; }
 .button { border: 1px solid transparent; border-radius: 9px; padding: 9px 13px; font-size: 12px; font-weight: 700; transition: .15s ease; }
 .button--secondary { color: #3d566a; background: white; border-color: #dbe3e9; }
 .button--secondary:not(:disabled):hover { border-color: #9ab6c3; background: #f6fafb; }
+.button--primary { color: #fff; background: var(--blue-dark); }
+.button--primary:not(:disabled):hover { background: #0b4057; }
+.situation-editor { display: grid; gap: 12px; }
+.situation-editor .section-heading { margin-bottom: 0; }
+.situation-form { display: flex; align-items: end; gap: 12px; }
+.situation-form label { display: grid; gap: 6px; color: #40586b; font-size: 12px; font-weight: 700; }
+.situation-form select { min-width: min(100%, 360px); min-height: 38px; padding: 8px 10px; border: 1px solid #d8e1e7; border-radius: 9px; color: var(--ink); background: #fff; font: inherit; font-size: 12px; }
+.form-message { margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+.form-message--error { color: #8f3932; border: 1px solid #efd0cc; background: #fff7f6; }
+.form-message--success { color: #286245; border: 1px solid #cce6d6; background: #f4fbf6; }
 
 .state-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 130px; padding: 24px; border: 1px dashed #d2dbe2; border-radius: 14px; background: #fff; color: #657687; text-align: center; font-size: 14px; }
 .state-card p { margin: 0; }
@@ -137,6 +147,8 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
   .content { width: min(100% - 28px, 1160px); }
   .login-card { padding: 28px 22px; }
   .detail-heading { align-items: start; flex-direction: column; }
+  .situation-form { align-items: stretch; flex-direction: column; }
+  .situation-form select { width: 100%; }
   .info-card, .snapshot-card { padding: 17px; }
   .detail-grid, .snapshot-grid { grid-template-columns: 1fr; }
   .detail-grid__wide { grid-column: auto; }
