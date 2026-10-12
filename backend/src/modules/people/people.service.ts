@@ -6,6 +6,7 @@ import { isStandardBrazilianPhone, normalizeEmailAddress, normalizePhoneNumber }
 import type { CreatePersonEmailInput, CreatePersonPhoneInput, PersonContactListQuery } from "./dto/person-contact.dto.js";
 import { toPersonResponse } from "./domain/person-response.mapper.js";
 import type { ListPeopleQuery } from "./dto/list-people-query.dto.js";
+import type { OpeningLookupQuery } from "../shared/dto/opening-lookup-query.dto.js";
 
 @Injectable()
 export class PeopleService {
@@ -252,6 +253,58 @@ export class PeopleService {
       },
     };
   }
+
+  async listOpeningCustomers(query: OpeningLookupQuery) {
+    const search = query.search?.toLocaleUpperCase("pt-BR");
+    const compactSearch = search?.replace(/[^A-Z0-9]/g, "");
+    const phoneSearch = search?.replace(/\D/g, "");
+    const where: Prisma.PersonWhereInput = {
+      isActive: true,
+      roles: { some: { role: "CUSTOMER" } },
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search } },
+              ...(compactSearch ? [{ document: { contains: compactSearch } }] : []),
+              ...(phoneSearch ? [{ phones: { some: { number: { contains: phoneSearch } } } }] : []),
+            ],
+          }
+        : {}),
+    };
+    const [people, total] = await this.prisma.$transaction([
+      this.prisma.person.findMany({
+        where,
+        select: { id: true, publicId: true, personType: true, name: true, document: true },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.person.count({ where }),
+    ]);
+
+    return {
+      data: people.map(({ publicId, personType, name, document }) => ({
+        publicId,
+        personType,
+        name,
+        documentHint: maskDocument(document),
+      })),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+        totalPages: Math.ceil(total / query.pageSize),
+      },
+    };
+  }
+}
+
+function maskDocument(document: string | null): string | null {
+  if (!document) return null;
+  const lastTwo = document.slice(-2);
+  if (document.length === 11) return `***.***.***-${lastTwo}`;
+  if (document.length === 14) return `**.***.***/****-${lastTwo}`;
+  return `••••${lastTwo}`;
 }
 
 function isPrismaUniqueViolation(error: unknown): error is { code: "P2002"; meta?: { target?: unknown } } {

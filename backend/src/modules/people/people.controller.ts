@@ -9,6 +9,7 @@ import {
 import { PeopleService } from "./people.service.js";
 import { RequirePermissions } from "../auth/decorators/auth-metadata.js";
 import type { AuthRequest } from "../auth/auth.types.js";
+import { parseOpeningLookupQuery } from "../shared/dto/opening-lookup-query.dto.js";
 
 @Controller("people")
 export class PeopleController {
@@ -24,6 +25,12 @@ export class PeopleController {
   @RequirePermissions("people.read")
   list(@Query() query: Record<string, unknown>) {
     return this.people.list(parseListPeopleQuery(query));
+  }
+
+  @Get("customers")
+  @RequirePermissions("service_orders.opening.create")
+  listOpeningCustomers(@Query() query: Record<string, unknown>) {
+    return this.people.listOpeningCustomers(parseOpeningLookupQuery(query));
   }
 
   @Get(":publicId")

@@ -77,7 +77,7 @@ Na liberação, a linha permanece `RELEASED`, sem `openingId`; a sequência pode
 | `transferRequested` (`Boolean`) | Intenção temporária explícita de transferir titularidade na confirmação; não muda o proprietário durante o rascunho. |
 | `transferRequestedByUserId` (`Int?`) | Usuário que registrou a intenção explícita de transferência. |
 | `transferRequestedAt` (`DateTime(3)?`) | Instante em que a intenção temporária foi registrada. |
-| `resumedAt`, `confirmedAt`, `canceledAt` (`DateTime(3)?`) | Instantes de retomada/terminalidade; evento continua sendo trilha canônica. |
+| `resumedAt`, `confirmedAt`, `canceledAt` (`DateTime(3)?`) | `confirmedAt`/`canceledAt` registram terminalidade. `resumedAt` é mantido no schema para evolução, mas `GET /current` não o atualiza; retomada explícita não está implementada. |
 | `createdAt`, `updatedAt` | Persistência e retomada após reinício. |
 
 `activeForUserId` é um marcador nullable com unique index, não um índice parcial. Usuários comuns consultam/alteram somente suas linhas; Admin ou `service_orders.opening.manage` pode atuar sobre outra abertura. `attemptedNumberValue` aponta para o número reservado pela tentativa, mesmo que depois seja liberado; eventos preservam o resultado. Dados de equipamento novo ficam em `equipmentDraftJson` e só geram cadastro definitivo no commit da confirmação.
@@ -127,7 +127,7 @@ Eventos são append-only na aplicação. FKs de usuários são restritivas porqu
 - `ServiceOrderOperationalSituation`: dez valores documentados em `docs/02-Regras-de-Negocio.md`; inicial `TRIAGEM`. A mudança é livre entre as situações aprovadas por usuário autorizado. Não implementar efeitos de orçamento/encerramento associados a recortes futuros.
 - `ServiceOrderEventType` (códigos propostos, com nomes oficiais aprovados para os eventos de equipamento e titularidade do Recorte 1): `ABERTURA_EM_ANDAMENTO_CRIADA`, `ABERTURA_RETOMADA`, `ABERTURA_RETOMADA_POR_ADMIN`, `ABERTURA_CONFIRMADA`, `ABERTURA_CANCELADA`, `ABERTURA_CANCELADA_POR_ADMIN`, `SITUACAO_OPERACIONAL_ALTERADA`, `ATRIBUICOES_ALTERADAS`, `EQUIPAMENTO_CRIADO_DURANTE_ABERTURA`, `TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA`.
 
-Os códigos de eventos são proposta de implementação, exceto os dois nomes oficiais de equipamento e titularidade acima, e podem ser enum Prisma ou strings controladas pelo domínio; manter compatibilidade com o Log Administrativo sem duplicar eventos do módulo no `admin_audit_log` quando forem eventos operacionais comuns. A criação definitiva do Equipamento e a transferência efetiva ocorrem tecnicamente na confirmação, mas esses eventos pertencem ao fluxo de abertura da OS.
+Os códigos de eventos são proposta de implementação, exceto os dois nomes oficiais de equipamento e titularidade acima, e podem ser enum Prisma ou strings controladas pelo domínio; manter compatibilidade com o Log Administrativo sem duplicar eventos do módulo no `admin_audit_log` quando forem eventos operacionais comuns. `ABERTURA_RETOMADA` e `ABERTURA_RETOMADA_POR_ADMIN` permanecem reservados para eventual retomada explícita futura e não são emitidos pela leitura `GET /current`. A criação definitiva do Equipamento e a transferência efetiva ocorrem tecnicamente na confirmação, mas esses eventos pertencem ao fluxo de abertura da OS.
 
 ## 4. Mecanismo de numeração e concorrência
 
@@ -171,10 +171,12 @@ O primeiro ensaio da migration falhou com MySQL 3823: `active_for_user_id` e `in
 ### Comportamento de API/autorização
 
 - Usuário autenticado inicia no máximo uma abertura própria. Tentativa de iniciar outra retorna `409 OPENING_ALREADY_EXISTS` com os dados públicos da existente.
-- Usuário comum só lê, altera, retoma, confirma ou cancela a própria abertura.
-- Administrador ou `service_orders.opening.manage` pode consultar, retomar/assumir ou cancelar abertura de outro usuário. A ação não altera `initiatedByUserId` nem a unicidade da abertura.
+- Para usuário comum, `GET /api/v1/service-orders/openings/current` é a retomada oficial da abertura própria persistida; a leitura não grava evento nem atualiza `resumedAt`.
+- `POST /api/v1/service-orders/openings/:publicId/resume` não faz parte do contrato aprovado nem está implementado. A listagem administrativa `GET /api/v1/service-orders/openings` permanece futura; nenhuma rota de retomada administrativa foi aprovada nesta etapa.
+- Usuário comum só consulta, altera, confirma ou cancela a própria abertura. Administrador ou `service_orders.opening.manage` pode consultar, alterar, confirmar ou cancelar abertura alheia conforme as rotas implementadas, sem alterar `initiatedByUserId` nem a unicidade da abertura.
 - O ator da sessão é gravado como `actorUserId`. Em ação administrativa, `initiatingUserId` permanece no evento; o ator Admin/gestor não substitui o iniciador original.
-- Retomada por outro usuário gera evento `ABERTURA_RETOMADA_POR_ADMIN`. Retomada pelo iniciador pode gerar `ABERTURA_RETOMADA` para rastrear retomada explícita.
+
+As consultas auxiliares para a futura tela de abertura são `GET /api/v1/people/customers`, `GET /api/v1/equipment/opening-search`, `GET /api/v1/equipment-types` e `GET /api/v1/equipment-brands`. São somente leitura, exigem `service_orders.opening.create` ou Administrador e não geram eventos. A busca de equipamentos inclui proprietários distintos para que o Frontend apresente a divergência; tipos e marcas retornam todos os registros cadastrados porque seus modelos atuais não têm `isActive`. `people.read` e `equipment.read` permanecem reservadas a consultas gerais de Cadastros.
 
 ## 6. Snapshot cadastral
 
@@ -215,8 +217,8 @@ O conjunto exato de valores opcionais é montado dos dados principais disponíve
 | Evento | Quando | Payload mínimo |
 | --- | --- | --- |
 | `ABERTURA_EM_ANDAMENTO_CRIADA` | Reserva confirmada | número, iniciador, instante. |
-| `ABERTURA_RETOMADA` | Iniciador retoma explicitamente | iniciador, ator, número. |
-| `ABERTURA_RETOMADA_POR_ADMIN` | Admin/gestor assume | iniciador, ator, número. |
+| `ABERTURA_RETOMADA` | Reservado para eventual retomada explícita futura; não emitido por `GET /current`. | iniciador, ator, número. |
+| `ABERTURA_RETOMADA_POR_ADMIN` | Reservado para eventual retomada administrativa futura; não há rota aprovada nesta etapa. | iniciador, ator, número. |
 | `ABERTURA_CONFIRMADA` | Criação atômica da OS | opening/order public IDs, número, cliente/equipamento públicos, status/situação, timestamp do snapshot. |
 | `ABERTURA_CANCELADA` | Todo cancelamento | iniciador, ator, número, `numberReleased`; motivo humano não obrigatório. |
 | `ABERTURA_CANCELADA_POR_ADMIN` | Evento adicional quando Admin/gestor cancela a abertura de outra pessoa | iniciador, ator, número e `numberReleased`. O evento canônico `ABERTURA_CANCELADA` também é gravado para todo cancelamento. |
@@ -372,7 +374,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 3. Concluído: revisar SQL e criar migration; as cinco CHECKs condicionais incompatíveis foram removidas, preservando FKs e ações referenciais.
 4. Concluído: validar a cadeia em `gestor_os_migration_test` e no banco restaurado `gestor_os_restore_test`, aplicar a migration de OS no principal mediante autorização e validar sua estrutura.
 5. Implementado serviço de sequência/reserva, com testes isolados; testes concorrentes do mesmo usuário e usuários distintos em MySQL isolado passaram.
-6. Implementados início, consulta da própria abertura ativa, consulta por `publicId`, cancelamento e eventos; retomada explícita continua pendente.
+6. Implementados início, consulta da própria abertura ativa via `GET /current`, consulta por `publicId`, cancelamento e eventos. `GET /current` é a retomada oficial após interrupção; `POST /resume` não foi aprovado nem implementado, e listagem administrativa permanece futura.
 7. Implementado: PATCH temporário de cliente, equipamento existente ou rascunho novo, reclamação e decisão de titularidade, sem efetivar cadastro/transferência. Intenção de transferência exige `equipment.transfer_ownership` ou Admin no PATCH e é revalidada na confirmação. Edição administrativa alheia é registrada no Log Administrativo.
 8. Implementada a confirmação atômica com criação definitiva opcional do equipamento, OS, snapshots JSON, eventual transferência, alocação confirmada e eventos. Testes HTTP/MySQL isolados cobriram esses caminhos e rollback por falha no evento. Listagem/detalhe de OS confirmada também foram implementados.
 9. Implementada a alteração da situação operacional pela rota oficial `PATCH /api/v1/service-orders/:publicId/operational-situation`, com autorização `service_orders.situation.update`, CSRF, lock, atualização e evento na mesma transação; reenvio da situação vigente não duplica evento. A substituição nominal foi implementada em `PUT /api/v1/service-orders/:publicId/assignments`, com evento `ATRIBUICOES_ALTERADAS`. A consulta paginada de eventos foi implementada em `GET /api/v1/service-orders/:publicId/events`; o Frontend exibe esses eventos em modo somente leitura no detalhe da OS, e essa visualização foi validada operacionalmente. Filtros avançados, telas administrativas de auditoria, relatórios e mutações relacionadas ao histórico permanecem fora deste recorte.
