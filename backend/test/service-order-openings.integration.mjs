@@ -179,8 +179,23 @@ try {
   const customerPatch = await request("PATCH", ownedPath, { ...ownerSession, body: { customerPublicId: firstCustomer.publicId, complaint: "Queixa inicial" } });
   expectStatus(customerPatch, 200, "PATCH próprio");
   assert.equal(customerPatch.body.data.customerPublicId, firstCustomer.publicId);
+  assert.deepEqual(customerPatch.body.data.customer, {
+    publicId: firstCustomer.publicId,
+    name: firstCustomer.name,
+    documentHint: null,
+  });
   assert.equal(customerPatch.body.data.complaint, "QUEIXA INICIAL");
   assert.equal(Object.hasOwn(customerPatch.body.data, "customerId"), false);
+  assert.equal(Object.hasOwn(customerPatch.body.data.customer, "id"), false);
+  assert.equal(Object.hasOwn(customerPatch.body.data.customer, "document"), false);
+  const currentWithCustomer = await request("GET", "/service-orders/openings/current", { cookie: ownerSession.cookie });
+  expectStatus(currentWithCustomer, 200, "GET current com cliente");
+  assert.equal(currentWithCustomer.body.data.customer.publicId, firstCustomer.publicId);
+  const byIdWithCustomer = await request("GET", ownedPath, { cookie: ownerSession.cookie });
+  expectStatus(byIdWithCustomer, 200, "GET por publicId com cliente");
+  assert.equal(byIdWithCustomer.body.data.customer.publicId, firstCustomer.publicId);
+  assert.equal(Object.hasOwn(byIdWithCustomer.body.data.customer, "id"), false);
+  assert.equal(Object.hasOwn(byIdWithCustomer.body.data.customer, "document"), false);
   const omitted = await request("PATCH", ownedPath, { ...ownerSession, body: { complaint: "Queixa atualizada" } });
   expectStatus(omitted, 200, "PATCH campo omitido");
   assert.equal(omitted.body.data.customerPublicId, firstCustomer.publicId);

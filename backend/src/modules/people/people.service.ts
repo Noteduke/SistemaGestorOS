@@ -5,6 +5,7 @@ import { normalizePersonInput } from "./domain/normalize-person-input.js";
 import { isStandardBrazilianPhone, normalizeEmailAddress, normalizePhoneNumber } from "./domain/normalize-person-contact.js";
 import type { CreatePersonEmailInput, CreatePersonPhoneInput, PersonContactListQuery } from "./dto/person-contact.dto.js";
 import { toPersonResponse } from "./domain/person-response.mapper.js";
+import { maskPersonDocument } from "./domain/mask-person-document.js";
 import type { ListPeopleQuery } from "./dto/list-people-query.dto.js";
 import type { OpeningLookupQuery } from "../shared/dto/opening-lookup-query.dto.js";
 
@@ -287,7 +288,7 @@ export class PeopleService {
         publicId,
         personType,
         name,
-        documentHint: maskDocument(document),
+        documentHint: maskPersonDocument(document),
       })),
       pagination: {
         page: query.page,
@@ -297,14 +298,6 @@ export class PeopleService {
       },
     };
   }
-}
-
-function maskDocument(document: string | null): string | null {
-  if (!document) return null;
-  const lastTwo = document.slice(-2);
-  if (document.length === 11) return `***.***.***-${lastTwo}`;
-  if (document.length === 14) return `**.***.***/****-${lastTwo}`;
-  return `••••${lastTwo}`;
 }
 
 function isPrismaUniqueViolation(error: unknown): error is { code: "P2002"; meta?: { target?: unknown } } {

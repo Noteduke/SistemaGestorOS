@@ -142,7 +142,7 @@ export class ServiceOrderOpeningsService {
       where: { activeForUserId: actor.id },
       include: {
         initiator: { select: { publicId: true } },
-        customer: { select: { publicId: true } },
+        customer: { select: { publicId: true, name: true, document: true } },
         equipment: { select: { publicId: true } },
         transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
@@ -159,7 +159,7 @@ export class ServiceOrderOpeningsService {
       where: { publicId },
       include: {
         initiator: { select: { publicId: true } },
-        customer: { select: { publicId: true } },
+        customer: { select: { publicId: true, name: true, document: true } },
         equipment: { select: { publicId: true } },
         transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
@@ -317,7 +317,7 @@ export class ServiceOrderOpeningsService {
             complaint: patch.complaint === undefined ? opening.complaint : patch.complaint,
           },
           include: {
-            customer: { select: { publicId: true } },
+            customer: { select: { publicId: true, name: true, document: true } },
             equipment: { select: { publicId: true } },
             transferRequester: { select: { publicId: true } },
           },
@@ -394,7 +394,7 @@ export class ServiceOrderOpeningsService {
           where: { id: opening.id },
           data: { status: "CANCELED", activeForUserId: null, canceledAt },
           include: {
-            customer: { select: { publicId: true } },
+            customer: { select: { publicId: true, name: true, document: true } },
             equipment: { select: { publicId: true } },
             transferRequester: { select: { publicId: true } },
           },

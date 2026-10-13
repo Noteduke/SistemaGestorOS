@@ -1,4 +1,5 @@
 import { formatServiceOrderNumber } from "./service-order-number-format.js";
+import { maskPersonDocument } from "../../people/domain/mask-person-document.js";
 
 interface OpeningForResponse {
   publicId: string;
@@ -6,7 +7,7 @@ interface OpeningForResponse {
   status: "IN_PROGRESS" | "CANCELED" | "CONFIRMED";
   createdAt: Date;
   updatedAt: Date;
-  customer?: { publicId: string } | null;
+  customer?: { publicId: string; name: string; document: string | null } | null;
   equipment?: { publicId: string } | null;
   equipmentDraftJson?: unknown;
   equipmentDraftVersion?: number | null;
@@ -24,6 +25,13 @@ export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPu
     initiatedByUserPublicId,
     createdBy: initiatedByUserPublicId,
     customerPublicId: opening.customer?.publicId ?? null,
+    customer: opening.customer
+      ? {
+          publicId: opening.customer.publicId,
+          name: opening.customer.name,
+          documentHint: maskPersonDocument(opening.customer.document),
+        }
+      : null,
     equipmentPublicId: opening.equipment?.publicId ?? null,
     equipmentDraft: opening.equipmentDraftJson ?? null,
     equipmentDraftVersion: opening.equipmentDraftVersion ?? null,

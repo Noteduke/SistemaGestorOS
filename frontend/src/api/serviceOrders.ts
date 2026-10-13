@@ -73,6 +73,7 @@ export interface ServiceOrderOpening {
   initiatedByUserPublicId: string;
   createdBy: string;
   customerPublicId: string | null;
+  customer?: Pick<OpeningCustomer, "publicId" | "name" | "documentHint"> | null;
   equipmentPublicId: string | null;
   equipmentDraft: unknown;
   equipmentDraftVersion: number | null;

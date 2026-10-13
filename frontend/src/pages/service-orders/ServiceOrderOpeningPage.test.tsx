@@ -61,6 +61,34 @@ describe("ServiceOrderOpeningPage", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/v1/service-orders/openings", expect.anything());
   });
 
+  it("exibe o resumo público do cliente ao retomar uma abertura", async () => {
+    const saved = {
+      ...opening,
+      customerPublicId: "75f1f19d-8b30-45ad-84a5-7ac1bf22e768",
+      customer: {
+        publicId: "75f1f19d-8b30-45ad-84a5-7ac1bf22e768",
+        name: "Cliente Retomado",
+        documentHint: "***.***.***-01",
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: saved })));
+
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+
+    expect(await screen.findByText("Cliente Retomado")).toBeInTheDocument();
+    expect(screen.getByText("Documento: ***.***.***-01")).toBeInTheDocument();
+  });
+
+  it("mantém fallback seguro com backend antigo que só retorna customerPublicId", async () => {
+    const legacyOpening = { ...opening, customerPublicId: "customer-public-id" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: legacyOpening })));
+
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+
+    expect(await screen.findByText(/Há um cliente vinculado a esta abertura/)).toBeInTheDocument();
+    expect(screen.queryByText("customer-public-id")).not.toBeInTheDocument();
+  });
+
   it("recupera a abertura atual se a criação concorrente responder 409", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(apiError(404, "OPENING_NOT_FOUND", "Abertura não encontrada."))
@@ -171,7 +199,11 @@ describe("ServiceOrderOpeningPage", () => {
       name: "NoteDuke Cliente de Teste",
       documentHint: "**.***.***/****-12",
     };
-    const savedOpening = { ...opening, customerPublicId: customer.publicId };
+    const savedOpening = {
+      ...opening,
+      customerPublicId: customer.publicId,
+      customer: { publicId: customer.publicId, name: customer.name, documentHint: customer.documentHint },
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: opening }))
       .mockResolvedValueOnce(response({ data: [customer], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
@@ -209,16 +241,25 @@ describe("ServiceOrderOpeningPage", () => {
   it("permite trocar o cliente salvo enquanto a abertura continua em andamento", async () => {
     const existing = { publicId: "75f1f19d-8b30-45ad-84a5-7ac1bf22e768", personType: "PF", name: "Cliente Atual", documentHint: null };
     const replacement = { publicId: "3e45c65d-8b30-45ad-84a5-7ac1bf22e768", personType: "PJ", name: "Cliente Novo", documentHint: null };
-    const savedOpening = { ...opening, customerPublicId: existing.publicId };
+    const savedOpening = {
+      ...opening,
+      customerPublicId: existing.publicId,
+      customer: { publicId: existing.publicId, name: existing.name, documentHint: "***.***.***-42" },
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: savedOpening }))
       .mockResolvedValueOnce(response({ data: [replacement], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
-      .mockResolvedValueOnce(response({ data: { ...opening, customerPublicId: replacement.publicId } }));
+      .mockResolvedValueOnce(response({ data: {
+        ...opening,
+        customerPublicId: replacement.publicId,
+        customer: { publicId: replacement.publicId, name: replacement.name, documentHint: replacement.documentHint },
+      } }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
-    expect(await screen.findByText(/Há um cliente vinculado/)).toBeInTheDocument();
+    expect(await screen.findByText("Cliente Atual")).toBeInTheDocument();
+    expect(screen.getByText("Documento: ***.***.***-42")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Trocar cliente" }));
     await user.type(screen.getByLabelText("Buscar cliente por nome, documento ou telefone"), "Novo");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));

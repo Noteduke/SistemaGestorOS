@@ -142,6 +142,7 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
     try {
       const result = await updateServiceOrderOpeningCustomer(opening.publicId, selectedCustomer.publicId, csrfToken);
       setOpening(result.data);
+      setSelectedCustomer(null);
       setEditingCustomer(false);
       setCustomerSaveNotice("Cliente salvo na abertura em andamento.");
     } catch (reason) {
@@ -165,6 +166,14 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
       setCanceling(false);
     }
   }
+
+  const linkedCustomer = opening
+    ? selectedCustomer?.publicId === opening.customerPublicId
+      ? selectedCustomer
+      : opening.customer?.publicId === opening.customerPublicId
+        ? opening.customer
+        : null
+    : null;
 
   return (
     <section className="page-section opening-page" aria-labelledby="opening-title">
@@ -210,10 +219,10 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
 
             {opening.customerPublicId && !editingCustomer && (
               <div className="opening-customer__current" aria-label="Cliente vinculado">
-                {selectedCustomer?.publicId === opening.customerPublicId ? (
+                {linkedCustomer ? (
                   <>
-                    <strong>{selectedCustomer.name}</strong>
-                    {selectedCustomer.documentHint && <span>Documento: {selectedCustomer.documentHint}</span>}
+                    <strong>{linkedCustomer.name}</strong>
+                    {linkedCustomer.documentHint && <span>Documento: {linkedCustomer.documentHint}</span>}
                   </>
                 ) : (
                   <span>Há um cliente vinculado a esta abertura. Pesquise para selecionar outro cliente ou continuar com a etapa seguinte.</span>
