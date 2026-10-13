@@ -101,7 +101,6 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
   const [equipmentSearch, setEquipmentSearch] = useState("");
   const [equipments, setEquipments] = useState<OpeningEquipment[]>([]);
   const [selectedEquipment, setSelectedEquipment] = useState<OpeningEquipment | null>(null);
-  const [savedEquipmentSummary, setSavedEquipmentSummary] = useState<OpeningEquipment | null>(null);
   const [searchingEquipments, setSearchingEquipments] = useState(false);
   const [equipmentSearchError, setEquipmentSearchError] = useState<string | null>(null);
   const [equipmentListLoaded, setEquipmentListLoaded] = useState(false);
@@ -126,7 +125,6 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
     setEquipmentSearch("");
     setEquipments([]);
     setSelectedEquipment(null);
-    setSavedEquipmentSummary(null);
     setEquipmentSearchError(null);
     setEquipmentListLoaded(false);
     setEditingEquipment(false);
@@ -238,7 +236,6 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
     try {
       const result = await updateServiceOrderOpeningEquipment(opening.publicId, selectedEquipment.publicId, csrfToken);
       setOpening(result.data);
-      setSavedEquipmentSummary(selectedEquipment);
       setSelectedEquipment(null);
       setEditingEquipment(false);
       setEquipmentSaveNotice("Equipamento salvo na abertura em andamento.");
@@ -413,11 +410,12 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
 
             {opening.equipmentPublicId && !editingEquipment && (
               <div className="opening-customer__current" aria-label="Equipamento vinculado">
-                {savedEquipmentSummary?.publicId === opening.equipmentPublicId ? (
+                {opening.equipment?.publicId === opening.equipmentPublicId ? (
                   <>
-                    <strong>{savedEquipmentSummary.type.name} · {savedEquipmentSummary.brand.name} · {savedEquipmentSummary.model}</strong>
-                    <span>{equipmentSerialLabel(savedEquipmentSummary)}</span>
-                    <span>Proprietário atual: {savedEquipmentSummary.owner.name}</span>
+                    <strong>{opening.equipment.type.name} · {opening.equipment.brand.name} · {opening.equipment.model}</strong>
+                    <span>{equipmentSerialLabel(opening.equipment)}</span>
+                    <span>Proprietário atual: {opening.equipment.owner.name}</span>
+                    {opening.equipment.owner.documentHint && <span>Documento do proprietário: {opening.equipment.owner.documentHint}</span>}
                   </>
                 ) : (
                   <span>Há um equipamento vinculado a esta abertura. O resumo não é retornado pela API de retomada.</span>

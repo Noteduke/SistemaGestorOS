@@ -37,6 +37,11 @@ const equipment = {
   owner: { publicId: "customer-public-id", name: "Cliente Atual" },
 };
 
+const equipmentSummary = {
+  ...equipment,
+  owner: { ...equipment.owner, documentHint: "***.***.***-01" },
+};
+
 function response(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
@@ -349,7 +354,7 @@ describe("ServiceOrderOpeningPage", () => {
   });
 
   it("pesquisa equipamento com paginação e busca, mostra dados seguros e salva o publicId com CSRF", async () => {
-    const savedOpening = { ...linkedOpening, equipmentPublicId: equipment.publicId };
+    const savedOpening = { ...linkedOpening, equipmentPublicId: equipment.publicId, equipment: equipmentSummary };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: linkedOpening }))
       .mockResolvedValueOnce(response({ data: [equipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
@@ -375,6 +380,7 @@ describe("ServiceOrderOpeningPage", () => {
 
     expect(await screen.findByText("Equipamento salvo na abertura em andamento.")).toBeInTheDocument();
     expect(screen.getByText(/NOTEBOOK · DELL · LATITUDE 5440/)).toBeInTheDocument();
+    expect(screen.getByText("Documento do proprietário: ***.***.***-01")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
       method: "PATCH",
       credentials: "include",
@@ -478,6 +484,23 @@ describe("ServiceOrderOpeningPage", () => {
       method: "PATCH",
       body: JSON.stringify({ equipmentPublicId: replacement.publicId }),
     }));
+  });
+
+  it("exibe o resumo público do equipamento ao retomar uma abertura salva", async () => {
+    const currentWithEquipment = {
+      ...linkedOpening,
+      equipmentPublicId: equipmentSummary.publicId,
+      equipment: equipmentSummary,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: currentWithEquipment })));
+
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+
+    expect(await screen.findByText(/NOTEBOOK · DELL · LATITUDE 5440/)).toBeInTheDocument();
+    expect(screen.getByText("Série: SERIAL-001")).toBeInTheDocument();
+    expect(screen.getByText("Proprietário atual: Cliente Atual")).toBeInTheDocument();
+    expect(screen.getByText("Documento do proprietário: ***.***.***-01")).toBeInTheDocument();
+    expect(screen.queryByText(equipmentSummary.publicId)).not.toBeInTheDocument();
   });
 
   it("não chama tipos, marcas ou confirmação durante a busca e seleção", async () => {

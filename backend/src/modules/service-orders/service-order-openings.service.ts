@@ -17,6 +17,14 @@ import { toOpeningResponse } from "./domain/opening-response.js";
 const MAX_SIGNED_BIGINT = 9223372036854775807n;
 const PUBLIC_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "ReadCommitted" as const, maxWait: 10000, timeout: 15000 };
+const OPENING_EQUIPMENT_RESPONSE_SELECT = {
+  publicId: true,
+  model: true,
+  serialNumber: true,
+  type: { select: { publicId: true, name: true } },
+  brand: { select: { publicId: true, name: true } },
+  owner: { select: { publicId: true, name: true, document: true } },
+} as const;
 
 interface NumberControlRow {
   id: number;
@@ -143,7 +151,7 @@ export class ServiceOrderOpeningsService {
       include: {
         initiator: { select: { publicId: true } },
         customer: { select: { publicId: true, name: true, document: true } },
-        equipment: { select: { publicId: true } },
+        equipment: { select: OPENING_EQUIPMENT_RESPONSE_SELECT },
         transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
       },
@@ -160,7 +168,7 @@ export class ServiceOrderOpeningsService {
       include: {
         initiator: { select: { publicId: true } },
         customer: { select: { publicId: true, name: true, document: true } },
-        equipment: { select: { publicId: true } },
+        equipment: { select: OPENING_EQUIPMENT_RESPONSE_SELECT },
         transferRequester: { select: { publicId: true } },
         numberAllocation: { select: { numberValue: true, status: true, openingId: true } },
       },
@@ -318,7 +326,7 @@ export class ServiceOrderOpeningsService {
           },
           include: {
             customer: { select: { publicId: true, name: true, document: true } },
-            equipment: { select: { publicId: true } },
+            equipment: { select: OPENING_EQUIPMENT_RESPONSE_SELECT },
             transferRequester: { select: { publicId: true } },
           },
         });
@@ -395,7 +403,7 @@ export class ServiceOrderOpeningsService {
           data: { status: "CANCELED", activeForUserId: null, canceledAt },
           include: {
             customer: { select: { publicId: true, name: true, document: true } },
-            equipment: { select: { publicId: true } },
+            equipment: { select: OPENING_EQUIPMENT_RESPONSE_SELECT },
             transferRequester: { select: { publicId: true } },
           },
         });

@@ -127,6 +127,32 @@ try {
     assert.equal(Object.hasOwn(result.body.data, "id"), false);
   }
 
+  function assertPublicEquipmentSummary(opening, selectedEquipment, owner) {
+    assert.equal(opening.equipmentPublicId, selectedEquipment.publicId);
+    assert.deepEqual(opening.equipment, {
+      publicId: selectedEquipment.publicId,
+      type: { publicId: type.publicId, name: type.name },
+      brand: { publicId: brand.publicId, name: brand.name },
+      model: selectedEquipment.model,
+      serialNumber: selectedEquipment.serialNumber,
+      serialIdentificationStatus: selectedEquipment.serialNumber === null ? "NOT_IDENTIFIED" : "IDENTIFIED",
+      owner: {
+        publicId: owner.publicId,
+        name: owner.name,
+        documentHint: owner.document ? `***.***.***-${owner.document.slice(-2)}` : null,
+      },
+    });
+    assert.equal(Object.hasOwn(opening.equipment, "id"), false);
+    assert.equal(Object.hasOwn(opening.equipment.type, "id"), false);
+    assert.equal(Object.hasOwn(opening.equipment.brand, "id"), false);
+    assert.equal(Object.hasOwn(opening.equipment.owner, "id"), false);
+    assert.equal(Object.hasOwn(opening.equipment.owner, "document"), false);
+    const serialized = JSON.stringify(opening.equipment);
+    assert.equal(owner.document ? serialized.includes(owner.document) : false, false);
+    assert.equal(serialized.includes("passwordHash"), false);
+    assert.equal(serialized.includes("private@example.test"), false);
+  }
+
   const adminSession = await login(admin);
   expectStatus(await request("GET", "/service-orders/openings/current"), 401, "GET sem login");
   expectStatus(await request("POST", "/service-orders/openings", { csrf: adminSession.csrf }), 401, "POST sem login");
@@ -159,16 +185,19 @@ try {
   const ownerSession = await login(owner);
   const outsiderSession = await login(outsider);
   const managerSession = await login(manager);
+  expectStatus(await request("GET", "/service-orders/openings/current", { cookie: outsiderSession.cookie }), 403, "GET current sem permissão");
   expectStatus(await request("POST", "/service-orders/openings", { ...outsiderSession }), 403, "Criar sem permissão");
   const ownedOpening = await request("POST", "/service-orders/openings", { ...ownerSession });
   expectStatus(ownedOpening, 201, "Criar abertura usuário comum");
   assert.equal(ownedOpening.body.data.numberValue, adminOpening.body.data.numberValue, "Número liberado não foi reutilizado");
   const ownedPath = `/service-orders/openings/${ownedOpening.body.data.publicId}`;
-  const firstCustomer = await prisma.person.create({ data: { personType: "PF", name: `CLIENTE TESTE ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
+  const fakeDocument = `9${(randomBytes(5).readUIntBE(0, 5) % 10_000_000_000).toString().padStart(10, "0")}`;
+  const firstCustomer = await prisma.person.create({ data: { personType: "PF", name: `CLIENTE TESTE ${suffix}`, document: fakeDocument, roles: { create: { role: "CUSTOMER" } } } });
   const secondCustomer = await prisma.person.create({ data: { personType: "PF", name: `OUTRO CLIENTE ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
   const type = await prisma.equipmentType.create({ data: { name: `TIPO TESTE ${suffix}` } });
   const brand = await prisma.equipmentBrand.create({ data: { name: `MARCA TESTE ${suffix}` } });
   const existing = await prisma.equipment.create({ data: { ownerId: firstCustomer.id, typeId: type.id, brandId: brand.id, model: "MODELO TESTE" } });
+  const replacementEquipment = await prisma.equipment.create({ data: { ownerId: firstCustomer.id, typeId: type.id, brandId: brand.id, model: "MODELO TESTE 2", serialNumber: `SERIE-${suffix}` } });
   const draft = {
     typePublicId: type.publicId, brandPublicId: brand.publicId, model: "Não informado",
     serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null,
@@ -182,7 +211,7 @@ try {
   assert.deepEqual(customerPatch.body.data.customer, {
     publicId: firstCustomer.publicId,
     name: firstCustomer.name,
-    documentHint: null,
+    documentHint: `***.***.***-${firstCustomer.document.slice(-2)}`,
   });
   assert.equal(customerPatch.body.data.complaint, "QUEIXA INICIAL");
   assert.equal(Object.hasOwn(customerPatch.body.data, "customerId"), false);
@@ -211,6 +240,21 @@ try {
   expectStatus(existingPatch, 200, "PATCH equipamento existente");
   assert.equal(existingPatch.body.data.equipmentPublicId, existing.publicId);
   assert.equal(existingPatch.body.data.equipmentDraft, null);
+  assertPublicEquipmentSummary(existingPatch.body.data, existing, firstCustomer);
+  const currentWithEquipment = await request("GET", "/service-orders/openings/current", { cookie: ownerSession.cookie });
+  expectStatus(currentWithEquipment, 200, "GET current com equipamento");
+  assertPublicEquipmentSummary(currentWithEquipment.body.data, existing, firstCustomer);
+  const byIdWithEquipment = await request("GET", ownedPath, { cookie: ownerSession.cookie });
+  expectStatus(byIdWithEquipment, 200, "GET por publicId com equipamento");
+  assertPublicEquipmentSummary(byIdWithEquipment.body.data, existing, firstCustomer);
+  expectStatus(await request("GET", ownedPath, { cookie: outsiderSession.cookie }), 404, "GET alheio sem permissão");
+  const invalidEquipment = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: "00000000-0000-4000-8000-000000000000" } });
+  expectStatus(invalidEquipment, 404, "PATCH equipamento inexistente");
+  assert.equal(invalidEquipment.body.code, "EQUIPMENT_NOT_FOUND");
+  assert.equal((await prisma.equipment.findUniqueOrThrow({ where: { id: existing.id } })).ownerId, firstCustomer.id, "Resumo/seleção alterou titularidade");
+  const replacementPatch = await request("PATCH", ownedPath, { ...ownerSession, body: { equipmentPublicId: replacementEquipment.publicId } });
+  expectStatus(replacementPatch, 200, "PATCH trocar equipamento existente");
+  assertPublicEquipmentSummary(replacementPatch.body.data, replacementEquipment, firstCustomer);
   expectStatus(await request("PATCH", ownedPath, { ...adminSession, body: {
     equipmentDraft: { ...draft, serialNumber: "FALSO" },
   } }), 400, "Serial não identificado com texto");

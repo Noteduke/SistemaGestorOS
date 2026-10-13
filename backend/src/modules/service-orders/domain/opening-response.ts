@@ -8,7 +8,14 @@ interface OpeningForResponse {
   createdAt: Date;
   updatedAt: Date;
   customer?: { publicId: string; name: string; document: string | null } | null;
-  equipment?: { publicId: string } | null;
+  equipment?: {
+    publicId: string;
+    type: { publicId: string; name: string };
+    brand: { publicId: string; name: string };
+    model: string;
+    serialNumber: string | null;
+    owner: { publicId: string; name: string; document: string | null };
+  } | null;
   equipmentDraftJson?: unknown;
   equipmentDraftVersion?: number | null;
   transferRequested?: boolean;
@@ -33,6 +40,21 @@ export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPu
         }
       : null,
     equipmentPublicId: opening.equipment?.publicId ?? null,
+    equipment: opening.equipment
+      ? {
+          publicId: opening.equipment.publicId,
+          type: { publicId: opening.equipment.type.publicId, name: opening.equipment.type.name },
+          brand: { publicId: opening.equipment.brand.publicId, name: opening.equipment.brand.name },
+          model: opening.equipment.model,
+          serialNumber: opening.equipment.serialNumber,
+          serialIdentificationStatus: opening.equipment.serialNumber === null ? "NOT_IDENTIFIED" : "IDENTIFIED",
+          owner: {
+            publicId: opening.equipment.owner.publicId,
+            name: opening.equipment.owner.name,
+            documentHint: maskPersonDocument(opening.equipment.owner.document),
+          },
+        }
+      : null,
     equipmentDraft: opening.equipmentDraftJson ?? null,
     equipmentDraftVersion: opening.equipmentDraftVersion ?? null,
     transferRequested: opening.transferRequested ?? false,

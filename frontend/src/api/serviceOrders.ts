@@ -72,7 +72,7 @@ export interface OpeningEquipment {
   model: string;
   serialNumber: string | null;
   serialIdentificationStatus: "IDENTIFIED" | "NOT_IDENTIFIED";
-  owner: { publicId: string; name: string };
+  owner: { publicId: string; name: string; documentHint?: string | null };
 }
 
 export interface ServiceOrderOpening {
@@ -85,6 +85,7 @@ export interface ServiceOrderOpening {
   customerPublicId: string | null;
   customer?: Pick<OpeningCustomer, "publicId" | "name" | "documentHint"> | null;
   equipmentPublicId: string | null;
+  equipment?: OpeningEquipment | null;
   equipmentDraft: unknown;
   equipmentDraftVersion: number | null;
   transferRequested: boolean;
