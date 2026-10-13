@@ -204,8 +204,8 @@ As situações operacionais iniciais aprovadas são:
 6. **AGUARDANDO CHEGADA DE PEÇA** — responsabilidade padrão da Administração; podem ser atribuídos funcionários nominalmente.
 7. **PRONTO AVISAR CLIENTE** — responsabilidade padrão da Administração; podem ser atribuídos funcionários nominalmente.
 8. **PRONTO CLIENTE AVISADO** — responsabilidade padrão da Administração; podem ser atribuídos funcionários nominalmente.
-9. **NÃO AUTORIZADO - REMONTAR EQUIPAMENTO** — pode ser atribuída a um ou mais funcionários. Ao salvar, se houver orçamento na OS, perguntar se deseja removê-lo e colocá-lo no histórico.
-10. **NÃO AUTORIZADO - PRONTO PRA ENTREGA** — pode ser atribuída a um ou mais funcionários. Se ainda houver orçamento na OS ao salvar, perguntar se deseja removê-lo e colocá-lo no histórico.
+9. **NÃO AUTORIZADO - REMONTAR EQUIPAMENTO** — pode ser atribuída a um ou mais funcionários. Ao salvar, se houver orçamento, perguntar se o usuário deseja retirar sua composição da apresentação principal da OS e preservá-la no histórico, ou mantê-la como atual. Nenhuma opção apaga itens ou valores.
+10. **NÃO AUTORIZADO - PRONTO PRA ENTREGA** — pode ser atribuída a um ou mais funcionários. Ao salvar, se houver orçamento, perguntar se o usuário deseja retirar sua composição da apresentação principal da OS e preservá-la no histórico, ou mantê-la como atual. Nenhuma opção apaga itens ou valores.
 
 “Administração” ou “Administrador” como responsabilidade padrão significa fila/grupo administrativo, sem escolher automaticamente uma conta específica. Todos os Administradores e usuários com a permissão equivalente para a ação podem visualizar e atuar conforme a política de autorização. Atribuição nominal a funcionário específico só ocorre por escolha explícita do usuário; a fila administrativa não cria vínculo nominal em `service_order_assignments` nem impede atribuições adicionais. No Recorte 1, a OS nasce em TRIAGEM sem funcionário nominal obrigatório, salvo atribuição informada explicitamente na confirmação ou depois. A lista nominal pode permanecer vazia em qualquer situação. A substituição posterior da lista não altera situação operacional nem status macro. Situações operacionais criadas futuramente também poderão ser atribuídas a qualquer funcionário.
 
@@ -217,7 +217,17 @@ Os três status macro aprovados são:
 
 Os resultados/status-motivos de encerramento aprovados são **Devolvido sem Reparo**, **Devolvido Reparado** e **Equipamento comprado/Doado**. O último encerra a OS externa como FECHADA e aciona o fluxo de transferência e criação automática de OS interna descrito abaixo. A relação dos outros resultados com fechamento/cancelamento ainda será detalhada; nenhum deles substitui a situação operacional nem o status macro.
 
-Cada mudança de situação e de atribuição deve gerar histórico com usuário que alterou, data/hora, OS e situação anterior/nova; registrar também funcionários atribuídos antes/depois quando aplicável. Ao salvar uma das duas situações NÃO AUTORIZADO, a decisão de remover ou manter o orçamento e colocá-lo no histórico deve ser registrada. Essa estrutura e os fluxos permanecem futuros; não implica implementação nesta etapa.
+Cada mudança de situação e de atribuição deve gerar histórico com usuário que alterou, data/hora, OS e situação anterior/nova; registrar também funcionários atribuídos antes/depois quando aplicável. Nas situações NÃO AUTORIZADO, registrar a escolha de retirar ou manter a composição do orçamento na apresentação principal. Se retirada, preservar itens, valores, autor, data/hora e contexto da decisão e eventual motivo informado no histórico, sem exclusão física. Esses fluxos permanecem futuros; esta regra não implica implementação.
+
+### Orçamento simplificado da OS — decisões aprovadas
+
+O orçamento é uma composição de itens vinculados diretamente à OS, sem entidade autônoma, fluxo independente ou status próprio. Seu andamento acompanha a situação operacional da OS, incluindo as situações de avaliação/orçamento, aprovação, reparo autorizado e as duas situações de não autorização.
+
+Os únicos tipos de item de orçamento aprovados são: serviço/mão de obra (uma categoria), peça avulsa e peça do estoque. Não existe tipo “Outro”. Peça avulsa não pertence ao estoque e não pode ser convertida em peça de estoque. Componente de consumo técnico não é um quarto tipo de item de orçamento.
+
+Incluir peça do estoque como orçada não baixa, reserva, movimenta nem reduz sua disponibilidade. O orçamento não cria registros financeiros nesta fase. A peça do estoque só fica indisponível quando for marcada UTILIZADA no equipamento; a baixa definitiva segue o fluxo posterior de encerramento/conclusão.
+
+Nas situações NÃO AUTORIZADO, retirar o orçamento da apresentação principal da OS significa preservar seus itens e valores no histórico, com usuário, data/hora e contexto da decisão e eventual motivo informado; nada é apagado fisicamente. Campos, valores, custos internos e suas permissões, aprovação/recusa e canais continuam sujeitos às pendências do desenho técnico em docs/planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md. Não há schema, API ou implementação de orçamento aprovada nesta etapa.
 
 ### Alteração de situação, status macro e reabertura
 
@@ -279,13 +289,13 @@ Peça avulsa é lançada manualmente na OS para descrição, orçamento e cobran
 
 A peça avulsa permanece avulsa e não pode ser convertida em peça de estoque. Se a empresa comprar uma peça para controlá-la no estoque, deverá cadastrá-la separadamente e lançá-la na OS como peça de estoque.
 
-A peça avulsa pode ter custo interno separado do valor cobrado ao cliente. O custo interno representa o valor pago ou estimado pela empresa; o valor cobrado integra o orçamento/cobrança da OS. Usuários autorizados na OS podem visualizar, informar e alterar o custo interno e alterar o valor cobrado, inclusive depois da aprovação do orçamento pelo cliente. A aprovação não trava esses valores. Cada alteração deve gerar histórico com, no mínimo, usuário, data/hora, OS, item/peça avulsa, campo alterado e valores anterior e novo. A diferença entre custo e valor cobrado poderá apoiar futuramente o cálculo de margem/lucro. `finance.os_costs.manage` poderá ser avaliada futuramente para relatórios gerenciais, fechamento financeiro ou controle mais restrito, mas não é requisito para visualizar ou alterar os valores do item avulso na OS.
+A peça avulsa poderá ter custo interno separado do valor cobrado, se esse campo for aprovado para o tipo. A decisão sobre custo interno por tipo e quem pode visualizá-lo, informá-lo ou alterá-lo continua pendente; não presumir que a autorização geral na OS conceda esses direitos. Se aprovado, qualquer alteração de custo interno deverá ser historizada. O valor cobrado dos três tipos segue a regra de alteração após aprovação documentada abaixo.
 
 ### Alteração de valores após aprovação do orçamento
 
-A aprovação do orçamento não congela automaticamente os valores cobrados dos itens da OS. Usuário autorizado na OS, conforme permissões do módulo, pode corrigir ou alterar o valor cobrado de peça de estoque, peça avulsa, serviço/mão de obra ou qualquer outro item cobrado, mesmo após a aprovação do cliente. A alteração não exige nova aprovação do cliente, não é bloqueada pela aprovação anterior e não exige motivo obrigatório.
+A aprovação do orçamento não congela automaticamente os valores cobrados dos três tipos aprovados — peça de estoque, peça avulsa e serviço/mão de obra. Usuário autorizado na OS pode corrigir ou alterar esses valores após a aprovação, sem exigir nova aprovação do cliente, sem bloqueio pela aprovação anterior e sem motivo obrigatório. Não há um quarto tipo cobrado Outro.
 
-Toda alteração de valor cobrado deve gerar histórico com, no mínimo, usuário, data/hora, OS, item alterado, tipo do item (peça de estoque, peça avulsa, serviço/mão de obra ou outro), campo alterado, valor anterior e valor novo. O controle dessa mudança é feito pela rastreabilidade, sem aprovação adicional obrigatória.
+Toda alteração de valor cobrado deve gerar histórico com, no mínimo, usuário, data/hora, OS, item, tipo do item (peça de estoque, peça avulsa ou serviço/mão de obra), campo alterado, valor anterior e valor novo. Componentes de consumo técnico não constituem tipo de item cobrado do orçamento.
 
 Os demais fluxos e estados da OS serão detalhados posteriormente neste documento.
 

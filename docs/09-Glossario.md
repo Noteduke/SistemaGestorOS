@@ -184,6 +184,12 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 ## Produto
 Item controlado em estoque e comercializado.
 
+## Orçamento da OS
+Composição de itens vinculados diretamente à Ordem de Serviço. Não constitui entidade, fluxo ou status próprio; seu andamento acompanha a situação operacional da OS. Nesta fase futura não cria financeiro nem movimenta estoque por inclusão de item orçado.
+
+## Tipo de item de orçamento
+Uma das três categorias aprovadas: serviço/mão de obra, peça avulsa ou peça do estoque. Outro não é categoria de orçamento; componente de consumo técnico fica fora dos itens cobrados.
+
 ## Peça de estoque
 Peça vinculada ao cadastro de estoque e sujeita ao ciclo DISPONÍVEL, ORÇADA, UTILIZADA e BAIXADA na OS. O lançamento ORÇADO pode representar peça física ou previsão de compra vinculada ao estoque; não inclui peça avulsa.
 
@@ -194,10 +200,10 @@ Item lançado manualmente na OS para descrição, orçamento e cobrança, sem v�
 Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça física ou previsão de compra vinculada ao estoque. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico. Peça avulsa não usa este status.
 
 ## Custo interno da peça avulsa
-Valor pago ou estimado pela empresa para a peça avulsa, distinto do valor cobrado ao cliente. Usuários autorizados na OS podem visualizar e alterar esse valor, inclusive após aprovação do orçamento; cada alteração gera histórico. `finance.os_costs.manage` pode ser avaliada futuramente para relatórios gerenciais, fechamento financeiro ou controle mais restrito, mas não é requisito para editar o item na OS. A diferença entre custo e valor cobrado poderá apoiar cálculo futuro de margem/lucro.
+Valor pago ou estimado pela empresa para uma peça avulsa, separado do valor cobrado. A possibilidade de manter custo interno por tipo de item e as permissões para visualizá-lo ou alterá-lo ainda não foram decididas. Se aprovado, cada alteração deverá ser historizada.
 
 ## Alteração de valor após aprovação
-Alteração do valor cobrado de qualquer item da OS depois da aprovação do orçamento. Usuário autorizado na OS pode realizar a mudança sem nova aprovação do cliente, sem bloqueio automático e sem motivo obrigatório. O histórico registra usuário, data/hora, OS, item, tipo do item, campo alterado e valores anterior/novo.
+Alteração do valor cobrado de um dos três tipos aprovados de item da OS após a aprovação do orçamento. Usuário autorizado pode fazer a mudança sem exigir nova aprovação do cliente, sem bloqueio pela aprovação anterior e sem motivo obrigatório. O histórico registra usuário, data/hora, OS, item, tipo, campo e valores anterior/novo. Outro não é tipo de item de orçamento.
 
 ## Peça UTILIZADA
 Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
