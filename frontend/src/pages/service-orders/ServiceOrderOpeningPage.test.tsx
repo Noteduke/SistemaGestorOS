@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ServiceOrderOpeningPage } from "./ServiceOrderOpeningPage";
@@ -42,6 +42,12 @@ const equipmentSummary = {
   owner: { ...equipment.owner, documentHint: "***.***.***-01" },
 };
 
+const confirmableOpening = {
+  ...linkedOpening,
+  equipmentPublicId: equipment.publicId,
+  equipment: equipmentSummary,
+};
+
 function response(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
@@ -51,13 +57,122 @@ function apiError(status: number, code: string, message: string) {
 }
 
 describe("ServiceOrderOpeningPage", () => {
+  it("não habilita confirmação sem cliente ou equipamento salvo", async () => {
+    for (const value of [opening, linkedOpening]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: value })));
+      const view = render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+      expect(await screen.findByText("OS-000132")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirmar OS" })).toBeDisabled();
+      view.unmount();
+    }
+  });
+
+  it("bloqueia confirmação quando a transferência está pendente ou o equipamento não pertence ao cliente", async () => {
+    const transferred = { ...confirmableOpening, transferRequested: true };
+    const wrongOwner = { ...confirmableOpening, equipment: { ...equipmentSummary, owner: { publicId: "other-customer", name: "Outro cliente" } } };
+    for (const value of [transferred, wrongOwner]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: value })));
+      const view = render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+      expect(await screen.findByRole("button", { name: "Confirmar OS" })).toBeDisabled();
+      view.unmount();
+    }
+  });
+
+  it("esconde a ação de confirmação para identidade sem permissão", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: confirmableOpening })));
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByText("OS-000132");
+    expect(screen.queryByRole("button", { name: "Confirmar OS" })).not.toBeInTheDocument();
+  });
+
+  it("mostra o diálogo, permite voltar sem POST e confirma com CSRF e corpo vazio", async () => {
+    const orderPublicId = "9f491492-4287-4e0f-9201-f642174e94cd";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: confirmableOpening }))
+      .mockResolvedValueOnce(response({ data: { publicId: orderPublicId, visibleNumber: "OS-000133", macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const onConfirmed = vi.fn();
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={onConfirmed} onBack={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirmar criação da OS?" });
+    expect(dialog).toHaveTextContent("ABERTA / TRIAGEM");
+    expect(dialog).toHaveTextContent("OS-000132");
+    expect(dialog).toHaveTextContent("snapshots do cliente e do equipamento");
+    expect(dialog).toHaveTextContent("não cria orçamento, peças ou registros financeiros");
+    await user.click(screen.getByRole("button", { name: "Voltar" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session", "Content-Type": "application/json" }),
+      body: "{}",
+    }));
+    expect(onConfirmed).toHaveBeenCalledWith(orderPublicId);
+    expect(fetchMock.mock.calls.every(([url]) => !/budget|parts|stock|finance|equipment-types|equipment-brands|resume/i.test(String(url)))).toBe(true);
+  });
+
+  it("impede duplo envio enquanto aguarda a resposta", async () => {
+    let resolvePost: ((value: ReturnType<typeof response>) => void) | undefined;
+    const post = new Promise<ReturnType<typeof response>>((resolve) => { resolvePost = resolve; });
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: confirmableOpening })).mockReturnValueOnce(post);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const onConfirmed = vi.fn();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={onConfirmed} onBack={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    expect(await screen.findByRole("button", { name: "Confirmando…" })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    resolvePost?.(response({ data: { publicId: "9f491492-4287-4e0f-9201-f642174e94cd", visibleNumber: "OS-000133", macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }, 201));
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledWith("9f491492-4287-4e0f-9201-f642174e94cd"));
+  });
+
+  it.each([
+    [400, "VALIDATION_ERROR", "A confirmação da OS não foi aceita. Revise os dados da abertura."],
+    [401, "UNAUTHENTICATED", "Sua sessão expirou. Faça login novamente."],
+    [403, "PERMISSION_DENIED", "Você não tem permissão para confirmar esta OS ou sua sessão precisa ser renovada."],
+    [404, "OPENING_NOT_FOUND", "A abertura não está mais disponível. Volte para a lista e tente novamente."],
+    [409, "CUSTOMER_REQUIRED", "Selecione e salve o cliente antes de confirmar a OS."],
+    [409, "EQUIPMENT_REQUIRED", "Selecione e salve o equipamento antes de confirmar a OS."],
+    [409, "OPENING_NOT_IN_PROGRESS", "Esta abertura não está mais em andamento. Recarregue a tela."],
+    [409, "OPENING_CONCURRENCY_CONFLICT", "O estado da abertura mudou. Recarregue antes de tentar novamente."],
+    [409, "UNKNOWN_CONFLICT", "Não foi possível confirmar a OS devido ao estado atual da abertura."],
+    [422, "UNPROCESSABLE_ENTITY", "A solicitação de confirmação foi rejeitada. Revise os dados da abertura."],
+  ])("apresenta mensagem segura para %s %s", async (status, code, message) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: confirmableOpening }))
+      .mockResolvedValueOnce(apiError(status, code, "Mensagem de servidor"));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  });
+
+  it("informa indisponibilidade quando a rede falha", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: confirmableOpening })).mockRejectedValueOnce(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível comunicar com o servidor para confirmar a OS.");
+  });
+
   it("consulta a abertura atual e cria uma quando não existe, com CSRF", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(apiError(404, "OPENING_NOT_FOUND", "Abertura não encontrada."))
       .mockResolvedValueOnce(response({ data: opening }, 201));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText("OS-000132")).toBeInTheDocument();
     expect(screen.getByText("Em andamento")).toBeInTheDocument();
@@ -75,7 +190,7 @@ describe("ServiceOrderOpeningPage", () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: opening }));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText("OS-000132")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -94,7 +209,7 @@ describe("ServiceOrderOpeningPage", () => {
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: saved })));
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText("Cliente Retomado")).toBeInTheDocument();
     expect(screen.getByText("Documento: ***.***.***-01")).toBeInTheDocument();
@@ -104,7 +219,7 @@ describe("ServiceOrderOpeningPage", () => {
     const legacyOpening = { ...opening, customerPublicId: "customer-public-id" };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: legacyOpening })));
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText(/Há um cliente vinculado a esta abertura/)).toBeInTheDocument();
     expect(screen.queryByText("customer-public-id")).not.toBeInTheDocument();
@@ -117,7 +232,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(response({ data: opening }));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText("OS-000132")).toBeInTheDocument();
     expect(await screen.findByText("Já existe uma abertura de OS em andamento. Ela foi carregada para continuação.")).toBeInTheDocument();
@@ -137,7 +252,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const onBack = vi.fn();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={onBack} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={onBack} />);
     await screen.findByText("OS-000132");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar abertura" }));
 
@@ -161,7 +276,7 @@ describe("ServiceOrderOpeningPage", () => {
 
   it("trata 401 sem tentar criar abertura", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(apiError(401, "UNAUTHORIZED", "Unauthorized")));
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Sua sessão expirou");
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -172,7 +287,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(apiError(404, "OPENING_NOT_FOUND", "Abertura não encontrada."))
       .mockResolvedValueOnce(apiError(403, "PERMISSION_DENIED", "Forbidden"));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão para iniciar ou cancelar abertura de OS.");
   });
@@ -182,7 +297,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(response({ data: opening }))
       .mockResolvedValueOnce(apiError(404, "OPENING_NOT_FOUND", "Abertura não encontrada."));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("OS-000132");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar abertura" }));
 
@@ -195,7 +310,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(apiError(404, "OPENING_NOT_FOUND", "Abertura não encontrada."))
       .mockResolvedValueOnce(apiError(status, "VALIDATION_ERROR", "Invalid request"));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("A solicitação não foi aceita");
   });
@@ -205,7 +320,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(response({ data: opening }))
       .mockResolvedValueOnce(apiError(409, "OPENING_NOT_IN_PROGRESS", "A abertura não está em andamento."));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("OS-000132");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar abertura" }));
 
@@ -232,7 +347,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Cliente")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Buscar cliente por nome, documento ou telefone"), "NoteDuke");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
@@ -278,7 +393,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Cliente Atual")).toBeInTheDocument();
     expect(screen.getByText("Documento: ***.***.***-42")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Trocar cliente" }));
@@ -301,7 +416,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão para pesquisar clientes");
@@ -316,7 +431,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
     await user.click(await screen.findByRole("button", { name: /Cliente Inválido/ }));
@@ -332,7 +447,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
     await user.click(await screen.findByRole("button", { name: /Cliente Selecionado/ }));
@@ -346,7 +461,7 @@ describe("ServiceOrderOpeningPage", () => {
 
   it("orienta selecionar e salvar cliente antes de pesquisar equipamento", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: opening })));
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("heading", { name: "Equipamento" })).toBeInTheDocument();
     expect(screen.getByText("Selecione e salve um cliente antes de escolher o equipamento.")).toBeInTheDocument();
@@ -362,7 +477,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.type(screen.getByLabelText("Buscar equipamento por modelo, série, tipo, marca ou proprietário"), "latitude");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
@@ -400,7 +515,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
@@ -419,7 +534,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
@@ -437,7 +552,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
 
@@ -452,7 +567,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
@@ -471,7 +586,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Há um equipamento vinculado a esta abertura. O resumo não é retornado pela API de retomada.")).toBeInTheDocument();
     expect(screen.queryByText("saved-equipment-public-id")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Trocar equipamento" }));
@@ -494,7 +609,7 @@ describe("ServiceOrderOpeningPage", () => {
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: currentWithEquipment })));
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByText(/NOTEBOOK · DELL · LATITUDE 5440/)).toBeInTheDocument();
     expect(screen.getByText("Série: SERIAL-001")).toBeInTheDocument();
@@ -510,7 +625,7 @@ describe("ServiceOrderOpeningPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<ServiceOrderOpeningPage csrfToken="csrf-session" onBack={vi.fn()} />);
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await screen.findByText("Cliente Atual");
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));

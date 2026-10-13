@@ -44,6 +44,13 @@ export interface ServiceOrderDetail extends ServiceOrderSummary {
   equipmentSnapshotJson: unknown;
 }
 
+export interface ServiceOrderOpeningConfirmation {
+  publicId: string;
+  visibleNumber: string;
+  macroStatus: "ABERTA";
+  operationalSituation: "TRIAGEM";
+}
+
 export interface ServiceOrderEvent {
   eventType: string;
   occurredAt: string;
@@ -327,6 +334,35 @@ export function createServiceOrderOpening(csrfToken: string) {
 
 export function cancelServiceOrderOpening(publicId: string, csrfToken: string) {
   return mutateOpening(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}/cancel`, csrfToken);
+}
+
+export async function confirmServiceOrderOpening(
+  publicId: string,
+  csrfToken: string,
+): Promise<{ data: ServiceOrderOpeningConfirmation }> {
+  const response = await fetch(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}/confirm`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: "{}",
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível confirmar a Ordem de Serviço.",
+    );
+  }
+
+  return body as { data: ServiceOrderOpeningConfirmation };
 }
 
 export function getServiceOrder(publicId: string, signal?: AbortSignal) {

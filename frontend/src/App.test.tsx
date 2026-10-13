@@ -108,6 +108,71 @@ it("inicia a abertura a partir da lista e reserva o número com CSRF", async () 
   }));
 });
 
+it("confirma a abertura e navega ao detalhe, que busca a OS novamente por publicId", async () => {
+  window.location.hash = "#/service-orders/opening";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "usuario.teste",
+    isAdmin: true,
+    permissions: [],
+    csrfToken: "csrf-session",
+    session: { expiresAt: "2026-10-13T20:00:00.000Z" },
+  };
+  const openingPublicId = "75811f19-8b30-45ad-84a5-7ac1bf22e768";
+  const confirmedOrder = { ...order, publicId: "9f491492-4287-4e0f-9201-f642174e94cd", visibleNumber: "OS-000133" };
+  const opening = {
+    publicId: openingPublicId,
+    visibleNumber: "OS-000132",
+    numberValue: "132",
+    status: "IN_PROGRESS",
+    initiatedByUserPublicId: identity.publicId,
+    createdBy: identity.publicId,
+    customerPublicId: order.customer.publicId,
+    customer: { ...order.customer, documentHint: null },
+    equipmentPublicId: order.equipment.publicId,
+    equipment: {
+      publicId: order.equipment.publicId,
+      type: { publicId: "type-public-id", name: "Notebook" },
+      brand: { publicId: "brand-public-id", name: "Lenovo" },
+      model: "ThinkPad",
+      serialNumber: "SN-45",
+      serialIdentificationStatus: "IDENTIFIED",
+      owner: { publicId: order.customer.publicId, name: order.customer.name },
+    },
+    equipmentDraft: null,
+    equipmentDraftVersion: null,
+    transferRequested: false,
+    transferRequestedByUserPublicId: null,
+    complaint: null,
+    createdAt: "2026-10-13T12:00:00.000Z",
+    updatedAt: "2026-10-13T12:00:00.000Z",
+  };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: opening }))
+    .mockResolvedValueOnce(response({ data: { publicId: confirmedOrder.publicId, visibleNumber: confirmedOrder.visibleNumber, macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }))
+    .mockResolvedValueOnce(response({ data: confirmedOrder }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Confirmar OS" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+  expect(await screen.findByRole("heading", { name: "OS-000133" })).toBeInTheDocument();
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    "/api/v1/auth/me",
+    "/api/v1/service-orders/openings/current",
+    `/api/v1/service-orders/openings/${openingPublicId}/confirm`,
+    `/api/v1/service-orders/${confirmedOrder.publicId}`,
+  ]);
+  expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
+    method: "POST",
+    credentials: "include",
+    headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }),
+    body: "{}",
+  }));
+  expect(fetchMock.mock.calls[3][1]).toEqual(expect.objectContaining({ method: "GET" }));
+});
+
 it("autentica com CSRF, consulta a sessão e libera a leitura de OS", async () => {
   window.location.hash = "#/service-orders";
   const identity = {

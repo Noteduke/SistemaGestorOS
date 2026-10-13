@@ -72,6 +72,12 @@ tbody tr:hover { background: #fbfcfd; }
 .opening-number { margin-top: 5px !important; color: var(--blue-dark); font-size: clamp(30px, 5vw, 42px); font-weight: 800; letter-spacing: -.04em; }
 .opening-warning { margin: 0; padding: 14px 16px; border-left: 3px solid #d79a35; border-radius: 5px; background: #fff8e9; color: #634c24; line-height: 1.55; }
 .opening-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.opening-confirmation-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(18 35 48 / 52%); }
+.opening-confirmation-dialog { display: grid; gap: 16px; width: min(100%, 520px); padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgb(10 28 42 / 24%); }
+.opening-confirmation-dialog h2 { margin: 0; font-size: 20px; }
+.opening-confirmation-copy { display: grid; gap: 10px; color: #40586b; font-size: 13px; line-height: 1.55; }
+.opening-confirmation-copy p { margin: 0; }
+.opening-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .opening-customer { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid #edf0f3; }
 .opening-customer .section-heading { margin: 0; }
 .opening-customer__current, .opening-customer__selected { display: grid; gap: 8px; color: #40586b; font-size: 13px; }

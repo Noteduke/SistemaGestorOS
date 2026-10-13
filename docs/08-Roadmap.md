@@ -156,3 +156,7 @@ Integrações previstas:
 Cada fase concluída deverá ser registrada no Git através de commits e atualizações da documentação.
 
 O roadmap é um documento vivo e deverá refletir a situação real do projeto.
+
+## Atualização — confirmação de abertura pela interface
+
+A tela de abertura agora confirma uma abertura com cliente e equipamento existente do mesmo titular por `POST /api/v1/service-orders/openings/:publicId/confirm`, com corpo `{}` e CSRF. Exibe confirmação visual, exige as permissões da operação para apresentar a ação, bloqueia envio repetido e navega ao detalhe usando o `publicId` retornado. O Backend cria a OS como ABERTA/TRIAGEM, torna definitivo o número e captura os snapshots. A alteração passou nos testes automatizados do Frontend e no build; não foi validada operacionalmente nesta etapa. Criação de equipamento novo, transferência de titularidade, edição da abertura, orçamento, peças, estoque e financeiro continuam fora desta fatia.

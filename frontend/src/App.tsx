@@ -148,7 +148,12 @@ export function App() {
         ) : route.view === "opening" ? (
           <ServiceOrderOpeningPage
             csrfToken={session.identity.csrfToken}
+            canConfirmServiceOrderOpening={session.identity.isAdmin || (
+              session.identity.permissions.includes("service_orders.opening.create")
+              && session.identity.permissions.includes("service_orders.create")
+            )}
             onBack={() => navigate("/service-orders")}
+            onConfirmed={(publicId) => openOrder(publicId)}
           />
         ) : (
           <ServiceOrderDetailPage

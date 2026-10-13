@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import {
   ApiError,
   cancelServiceOrderOpening,
+  confirmServiceOrderOpening,
   createServiceOrderOpening,
   getCurrentServiceOrderOpening,
   listOpeningCustomers,
@@ -16,17 +17,37 @@ import {
 
 interface ServiceOrderOpeningPageProps {
   csrfToken: string;
+  canConfirmServiceOrderOpening: boolean;
   onBack: () => void;
+  onConfirmed: (publicId: string) => void;
 }
 
-function openingErrorMessage(error: unknown, action: "load" | "cancel"): string {
+function openingErrorMessage(error: unknown, action: "load" | "cancel" | "confirm"): string {
   if (error instanceof ApiError) {
+    if (action === "confirm") {
+      if (error.status === 400 && error.code === "VALIDATION_ERROR") return "A confirmação da OS não foi aceita. Revise os dados da abertura.";
+      if (error.status === 401) return "Sua sessão expirou. Faça login novamente.";
+      if (error.status === 403) return "Você não tem permissão para confirmar esta OS ou sua sessão precisa ser renovada.";
+      if (error.status === 404 && error.code === "OPENING_NOT_FOUND") return "A abertura não está mais disponível. Volte para a lista e tente novamente.";
+      if (error.status === 409 && error.code === "CUSTOMER_REQUIRED") return "Selecione e salve o cliente antes de confirmar a OS.";
+      if (error.status === 409 && error.code === "EQUIPMENT_REQUIRED") return "Selecione e salve o equipamento antes de confirmar a OS.";
+      if (error.status === 409 && error.code === "OPENING_NOT_IN_PROGRESS") return "Esta abertura não está mais em andamento. Recarregue a tela.";
+      if (error.status === 409 && error.code === "OPENING_CONCURRENCY_CONFLICT") return "O estado da abertura mudou. Recarregue antes de tentar novamente.";
+      if (error.status === 409 && error.code === "CUSTOMER_NOT_ELIGIBLE") return "O cliente não está mais disponível para esta OS. Atualize a abertura.";
+      if (error.status === 409 && error.code === "EQUIPMENT_INACTIVE") return "O equipamento não está mais ativo. Atualize a abertura.";
+      if (error.status === 409 && error.code === "OWNERSHIP_DECISION_REQUIRED") return "A titularidade do equipamento precisa ser revisada antes da confirmação.";
+      if (error.status === 409 && error.code === "OPENING_STATE_INCONSISTENT") return "A abertura está em um estado inconsistente. Recarregue a tela ou contate o suporte.";
+      if (error.status === 409) return "Não foi possível confirmar a OS devido ao estado atual da abertura.";
+      if (error.status === 422) return "A solicitação de confirmação foi rejeitada. Revise os dados da abertura.";
+      return "Não foi possível comunicar com o servidor para confirmar a OS.";
+    }
     if (error.status === 401) return "Sua sessão expirou ou não está autenticada. Entre novamente para continuar.";
     if (error.status === 403) return "Você não tem permissão para iniciar ou cancelar abertura de OS.";
     if (error.status === 404) return action === "cancel" ? "A abertura de OS não foi encontrada." : "Não foi possível localizar a abertura em andamento.";
     if (error.status === 409) return "A abertura mudou de estado. Atualize a tela e tente novamente.";
     if (error.status === 400 || error.status === 422) return "A solicitação não foi aceita. Atualize a tela e tente novamente.";
   }
+  if (action === "confirm") return "Não foi possível comunicar com o servidor para confirmar a OS.";
   return "Não foi possível conectar ao serviço. Tente novamente.";
 }
 
@@ -81,10 +102,13 @@ function equipmentSerialLabel(equipment: OpeningEquipment): string {
     : `Série: ${equipment.serialNumber}`;
 }
 
-export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeningPageProps) {
+export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
   const [opening, setOpening] = useState<ServiceOrderOpening | null>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [canceled, setCanceled] = useState<ServiceOrderOpening | null>(null);
@@ -109,12 +133,15 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
   const [equipmentSaveError, setEquipmentSaveError] = useState<string | null>(null);
   const [equipmentSaveNotice, setEquipmentSaveNotice] = useState<string | null>(null);
   const started = useRef(false);
+  const confirmingRef = useRef(false);
 
   async function loadOrCreateOpening() {
     setLoading(true);
     setError(null);
     setNotice(null);
     setCanceled(null);
+    setConfirmationError(null);
+    setShowConfirmation(false);
     setOpening(null);
     setSelectedCustomer(null);
     setCustomerSaveError(null);
@@ -247,7 +274,7 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
   }
 
   async function cancelOpening() {
-    if (!opening || canceling) return;
+    if (!opening || canceling || confirming) return;
     setCanceling(true);
     setError(null);
     try {
@@ -258,6 +285,24 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
       setError(openingErrorMessage(reason, "cancel"));
     } finally {
       setCanceling(false);
+    }
+  }
+
+  async function confirmOpening() {
+    if (!opening || !canConfirmServiceOrderOpening || !canConfirm || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setConfirming(true);
+    setConfirmationError(null);
+    try {
+      const result = await confirmServiceOrderOpening(opening.publicId, csrfToken);
+      setShowConfirmation(false);
+      onConfirmed(result.data.publicId);
+    } catch (reason) {
+      setConfirmationError(openingErrorMessage(reason, "confirm"));
+      setShowConfirmation(false);
+    } finally {
+      confirmingRef.current = false;
+      setConfirming(false);
     }
   }
 
@@ -273,6 +318,20 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
   );
   const waitingForCustomerChange = Boolean(
     opening?.customerPublicId && editingCustomer && selectedCustomer && selectedCustomer.publicId !== opening.customerPublicId,
+  );
+  const canConfirm = Boolean(
+    opening?.status === "IN_PROGRESS"
+    && opening.customerPublicId
+    && opening.equipmentPublicId
+    && opening.equipment?.publicId === opening.equipmentPublicId
+    && opening.equipment.owner.publicId === opening.customerPublicId
+    && !opening.transferRequested
+    && !editingCustomer
+    && !editingEquipment
+    && !savingCustomer
+    && !savingEquipment
+    && !canceling
+    && !confirming,
   );
 
   return (
@@ -294,6 +353,7 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
         </div>
       )}
       {notice && <p className="inline-success" role="status">{notice}</p>}
+      {confirmationError && <p className="form-message form-message--error" role="alert">{confirmationError}</p>}
 
       {opening && !loading && (
         <article className="opening-card" aria-label="Abertura de OS em andamento">
@@ -489,7 +549,12 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
           </section>
 
           <div className="opening-actions">
-            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling}>
+            {canConfirmServiceOrderOpening && (
+              <button className="button button--primary" type="button" onClick={() => { setConfirmationError(null); setShowConfirmation(true); }} disabled={!canConfirm}>
+                Confirmar OS
+              </button>
+            )}
+            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling || confirming}>
               {canceling ? "Cancelando…" : "Cancelar abertura"}
             </button>
             <button className="text-button" type="button" onClick={onBack}>Voltar para lista</button>
@@ -507,6 +572,26 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
           </p>
           <button className="button" type="button" onClick={onBack}>Voltar para lista de OS</button>
         </article>
+      )}
+
+      {showConfirmation && opening && (
+        <div className="opening-confirmation-backdrop">
+          <section className="opening-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="opening-confirmation-title" aria-describedby="opening-confirmation-description" onKeyDown={(event) => { if (event.key === "Escape" && !confirming) setShowConfirmation(false); }}>
+            <h2 id="opening-confirmation-title">Confirmar criação da OS?</h2>
+            <div id="opening-confirmation-description" className="opening-confirmation-copy">
+              <p>A Ordem de Serviço será criada oficialmente como <strong>ABERTA / TRIAGEM</strong>.</p>
+              <p>O número reservado <strong>{opening.visibleNumber}</strong> se tornará definitivo e o Backend registrará os snapshots do cliente e do equipamento.</p>
+              <p>Esta confirmação não cria orçamento, peças ou registros financeiros.</p>
+            </div>
+            {confirmationError && <p className="form-message form-message--error" role="alert">{confirmationError}</p>}
+            <div className="opening-confirmation-actions">
+              <button className="button button--secondary" type="button" onClick={() => setShowConfirmation(false)} disabled={confirming} autoFocus>Voltar</button>
+              <button className="button button--primary" type="button" onClick={() => void confirmOpening()} disabled={confirming || !canConfirm}>
+                {confirming ? "Confirmando…" : "Confirmar e criar OS"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
