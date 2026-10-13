@@ -302,11 +302,11 @@ Registro único para eventos administrativos e de segurança. No primeiro recort
 
 ## Serviço cadastrado e mão de obra avulsa
 
-Origens distintas de Serviço/Mão de obra, sem novo tipo de item. Cadastro tem nome imutável, preço padrão alterável e ativo/inativo; lançamento cadastrado conserva nome e valor próprio da OS. Avulso tem descrição livre, mas não pode corresponder a serviço cadastrado, mesmo desabilitado.
+Origens distintas de Serviço/Mão de obra, sem novo tipo de item. O Cadastro de Serviços possui nome imutável e único após normalização, inclusive entre desabilitados; reabilitar o registro existente para reutilizar nome. Preço padrão obrigatório e não negativo admite zero, muda só lançamentos futuros. Serviço nunca associado pode ser excluído com auditoria e liberação do nome; serviço já associado só pode ser desabilitado. Lançamento cadastrado conserva nome e valor próprio da OS. Mão de obra avulsa tem descrição livre, mas não pode corresponder a serviço cadastrado, mesmo desabilitado.
 
 ## Retirada do orçamento atual
 
-Retirada lógica dos itens e do total da apresentação principal, preservando snapshot, valores, autoria e instante no histórico. Não há restauração automática: novo ciclo exige relançamento manual.
+Retirada lógica dos itens e do total da apresentação principal, preservando snapshot, valores, autoria e instante no histórico. O total atual soma somente itens ativos; novos lançamentos após retirada são outros registros ao fim da ordem de inclusão. Não há restauração automática.
 
 ## Desconto no fechamento
 
