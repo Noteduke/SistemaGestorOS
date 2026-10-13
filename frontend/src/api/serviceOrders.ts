@@ -58,6 +58,13 @@ export interface AssignableUser {
   username: string;
 }
 
+export interface OpeningCustomer {
+  publicId: string;
+  personType: "PF" | "PJ";
+  name: string;
+  documentHint: string | null;
+}
+
 export interface ServiceOrderOpening {
   publicId: string;
   visibleNumber: string;
@@ -202,6 +209,42 @@ export function listServiceOrders(page: number, pageSize: number, signal?: Abort
 
 export function getCurrentServiceOrderOpening(signal?: AbortSignal) {
   return get<{ data: ServiceOrderOpening }>("/api/v1/service-orders/openings/current", signal);
+}
+
+export function listOpeningCustomers(page: number, pageSize: number, search = "", signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) query.set("search", search.trim());
+  return get<Paginated<OpeningCustomer>>(`/api/v1/people/customers?${query}`, signal);
+}
+
+export async function updateServiceOrderOpeningCustomer(
+  publicId: string,
+  customerPublicId: string,
+  csrfToken: string,
+): Promise<{ data: ServiceOrderOpening }> {
+  const response = await fetch(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ customerPublicId }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar o cliente da abertura.",
+    );
+  }
+
+  return body as { data: ServiceOrderOpening };
 }
 
 async function mutateOpening(path: string, csrfToken: string): Promise<{ data: ServiceOrderOpening }> {
