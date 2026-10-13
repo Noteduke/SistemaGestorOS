@@ -95,6 +95,14 @@ export interface OpeningEquipmentDraft {
   serialNumber: string | null;
 }
 
+export type OpeningOwnershipDecision = "CANCEL_SELECTION" | "USE_CURRENT_OWNER" | "TRANSFER_TO_CUSTOMER";
+
+export interface OpeningOwnershipPatch {
+  customerPublicId?: string;
+  equipmentPublicId?: string;
+  ownershipDecision: OpeningOwnershipDecision;
+}
+
 export interface ServiceOrderOpening {
   publicId: string;
   visibleNumber: string;
@@ -321,6 +329,36 @@ export async function updateServiceOrderOpeningEquipment(
       response.status,
       typeof errorBody?.code === "string" ? errorBody.code : undefined,
       typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar o equipamento da abertura.",
+    );
+  }
+
+  return body as { data: ServiceOrderOpening };
+}
+
+export async function updateServiceOrderOpeningOwnership(
+  publicId: string,
+  patch: OpeningOwnershipPatch,
+  csrfToken: string,
+): Promise<{ data: ServiceOrderOpening }> {
+  const response = await fetch(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify(patch),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar a decisão de titularidade.",
     );
   }
 

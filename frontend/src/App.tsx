@@ -149,6 +149,7 @@ export function App() {
           <ServiceOrderOpeningPage
             csrfToken={session.identity.csrfToken}
             canCreateEquipment={session.identity.isAdmin || session.identity.permissions.includes("equipment.create")}
+            canTransferEquipmentOwnership={session.identity.isAdmin || session.identity.permissions.includes("equipment.transfer_ownership")}
             canConfirmServiceOrderOpening={session.identity.isAdmin || (
               session.identity.permissions.includes("service_orders.opening.create")
               && session.identity.permissions.includes("service_orders.create")

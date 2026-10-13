@@ -200,3 +200,5 @@ Recorte posterior: correção administrativa de vínculos, fechamento, cancelame
 2. Confirmar priorização e corte da primeira versão para separar requisitos de produção inicial, evolução aprovada e pesquisa.
 3. Completar as regras pendentes listadas acima antes de implementar os fluxos que dependem delas.
 4. Não preencher lacunas por convenção técnica ou por documentação de produtos externos; a fonte autorizada aqui é exclusivamente a conversa.
+
+- **Estado atual da interface de abertura de OS (13/10/2026):** a decisão de titularidade divergente está implementada e validada operacionalmente em `gestor_os_opening_test`. O Frontend oferece `CANCEL_SELECTION`, `USE_CURRENT_OWNER` e `TRANSFER_TO_CUSTOMER`; transferência exige Admin ou `equipment.transfer_ownership`, permanece apenas intencional até a confirmação e não ocorre ao cancelar a abertura. Não se amplia aqui o conjunto de regras funcionais aprovadas. Evidência: `docs/05-Frontend.md`, seção 10.11.

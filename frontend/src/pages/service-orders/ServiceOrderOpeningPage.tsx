@@ -10,6 +10,7 @@ import {
   listOpeningCustomers,
   listOpeningEquipment,
   listOpeningEquipmentTypes,
+  updateServiceOrderOpeningOwnership,
   updateServiceOrderOpeningCustomer,
   updateServiceOrderOpeningEquipment,
   updateServiceOrderOpeningEquipmentDraft,
@@ -17,6 +18,7 @@ import {
   type OpeningCustomer,
   type OpeningEquipment,
   type OpeningEquipmentDraft,
+  type OpeningOwnershipDecision,
   type ServiceOrderOpening,
 } from "../../api/serviceOrders";
 
@@ -24,6 +26,7 @@ interface ServiceOrderOpeningPageProps {
   csrfToken: string;
   canConfirmServiceOrderOpening: boolean;
   canCreateEquipment?: boolean;
+  canTransferEquipmentOwnership?: boolean;
   onBack: () => void;
   onConfirmed: (publicId: string) => void;
 }
@@ -87,15 +90,16 @@ function equipmentLookupErrorMessage(error: unknown): string {
   return "Não foi possível pesquisar equipamentos. Tente novamente.";
 }
 
-function saveEquipmentErrorMessage(error: unknown): string {
+function saveEquipmentErrorMessage(error: unknown, decision?: OpeningOwnershipDecision): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Sua sessão expirou. Entre novamente para salvar o equipamento.";
+    if (error.status === 403 && decision === "TRANSFER_TO_CUSTOMER") return "Você não tem permissão para transferir a titularidade deste equipamento.";
     if (error.status === 403) return "Você não tem permissão para alterar a abertura de OS.";
     if (error.status === 404 || error.status === 400 || error.status === 422) {
       return "Não foi possível vincular este equipamento à abertura da OS.";
     }
     if (error.status === 409 && error.code === "OWNERSHIP_DECISION_REQUIRED") {
-      return "Este equipamento está vinculado a outro cliente. A transferência de titularidade será tratada em uma etapa posterior.";
+      return "A titularidade do equipamento mudou. Revise a decisão antes de continuar.";
     }
     if (error.status === 409) return "A abertura ou o equipamento mudou de estado. Atualize a tela e tente novamente.";
   }
@@ -134,7 +138,7 @@ function hasValidEquipmentDraft(draft: OpeningEquipmentDraft | null): draft is O
       : typeof draft.serialNumber === "string" && draft.serialNumber.trim()));
 }
 
-export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, canCreateEquipment = false, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
+export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, canCreateEquipment = false, canTransferEquipmentOwnership = false, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
   const [opening, setOpening] = useState<ServiceOrderOpening | null>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
@@ -144,6 +148,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [canceled, setCanceled] = useState<ServiceOrderOpening | null>(null);
+  const [canceledTransferWasPending, setCanceledTransferWasPending] = useState(false);
   const [search, setSearch] = useState("");
   const [customers, setCustomers] = useState<OpeningCustomer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<OpeningCustomer | null>(null);
@@ -162,6 +167,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const [equipmentListLoaded, setEquipmentListLoaded] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState(false);
   const [savingEquipment, setSavingEquipment] = useState(false);
+  const [savingOwnershipDecision, setSavingOwnershipDecision] = useState(false);
   const [equipmentSaveError, setEquipmentSaveError] = useState<string | null>(null);
   const [equipmentSaveNotice, setEquipmentSaveNotice] = useState<string | null>(null);
   const [equipmentMode, setEquipmentMode] = useState<"existing" | "new">("existing");
@@ -181,6 +187,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setError(null);
     setNotice(null);
     setCanceled(null);
+    setCanceledTransferWasPending(false);
     setConfirmationError(null);
     setShowConfirmation(false);
     setOpening(null);
@@ -198,6 +205,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setEditingEquipment(false);
     setEquipmentSaveError(null);
     setEquipmentSaveNotice(null);
+    setSavingOwnershipDecision(false);
     setEquipmentMode("existing");
     setEquipmentDraftForm(emptyEquipmentDraft);
     setEquipmentTypes([]);
@@ -337,6 +345,51 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     }
   }
 
+  async function saveOwnershipDecision(decision: OpeningOwnershipDecision) {
+    if (!opening || !ownershipCandidate || !ownershipTargetCustomer || savingOwnershipDecision) return;
+    if (decision === "TRANSFER_TO_CUSTOMER" && !canTransferEquipmentOwnership) return;
+
+    setSavingOwnershipDecision(true);
+    setEquipmentSaveError(null);
+    setEquipmentSaveNotice(null);
+    const patch: {
+      customerPublicId?: string;
+      equipmentPublicId?: string;
+      ownershipDecision: OpeningOwnershipDecision;
+    } = { ownershipDecision: decision };
+
+    if (decision === "CANCEL_SELECTION") {
+      if (waitingForCustomerChange && selectedCustomer) patch.customerPublicId = selectedCustomer.publicId;
+    } else {
+      patch.equipmentPublicId = ownershipCandidate.publicId;
+      if (decision === "TRANSFER_TO_CUSTOMER") patch.customerPublicId = ownershipTargetCustomer.publicId;
+    }
+
+    try {
+      const result = await updateServiceOrderOpeningOwnership(opening.publicId, patch, csrfToken);
+      setOpening(result.data);
+      setSelectedCustomer(null);
+      setEditingCustomer(false);
+      setSelectedEquipment(null);
+      setEquipmentMode("existing");
+      setEquipmentSearch("");
+      setEquipments([]);
+      setEquipmentListLoaded(false);
+      setEditingEquipment(decision === "CANCEL_SELECTION");
+      if (decision === "CANCEL_SELECTION") {
+        setEquipmentSaveNotice("A seleção do equipamento foi cancelada. Nenhuma transferência foi solicitada.");
+      } else if (decision === "USE_CURRENT_OWNER") {
+        setEquipmentSaveNotice("A abertura será para o proprietário atual do equipamento. Nenhuma transferência foi solicitada.");
+      } else {
+        setEquipmentSaveNotice("Transferência pendente. A titularidade só mudará quando a OS for confirmada.");
+      }
+    } catch (reason) {
+      setEquipmentSaveError(saveEquipmentErrorMessage(reason, decision));
+    } finally {
+      setSavingOwnershipDecision(false);
+    }
+  }
+
   async function loadEquipmentCatalogs() {
     if (loadingEquipmentCatalogs) return;
     setLoadingEquipmentCatalogs(true);
@@ -423,9 +476,10 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   }
 
   async function cancelOpening() {
-    if (!opening || canceling || confirming || savingEquipment || savingEquipmentDraft) return;
+    if (!opening || canceling || confirming || savingEquipment || savingOwnershipDecision || savingEquipmentDraft) return;
     setCanceling(true);
     setError(null);
+    setCanceledTransferWasPending(opening.transferRequested);
     try {
       const result = await cancelServiceOrderOpening(opening.publicId, csrfToken);
       setCanceled(result.data);
@@ -462,24 +516,45 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
         ? opening.customer
         : null
     : null;
-  const selectedEquipmentHasDifferentOwner = Boolean(
-    opening?.customerPublicId && selectedEquipment && selectedEquipment.owner.publicId !== opening.customerPublicId,
-  );
   const waitingForCustomerChange = Boolean(
     opening?.customerPublicId && editingCustomer && selectedCustomer && selectedCustomer.publicId !== opening.customerPublicId,
   );
+  const ownershipTargetCustomer = waitingForCustomerChange && selectedCustomer
+    ? selectedCustomer
+    : linkedCustomer;
+  const ownershipCandidate = waitingForCustomerChange && opening?.equipmentPublicId && opening.equipment?.publicId === opening.equipmentPublicId
+    ? opening.equipment
+    : selectedEquipment && ownershipTargetCustomer && selectedEquipment.owner.publicId !== ownershipTargetCustomer.publicId
+      ? selectedEquipment
+      : null;
+  const ownershipMismatch = Boolean(
+    ownershipCandidate && ownershipTargetCustomer && ownershipCandidate.owner.publicId !== ownershipTargetCustomer.publicId,
+  );
+  const savedTransferIsConsistent = Boolean(
+    opening?.transferRequested
+    && opening.equipment
+    && opening.customer
+    && opening.equipment.owner.publicId !== opening.customer.publicId,
+  );
+  const savedTransferOwner = opening?.transferRequested && savedTransferIsConsistent ? opening.equipment?.owner.name : null;
+  const savedTransferCustomer = opening?.transferRequested && savedTransferIsConsistent ? opening.customer?.name : null;
   const canConfirm = Boolean(
     opening?.status === "IN_PROGRESS"
     && opening.customerPublicId
     && ((opening.equipmentPublicId
       && opening.equipment?.publicId === opening.equipmentPublicId
       && opening.equipment.owner.publicId === opening.customerPublicId)
+      || (opening.equipmentPublicId
+        && opening.equipment?.publicId === opening.equipmentPublicId
+        && opening.transferRequested
+        && savedTransferIsConsistent
+        && canTransferEquipmentOwnership)
       || (hasValidEquipmentDraft(opening.equipmentDraft) && canCreateEquipment))
-    && !opening.transferRequested
     && !editingCustomer
     && !editingEquipment
     && !savingCustomer
     && !savingEquipment
+    && !savingOwnershipDecision
     && !savingEquipmentDraft
     && !canceling
     && !confirming,
@@ -587,8 +662,8 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                   <div className="opening-customer__selected" role="status">
                     <p>Cliente selecionado: <strong>{selectedCustomer.name}</strong></p>
                     {selectedCustomer.documentHint && <p>Documento: {selectedCustomer.documentHint}</p>}
-                    <button className="button button--primary" type="button" onClick={() => void saveCustomer()} disabled={savingCustomer || selectedCustomer.publicId === opening.customerPublicId}>
-                      {savingCustomer ? "Salvando…" : "Salvar cliente"}
+                    <button className="button button--primary" type="button" onClick={() => void saveCustomer()} disabled={savingCustomer || ownershipMismatch || selectedCustomer.publicId === opening.customerPublicId}>
+                      {savingCustomer ? "Salvando…" : ownershipMismatch ? "Decida a titularidade abaixo" : "Salvar cliente"}
                     </button>
                   </div>
                 )}
@@ -617,6 +692,38 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             )}
             {waitingForCustomerChange && (
               <p className="muted" role="status">Salve a alteração do cliente antes de selecionar o equipamento.</p>
+            )}
+
+            {ownershipMismatch && ownershipCandidate && ownershipTargetCustomer && (
+              <section className="opening-equipment__ownership-decision" aria-labelledby="ownership-decision-title" aria-busy={savingOwnershipDecision}>
+                <h3 id="ownership-decision-title">Decida a titularidade do equipamento</h3>
+                <p>Cliente selecionado na abertura: <strong>{ownershipTargetCustomer.name}</strong></p>
+                <p>Proprietário atual do equipamento: <strong>{ownershipCandidate.owner.name}</strong></p>
+                <p>Equipamento: <strong>{ownershipCandidate.type.name} · {ownershipCandidate.brand.name} · {ownershipCandidate.model}</strong></p>
+                <div className="opening-equipment__ownership-options" role="group" aria-label="Decisões de titularidade">
+                  <button className="button button--secondary" type="button" onClick={() => void saveOwnershipDecision("CANCEL_SELECTION")} disabled={savingOwnershipDecision}>
+                    Cancelar seleção
+                  </button>
+                  <button className="button button--secondary" type="button" onClick={() => void saveOwnershipDecision("USE_CURRENT_OWNER")} disabled={savingOwnershipDecision}>
+                    Abrir OS para o proprietário atual
+                  </button>
+                  <button className="button button--primary" type="button" onClick={() => void saveOwnershipDecision("TRANSFER_TO_CUSTOMER")} disabled={savingOwnershipDecision || !canTransferEquipmentOwnership}>
+                    {savingOwnershipDecision ? "Salvando decisão…" : "Transferir para cliente selecionado"}
+                  </button>
+                </div>
+                {!canTransferEquipmentOwnership && <p className="form-message form-message--error" role="status">Você não tem permissão para transferir a titularidade deste equipamento.</p>}
+                <p className="muted">O PATCH registra a escolha. Ele não altera a titularidade do equipamento.</p>
+              </section>
+            )}
+
+            {savedTransferIsConsistent && savedTransferOwner && savedTransferCustomer && !editingEquipment && !waitingForCustomerChange && (
+              <div className="opening-warning opening-equipment__transfer-pending" role="status">
+                Transferência pendente: o equipamento ainda pertence a {savedTransferOwner}. A titularidade só será alterada para {savedTransferCustomer} quando a OS for confirmada.
+                {!canTransferEquipmentOwnership && <span> Sua permissão de transferência não está disponível nesta sessão; a confirmação ficará bloqueada.</span>}
+              </div>
+            )}
+            {opening.transferRequested && editingEquipment && (
+              <p className="muted" role="status">A intenção salva permanece até que uma nova seleção ou um rascunho seja gravado, ou uma decisão de titularidade seja tomada. Alterações ainda não salvas não podem ser confirmadas.</p>
             )}
 
             {opening.equipmentDraft && !editingEquipment && hasValidEquipmentDraft(opening.equipmentDraft) && (
@@ -714,10 +821,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                     <p>Equipamento selecionado: <strong>{selectedEquipment.type.name} · {selectedEquipment.brand.name} · {selectedEquipment.model}</strong></p>
                     <p>{equipmentSerialLabel(selectedEquipment)}</p>
                     <p>Proprietário atual: {selectedEquipment.owner.name}</p>
-                    {selectedEquipmentHasDifferentOwner && (
-                      <p className="form-message form-message--error" role="alert">Este equipamento está vinculado a outro cliente. A transferência de titularidade será tratada em uma etapa posterior.</p>
-                    )}
-                    <button className="button button--primary" type="button" onClick={() => void saveEquipment()} disabled={savingEquipment || selectedEquipmentHasDifferentOwner || selectedEquipment.publicId === opening.equipmentPublicId}>
+                    <button className="button button--primary" type="button" onClick={() => void saveEquipment()} disabled={savingEquipment || ownershipMismatch || selectedEquipment.publicId === opening.equipmentPublicId}>
                       {savingEquipment ? "Salvando…" : "Salvar equipamento"}
                     </button>
                   </div>
@@ -773,7 +877,8 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                 Confirmar OS
               </button>
             )}
-            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling || confirming || savingEquipment || savingEquipmentDraft}>
+            {opening.transferRequested && <p className="muted" role="status">Cancelar esta abertura não transfere a titularidade do equipamento.</p>}
+            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling || confirming || savingEquipment || savingOwnershipDecision || savingEquipmentDraft}>
               {canceling ? "Cancelando…" : "Cancelar abertura"}
             </button>
             <button className="text-button" type="button" onClick={onBack}>Voltar para lista</button>
@@ -784,6 +889,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
       {canceled && !loading && (
         <article className="opening-card opening-card--canceled">
           <p className="inline-success" role="status">A abertura {canceled.visibleNumber} foi cancelada.</p>
+          {canceledTransferWasPending && <p className="muted" role="status">A abertura foi cancelada sem aplicar a intenção de transferência. Essa intenção pode permanecer registrada na abertura encerrada; a titularidade do equipamento não foi alterada.</p>}
           <p className="muted">
             {canceled.numberReleased
               ? "O número reservado foi liberado."
@@ -801,6 +907,9 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
               <p>A Ordem de Serviço será criada oficialmente como <strong>ABERTA / TRIAGEM</strong>.</p>
               <p>O número reservado <strong>{opening.visibleNumber}</strong> se tornará definitivo e o Backend registrará os snapshots do cliente e do equipamento.</p>
               {hasValidEquipmentDraft(opening.equipmentDraft) && <p>O equipamento novo será criado pelo Backend somente nesta confirmação.</p>}
+              {savedTransferIsConsistent && savedTransferOwner && savedTransferCustomer && (
+                <p>Ao confirmar, este equipamento será transferido de <strong>{savedTransferOwner}</strong> para <strong>{savedTransferCustomer}</strong>.</p>
+              )}
               <p>Esta confirmação não cria orçamento, peças ou registros financeiros.</p>
             </div>
             {confirmationError && <p className="form-message form-message--error" role="alert">{confirmationError}</p>}

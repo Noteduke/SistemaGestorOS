@@ -392,3 +392,5 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 - [MySQL 8.0 — CHECK constraints, disponíveis e enforced a partir de 8.0.16](https://dev.mysql.com/doc/refman/8.0/en/create-table-check-constraints.html)
 - [Prisma ORM 7 — transactions e níveis de isolamento](https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions)
 - [Prisma ORM 7 — raw queries parametrizadas dentro de transação](https://www.prisma.io/docs/orm/v7/prisma-client/using-raw-sql/raw-queries)
+
+**Atualização operacional (13/10/2026):** a decisão de titularidade divergente pela interface foi validada nos três caminhos (`CANCEL_SELECTION`, `USE_CURRENT_OWNER`, `TRANSFER_TO_CUSTOMER`) exclusivamente em `gestor_os_opening_test`. O PATCH persiste intenção; a transferência ocorre somente na confirmação transacional. Ver `docs/05-Frontend.md`, seção 10.11. Edição geral da abertura permanece pendente.

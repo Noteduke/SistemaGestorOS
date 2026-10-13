@@ -67,8 +67,8 @@ describe("ServiceOrderOpeningPage", () => {
     }
   });
 
-  it("bloqueia confirmação quando a transferência está pendente ou o equipamento não pertence ao cliente", async () => {
-    const transferred = { ...confirmableOpening, transferRequested: true };
+  it("bloqueia confirmação de transferência pendente sem permissão e de estado inconsistente", async () => {
+    const transferred = { ...confirmableOpening, transferRequested: true, equipment: { ...equipmentSummary, owner: { publicId: "other-customer", name: "Outro cliente" } } };
     const wrongOwner = { ...confirmableOpening, equipment: { ...equipmentSummary, owner: { publicId: "other-customer", name: "Outro cliente" } } };
     for (const value of [transferred, wrongOwner]) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: value })));
@@ -76,6 +76,10 @@ describe("ServiceOrderOpeningPage", () => {
       expect(await screen.findByRole("button", { name: "Confirmar OS" })).toBeDisabled();
       view.unmount();
     }
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: transferred })));
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Confirmar OS" })).toBeEnabled();
   });
 
   it("esconde a ação de confirmação para identidade sem permissão", async () => {
@@ -523,14 +527,15 @@ describe("ServiceOrderOpeningPage", () => {
     expect(screen.getAllByText("Número de série não identificado").length).toBeGreaterThan(0);
   });
 
-  it("impede salvar equipamento de outro titular e explica que transferência ficará para depois", async () => {
+  it("mostra a comparação e permite cancelar a seleção sem confirmar a OS", async () => {
     const otherOwnerEquipment = {
       ...equipment,
       owner: { publicId: "other-customer-public-id", name: "Outro Cliente" },
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: linkedOpening }))
-      .mockResolvedValueOnce(response({ data: [otherOwnerEquipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }));
+      .mockResolvedValueOnce(response({ data: [otherOwnerEquipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: linkedOpening }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
@@ -539,10 +544,164 @@ describe("ServiceOrderOpeningPage", () => {
     await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
 
-    expect(screen.getAllByText("Proprietário atual: Outro Cliente")).toHaveLength(2);
-    expect(screen.getByRole("alert")).toHaveTextContent("Este equipamento está vinculado a outro cliente. A transferência de titularidade será tratada em uma etapa posterior.");
-    expect(screen.getByRole("button", { name: "Salvar equipamento" })).toBeDisabled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Cliente selecionado na abertura:")).toHaveTextContent("Cliente Atual");
+    expect(screen.getByText("Proprietário atual do equipamento:")).toHaveTextContent("Outro Cliente");
+    expect(screen.getByRole("group", { name: "Decisões de titularidade" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar seleção" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Abrir OS para o proprietário atual" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Transferir para cliente selecionado" })).toBeDisabled();
+    expect(screen.getByText("Você não tem permissão para transferir a titularidade deste equipamento.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancelar seleção" }));
+    expect(await screen.findByText("A seleção do equipamento foi cancelada. Nenhuma transferência foi solicitada.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
+      method: "PATCH",
+      credentials: "include",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }),
+      body: JSON.stringify({ ownershipDecision: "CANCEL_SELECTION" }),
+    }));
+    expect(fetchMock.mock.calls.some(([url]) => /\/confirm(?:\?|$)|\/equipment(?:\?|$)|equipment-types|equipment-brands/.test(String(url)))).toBe(false);
+  });
+
+  it("usa o proprietário atual e atualiza o cliente conforme a resposta do PATCH", async () => {
+    const otherOwnerEquipment = { ...equipment, owner: { publicId: "other-customer-public-id", name: "Outro Cliente" } };
+    const updatedOpening = {
+      ...linkedOpening,
+      customerPublicId: "other-customer-public-id",
+      customer: { publicId: "other-customer-public-id", name: "Outro Cliente", documentHint: null },
+      equipmentPublicId: otherOwnerEquipment.publicId,
+      equipment: { ...otherOwnerEquipment, owner: { ...otherOwnerEquipment.owner, documentHint: null } },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [otherOwnerEquipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: updatedOpening }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
+    await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
+    await user.click(screen.getByRole("button", { name: "Abrir OS para o proprietário atual" }));
+
+    expect(await screen.findByText("A abertura será para o proprietário atual do equipamento. Nenhuma transferência foi solicitada.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cliente vinculado")).toHaveTextContent("Outro Cliente");
+    expect(fetchMock.mock.calls[2][0]).toBe(`/api/v1/service-orders/openings/${opening.publicId}`);
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }) }));
+    expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toEqual({ ownershipDecision: "USE_CURRENT_OWNER", equipmentPublicId: otherOwnerEquipment.publicId });
+  });
+
+  it("registra transferência pendente e repete origem/destino no diálogo antes do POST vazio", async () => {
+    const otherOwnerEquipment = { ...equipment, owner: { publicId: "other-customer-public-id", name: "Outro Cliente" } };
+    const pending = {
+      ...linkedOpening,
+      equipmentPublicId: otherOwnerEquipment.publicId,
+      equipment: { ...otherOwnerEquipment, owner: { ...otherOwnerEquipment.owner, documentHint: null } },
+      transferRequested: true,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [otherOwnerEquipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: pending }))
+      .mockResolvedValueOnce(response({ data: { publicId: "confirmed-order", visibleNumber: "OS-000133", macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const onConfirmed = vi.fn();
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={onConfirmed} onBack={vi.fn()} />);
+
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
+    await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
+    await user.click(screen.getByRole("button", { name: "Transferir para cliente selecionado" }));
+    expect(await screen.findByText(/Transferência pendente: o equipamento ainda pertence a Outro Cliente\. A titularidade só será alterada para Cliente Atual quando a OS for confirmada\./)).toBeInTheDocument();
+    expect(fetchMock.mock.calls[2][0]).toBe(`/api/v1/service-orders/openings/${opening.publicId}`);
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }) }));
+    expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toEqual({ ownershipDecision: "TRANSFER_TO_CUSTOMER", equipmentPublicId: otherOwnerEquipment.publicId, customerPublicId: "customer-public-id" });
+
+    await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirmar criação da OS?" });
+    expect(dialog).toHaveTextContent("Ao confirmar, este equipamento será transferido de Outro Cliente para Cliente Atual.");
+    await user.click(screen.getByRole("button", { name: "Voltar" }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({ method: "POST", body: "{}" }));
+    expect(onConfirmed).toHaveBeenCalledWith("confirmed-order");
+  });
+
+  it("cancela uma abertura com intenção pendente sem chamar confirmação nem aplicar transferência", async () => {
+    const pending = {
+      ...confirmableOpening,
+      transferRequested: true,
+      equipment: { ...equipmentSummary, owner: { publicId: "other-customer", name: "Outro Cliente" } },
+    };
+    const canceled = { ...pending, status: "CANCELED" as const };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: pending }))
+      .mockResolvedValueOnce(response({ data: canceled }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByText(/Transferência pendente:/);
+    await user.click(screen.getByRole("button", { name: "Cancelar abertura" }));
+    expect(await screen.findByText("A abertura OS-000132 foi cancelada.")).toBeInTheDocument();
+    expect(screen.getByText(/A abertura foi cancelada sem aplicar a intenção de transferência/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/cancel`, expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }),
+    }));
+    expect(fetchMock.mock.calls.some(([url]) => /\/confirm(?:\?|$)/.test(String(url)))).toBe(false);
+  });
+
+  it("informa erro de permissão se o Backend rejeitar o PATCH de transferência", async () => {
+    const otherOwnerEquipment = { ...equipment, owner: { publicId: "other-customer-public-id", name: "Outro Cliente" } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [otherOwnerEquipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(apiError(403, "TRANSFER_PERMISSION_REQUIRED", "Forbidden"));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
+    await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
+    await user.click(screen.getByRole("button", { name: "Transferir para cliente selecionado" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão para transferir a titularidade deste equipamento.");
+  });
+
+  it("exige nova decisão quando a troca de cliente diverge do proprietário do equipamento salvo", async () => {
+    const saved = { ...confirmableOpening };
+    const newCustomer = { publicId: "new-customer-id", name: "Cliente Novo", documentHint: null };
+    const pending = {
+      ...saved,
+      customerPublicId: newCustomer.publicId,
+      customer: newCustomer,
+      transferRequested: true,
+      equipment: { ...equipmentSummary, owner: { publicId: "customer-public-id", name: "Cliente Atual" } },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: saved }))
+      .mockResolvedValueOnce(response({ data: [newCustomer], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: pending }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
+
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Trocar cliente" }));
+    await user.type(screen.getByLabelText("Buscar cliente por nome, documento ou telefone"), "Cliente Novo");
+    await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
+    await user.click(await screen.findByRole("button", { name: "Cliente Novo" }));
+    expect(screen.getByText("Cliente selecionado na abertura:")).toHaveTextContent("Cliente Novo");
+    expect(screen.getByText("Proprietário atual do equipamento:")).toHaveTextContent("Cliente Atual");
+    expect(screen.getByRole("button", { name: "Decida a titularidade abaixo" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Transferir para cliente selecionado" }));
+    expect(fetchMock.mock.calls[2][0]).toBe(`/api/v1/service-orders/openings/${opening.publicId}`);
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }) }));
+    expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toEqual({ ownershipDecision: "TRANSFER_TO_CUSTOMER", equipmentPublicId: equipment.publicId, customerPublicId: newCustomer.publicId });
   });
 
   it("exibe mensagem de permissão quando a busca de equipamentos retorna 403", async () => {
