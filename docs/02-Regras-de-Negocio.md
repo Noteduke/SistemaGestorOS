@@ -221,13 +221,66 @@ Cada mudança de situação e de atribuição deve gerar histórico com usuário
 
 ### Orçamento simplificado da OS — decisões aprovadas
 
-O orçamento é uma composição de itens vinculados diretamente à OS, sem entidade autônoma, fluxo independente ou status próprio. Seu andamento acompanha a situação operacional da OS, incluindo as situações de avaliação/orçamento, aprovação, reparo autorizado e as duas situações de não autorização.
+As regras desta seção são funcionais e aprovadas por Marcos. O desenho físico, contratos e permissões técnicas sugeridos estão em [Recorte 2](planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md); não estão implementados.
 
-Os únicos tipos de item de orçamento aprovados são: serviço/mão de obra (uma categoria), peça avulsa e peça do estoque. Não existe tipo “Outro”. Peça avulsa não pertence ao estoque e não pode ser convertida em peça de estoque. Componente de consumo técnico não é um quarto tipo de item de orçamento.
+#### Composição, quantidade e valores
 
-Incluir peça do estoque como orçada não baixa, reserva, movimenta nem reduz sua disponibilidade. O orçamento não cria registros financeiros nesta fase. A peça do estoque só fica indisponível quando for marcada UTILIZADA no equipamento; a baixa definitiva segue o fluxo posterior de encerramento/conclusão.
+O orçamento é composto por itens diretamente ligados à OS, sem entidade autônoma, fluxo ou status próprio. Acompanha a situação operacional da OS. Os três tipos oficiais são Serviço/Mão de obra, Peça avulsa e Peça do estoque; não existe Outro. A primeira fatia implementará somente Serviço/Mão de obra e Peça avulsa. Peça do estoque permanece para etapa posterior; componente de consumo técnico não constitui quarto tipo.
 
-Nas situações NÃO AUTORIZADO, retirar o orçamento da apresentação principal da OS significa preservar seus itens e valores no histórico, com usuário, data/hora e contexto da decisão e eventual motivo informado; nada é apagado fisicamente. Campos, valores, custos internos e suas permissões, aprovação/recusa e canais continuam sujeitos às pendências do desenho técnico em docs/planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md. Não há schema, API ou implementação de orçamento aprovada nesta etapa.
+Uma OS admite vários serviços diferentes e várias peças avulsas, inclusive serviço cadastrado e mão de obra avulsa simultaneamente. Cada item é lançado individualmente. Quantidade é obrigatória, inicia em 1, é editável e aceita somente inteiro maior ou igual a 1, nunca zero, negativos ou frações. Total do item = quantidade × valor unitário cobrado, calculado pelo sistema. O total atual considera apenas itens atuais. Valor cobrado zero é permitido (cortesia, garantia ou serviço sem cobrança); valor negativo é proibido.
+
+#### Cadastro de Serviços e origem do item
+
+O Cadastro de Serviços terá nome obrigatório e imutável desde a criação, preço padrão obrigatório e alterável, ativo/inativo e auditoria técnica. Pode habilitar/desabilitar; desabilitar preserva histórico. Serviço associado alguma vez a qualquer OS não pode ser excluído, mesmo que seu item tenha sido retirado do orçamento atual. Exclusão somente se nunca associado a OS.
+
+Não são permitidos nomes duplicados entre serviços ATIVOS. **DECISÃO PENDENTE DE MARCOS:** permitir ou não criar novo serviço ativo com nome normalizado igual ao de serviço desabilitado. Não presumir unicidade global nem autorização para reutilizar esse nome. A política de reativação também depende dessa decisão, respeitando sempre a unicidade entre ativos.
+
+Serviço/Mão de obra tem duas origens, sem criar outro tipo de item:
+
+- **CADASTRADA:** vínculo com serviço; nome imutável no cadastro e no item da OS. Outro nome exige outro cadastro. Seleção sugere preço padrão; valor cobrado na OS pode ser alterado sem modificar cadastro. Alterar preço padrão só afeta lançamentos futuros; OS anteriores preservam seus valores.
+- **AVULSA:** sem vínculo com cadastro; descrição livre editável enquanto a OS estiver ABERTA, com histórico.
+
+Não permitir o mesmo serviço cadastrado em duas linhas distintas do orçamento atual da mesma OS; trabalhar sobre o item existente, por exemplo alterando quantidade. Itens retirados permanecem históricos; a regra deve permitir o relançamento manual aprovado, sem restaurar registros removidos.
+
+#### Peça avulsa e custo interno
+
+Peça avulsa possui descrição livre, quantidade, valor unitário cobrado e total cobrado calculado; descrição editável enquanto a OS estiver ABERTA, com histórico. Custo interno unitário é opcional: NULL significa não informado, 0,00 significa conhecido e efetivamente zero; negativos são proibidos. Se informado, custo total = quantidade × custo unitário; sem custo informado, custo total também é desconhecido, não zero.
+
+Na primeira fatia, Serviço/Mão de obra não possui custo interno. Somente Peça avulsa possui esse campo. Haverá permissões independentes para visualizar e alterar custo; alterar pressupõe capacidade de visualizar. Sem visualização, nem Frontend nem API podem expor o valor, inclusive no histórico. Custo nunca aparece em documento/orçamento destinado ao cliente. Códigos técnicos e concessão das permissões continuam para aprovação.
+
+Peça avulsa não pertence ao estoque, não possui saldo, não movimenta, reserva, baixa ou reduz disponibilidade e não pode ser convertida posteriormente em peça do estoque. A regra contra contorno do cadastro abaixo vale mesmo antes da implementação do catálogo de peças.
+
+#### Correspondência e duplicidade
+
+Não permitir mão de obra avulsa correspondente a serviço já cadastrado, inclusive desabilitado. Não permitir peça avulsa correspondente a peça cadastrada/no estoque, inclusive inativa. Desabilitar cadastro não autoriza versão avulsa equivalente.
+
+Correspondência exata considera caixa, espaços externos e espaços duplicados entre palavras: “Reparo de Placa”, “reparo de placa” e “Reparo   de   Placa” correspondem. Não usar fuzzy matching nem equivalência automática de sinônimos: “Troca de conector” e “Substituição de conector” não são automaticamente iguais.
+
+Não permitir duas linhas avulsas com a mesma descrição normalizada na mesma OS, tanto para mão de obra avulsa como para peça avulsa; editar o item existente. A aplicação conjunta ou separada dessa unicidade entre os dois tipos deve ser explicitada no contrato técnico antes de implementar, sem presumir a resposta. A regra incide na composição atual para permitir novos ciclos manuais após retirada, mantendo todo histórico.
+
+#### Edição, autorização e não autorização
+
+Quem trabalha com orçamento visualiza o valor cobrado; a permissão de editar orçamento permite alterá-lo, sem permissão separada para preço de venda. Enquanto ABERTA, mesmo depois da autorização do reparo, a OS permite adicionar/remover itens, alterar quantidade, valor, descrição avulsa e custo com permissão. Mudanças geram histórico, não exigem nova aprovação automática do cliente e não mudam automaticamente a situação operacional.
+
+OS FECHADA ou CANCELADA permite somente consulta dos itens; não adicionar, remover, editar descrição, quantidade, valor ou custo. Correção futura exige reabertura conforme regras próprias.
+
+Não criar entidade ou formulário estruturado de aprovação, canal/evidência/assinatura/justificativa obrigatórios. Ao mudar a situação para reparo autorizado (AUTORIZADO REPARO no catálogo atual), registrar automaticamente mudança, operador e data/hora. O operador pode registrar observação manual no histórico, por exemplo “Cliente autorizou pelo WhatsApp”; não é requisito de aprovação. A capacidade de inserir observações manuais ainda precisa de contrato próprio, pois a rota de eventos atual é somente leitura.
+
+Não autorização segue a mesma simplicidade: sem motivo estruturado, canal, formulário ou evidência obrigatórios; mudança, operador e data/hora automáticos e observação manual opcional. Ao mudar para uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja manter a composição atual ou retirá-la da apresentação principal.
+
+#### Retirada e histórico
+
+Item removido deixa a composição e o total atuais, sem exclusão física do histórico. Preservar tipo, descrição, quantidade, valores, usuário e data/hora, para Serviço/Mão de obra e Peça avulsa.
+
+Na retirada do orçamento inteiro em NÃO AUTORIZADO, nada é apagado. Registrar automaticamente evento de retirada, usuário, data/hora e todos os itens daquele momento, incluindo descrições, quantidades, valores unitários, totais por item e total geral. Preservar contexto e eventual observação voluntária; não exigir justificativa. Custos continuam protegidos na leitura desse registro.
+
+Não haverá “Restaurar orçamento” nem estado especial de restaurado. Se o cliente mudar de ideia, consultar o histórico e lançar os itens novamente de forma manual. Alterações relevantes de itens/valores e retiradas preservam histórico com autoria.
+
+#### Desconto, estoque e financeiro
+
+Desconto NÃO pertence ao orçamento. Não criar discount, discountType, percentual/valor de desconto ou acréscimo nos itens ou na composição. O desconto aprovado é único, apenas no fechamento da OS, pertence ao FUTURO FATURAMENTO e poderá ser em valor ou percentual; não modelá-lo nesta fatia.
+
+O orçamento não cria financeiro. Peça do estoque futura, apenas ORÇADA, não movimenta, reserva, baixa ou reduz disponibilidade; só fica indisponível ao ser UTILIZADA, com baixa definitiva posterior conforme o fluxo de estoque/encerramento.
 
 ### Alteração de situação, status macro e reabertura
 
@@ -289,11 +342,11 @@ Peça avulsa é lançada manualmente na OS para descrição, orçamento e cobran
 
 A peça avulsa permanece avulsa e não pode ser convertida em peça de estoque. Se a empresa comprar uma peça para controlá-la no estoque, deverá cadastrá-la separadamente e lançá-la na OS como peça de estoque.
 
-A peça avulsa poderá ter custo interno separado do valor cobrado, se esse campo for aprovado para o tipo. A decisão sobre custo interno por tipo e quem pode visualizá-lo, informá-lo ou alterá-lo continua pendente; não presumir que a autorização geral na OS conceda esses direitos. Se aprovado, qualquer alteração de custo interno deverá ser historizada. O valor cobrado dos três tipos segue a regra de alteração após aprovação documentada abaixo.
+Peça avulsa possui custo interno unitário opcional e não negativo, com NULL distinto de zero e total calculado quando informado. Visualizar e alterar são capacidades independentes, com alteração pressupondo visualização; API e histórico devem proteger os valores. Serviço/Mão de obra não possui custo interno nesta fatia. Aplicam-se as regras consolidadas de orçamento desta seção, incluindo ausência de contorno de cadastro ativo/inativo.
 
 ### Alteração de valores após aprovação do orçamento
 
-A aprovação do orçamento não congela automaticamente os valores cobrados dos três tipos aprovados — peça de estoque, peça avulsa e serviço/mão de obra. Usuário autorizado na OS pode corrigir ou alterar esses valores após a aprovação, sem exigir nova aprovação do cliente, sem bloqueio pela aprovação anterior e sem motivo obrigatório. Não há um quarto tipo cobrado Outro.
+A aprovação do orçamento não congela automaticamente os valores cobrados dos três tipos aprovados — peça de estoque, peça avulsa e serviço/mão de obra. Enquanto a OS estiver ABERTA, usuário com permissão de editar orçamento pode corrigir ou alterar esses valores após a aprovação, sem exigir nova aprovação do cliente, sem bloqueio pela aprovação anterior e sem motivo obrigatório. FECHADA/CANCELADA permanece somente consulta. Não há um quarto tipo cobrado Outro.
 
 Toda alteração de valor cobrado deve gerar histórico com, no mínimo, usuário, data/hora, OS, item, tipo do item (peça de estoque, peça avulsa ou serviço/mão de obra), campo alterado, valor anterior e valor novo. Componentes de consumo técnico não constituem tipo de item cobrado do orçamento.
 

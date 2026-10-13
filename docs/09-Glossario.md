@@ -200,10 +200,10 @@ Item lançado manualmente na OS para descrição, orçamento e cobrança, sem v�
 Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça física ou previsão de compra vinculada ao estoque. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico. Peça avulsa não usa este status.
 
 ## Custo interno da peça avulsa
-Valor pago ou estimado pela empresa para uma peça avulsa, separado do valor cobrado. A possibilidade de manter custo interno por tipo de item e as permissões para visualizá-lo ou alterá-lo ainda não foram decididas. Se aprovado, cada alteração deverá ser historizada.
+Valor unitário opcional e não negativo, separado do valor cobrado: NULL é desconhecido; zero é conhecido e efetivamente zero. Custo total é quantidade × custo unitário quando informado. Ver/alterar são capacidades independentes; alteração pressupõe visualização. API/histórico protegem valores e documentos do cliente nunca os incluem. Serviço/Mão de obra não tem custo interno nesta fatia; códigos técnicos de permissão ainda são propostos.
 
 ## Alteração de valor após aprovação
-Alteração do valor cobrado de um dos três tipos aprovados de item da OS após a aprovação do orçamento. Usuário autorizado pode fazer a mudança sem exigir nova aprovação do cliente, sem bloqueio pela aprovação anterior e sem motivo obrigatório. O histórico registra usuário, data/hora, OS, item, tipo, campo e valores anterior/novo. Outro não é tipo de item de orçamento.
+Alteração do valor cobrado de um dos três tipos aprovados de item da OS após a aprovação do orçamento. Em OS ABERTA, usuário com permissão de editar orçamento pode fazer a mudança sem exigir nova aprovação do cliente, sem mudar automaticamente a situação e sem motivo obrigatório; FECHADA/CANCELADA admite só consulta. O histórico registra usuário, data/hora, OS, item, tipo, campo e valores anterior/novo. Outro não é tipo de item de orçamento.
 
 ## Peça UTILIZADA
 Peça retirada do estoque, instalada ou em processo de instalação após mudança autorizada de ORÇADA para UTILIZADA. A transição registra usuário, data/hora, OS, peça, status anterior/novo e motivo quando aplicável. Fica indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
@@ -299,6 +299,19 @@ Sequência de falhas de autenticação contada pelo username normalizado, inclus
 
 ## Log Administrativo
 Registro único para eventos administrativos e de segurança. No primeiro recorte, também é o único canal de notificação para o evento de cinco falhas consecutivas; envio de e-mail fica fora.
+
+## Serviço cadastrado e mão de obra avulsa
+
+Origens distintas de Serviço/Mão de obra, sem novo tipo de item. Cadastro tem nome imutável, preço padrão alterável e ativo/inativo; lançamento cadastrado conserva nome e valor próprio da OS. Avulso tem descrição livre, mas não pode corresponder a serviço cadastrado, mesmo desabilitado.
+
+## Retirada do orçamento atual
+
+Retirada lógica dos itens e do total da apresentação principal, preservando snapshot, valores, autoria e instante no histórico. Não há restauração automática: novo ciclo exige relançamento manual.
+
+## Desconto no fechamento
+
+Desconto único do futuro faturamento, somente no fechamento da OS, futuramente em valor ou percentual. Não integra itens/composição do orçamento.
+
 
 ---
 
