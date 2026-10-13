@@ -1,6 +1,6 @@
 # Recorte 1 de OS — desenho técnico preliminar
 
-**Status:** schema Prisma e migration aplicados no banco principal; abertura, consultas auxiliares de seleção, consulta/listagem, situação operacional, atribuições nominais e consulta paginada de eventos implementadas e validadas em banco isolado. As quatro consultas auxiliares passaram por validação HTTP real em `gestor_os_opening_test`, incluindo sessão, permissão e paginação. O Frontend oferece leitura de OS, alteração de situação e gestão de atribuições nominais; iniciar, retomar e cancelar abertura pela interface já está implementado; seleção, edição e confirmação permanecem pendentes.
+**Status:** schema Prisma e migration aplicados no banco principal; abertura, consultas auxiliares de seleção, consulta/listagem, situação operacional, atribuições nominais e consulta paginada de eventos implementadas e validadas em banco isolado. As quatro consultas auxiliares passaram por validação HTTP real em `gestor_os_opening_test`, incluindo sessão, permissão e paginação. O Frontend oferece leitura de OS, alteração de situação e gestão de atribuições nominais; iniciar, retomar e cancelar abertura pela interface foi validado operacionalmente em `gestor_os_opening_test`; seleção, edição e confirmação permanecem pendentes.
 **Data:** 08/10/2026.
 **Escopo:** Backend NestJS + Prisma 7.10.0 + MySQL 8.
 **Fonte normativa:** decisões aprovadas em `docs/02-Regras-de-Negocio.md`, `docs/07-Decisoes-Arquiteturais.md` e `docs/Especificacao-GestorOS.md`.
