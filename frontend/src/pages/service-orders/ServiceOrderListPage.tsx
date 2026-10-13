@@ -14,9 +14,10 @@ interface ServiceOrderListPageProps {
   page: number;
   onPageChange: (page: number) => void;
   onOpen: (publicId: string) => void;
+  onStartOpening: () => void;
 }
 
-export function ServiceOrderListPage({ page, onPageChange, onOpen }: ServiceOrderListPageProps) {
+export function ServiceOrderListPage({ page, onPageChange, onOpen, onStartOpening }: ServiceOrderListPageProps) {
   const [result, setResult] = useState<Paginated<ServiceOrderSummary> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,10 @@ export function ServiceOrderListPage({ page, onPageChange, onOpen }: ServiceOrde
           <h1>Ordens de Serviço</h1>
           <p className="muted">Consulte ordens confirmadas e seus registros.</p>
         </div>
-        <span className="count-pill">{result?.pagination.total ?? "—"} registros</span>
+        <div className="page-heading__actions">
+          <span className="count-pill">{result?.pagination.total ?? "—"} registros</span>
+          <button className="button button--primary" type="button" onClick={onStartOpening}>Nova OS</button>
+        </div>
       </div>
 
       <AsyncState

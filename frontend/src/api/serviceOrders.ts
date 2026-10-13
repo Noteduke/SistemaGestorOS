@@ -58,6 +58,25 @@ export interface AssignableUser {
   username: string;
 }
 
+export interface ServiceOrderOpening {
+  publicId: string;
+  visibleNumber: string;
+  numberValue: string;
+  status: "IN_PROGRESS" | "CANCELED" | "CONFIRMED";
+  initiatedByUserPublicId: string;
+  createdBy: string;
+  customerPublicId: string | null;
+  equipmentPublicId: string | null;
+  equipmentDraft: unknown;
+  equipmentDraftVersion: number | null;
+  transferRequested: boolean;
+  transferRequestedByUserPublicId: string | null;
+  complaint: string | null;
+  createdAt: string;
+  updatedAt: string;
+  numberReleased?: boolean;
+}
+
 export const operationalSituationOptions = [
   { value: "TRIAGE", label: "TRIAGEM" },
   { value: "AWAITING_EVALUATION_BUDGET", label: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO" },
@@ -179,6 +198,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   return get<Paginated<ServiceOrderSummary>>(`/api/v1/service-orders?${query}`, signal);
+}
+
+export function getCurrentServiceOrderOpening(signal?: AbortSignal) {
+  return get<{ data: ServiceOrderOpening }>("/api/v1/service-orders/openings/current", signal);
+}
+
+async function mutateOpening(path: string, csrfToken: string): Promise<{ data: ServiceOrderOpening }> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: "{}",
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível concluir a abertura da OS.",
+    );
+  }
+
+  return body as { data: ServiceOrderOpening };
+}
+
+export function createServiceOrderOpening(csrfToken: string) {
+  return mutateOpening("/api/v1/service-orders/openings", csrfToken);
+}
+
+export function cancelServiceOrderOpening(publicId: string, csrfToken: string) {
+  return mutateOpening(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}/cancel`, csrfToken);
 }
 
 export function getServiceOrder(publicId: string, signal?: AbortSignal) {

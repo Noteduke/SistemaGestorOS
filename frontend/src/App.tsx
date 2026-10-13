@@ -4,9 +4,11 @@ import type { AuthIdentity } from "./api/auth";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { ServiceOrderDetailPage } from "./pages/service-orders/ServiceOrderDetailPage";
 import { ServiceOrderListPage } from "./pages/service-orders/ServiceOrderListPage";
+import { ServiceOrderOpeningPage } from "./pages/service-orders/ServiceOrderOpeningPage";
 
 type Route =
   | { view: "list"; page: number }
+  | { view: "opening" }
   | { view: "detail"; publicId: string; section: "details" | "events"; eventsPage: number };
 
 function positivePage(value: string | null): number {
@@ -22,6 +24,9 @@ function readRoute(): Route {
   const [path, queryString = ""] = hash.slice(1).split("?", 2);
   const segments = path.split("/").filter(Boolean);
   const query = new URLSearchParams(queryString);
+  if (segments.length === 2 && segments[0] === "service-orders" && segments[1] === "opening") {
+    return { view: "opening" };
+  }
   if (segments.length === 2 && segments[0] === "service-orders") {
     return {
       view: "detail",
@@ -92,6 +97,10 @@ export function App() {
     navigate(`/service-orders/${encodeURIComponent(publicId)}`);
   }
 
+  function startOpening() {
+    navigate("/service-orders/opening");
+  }
+
   function changeDetailSection(section: "details" | "events") {
     if (route.view !== "detail") return;
     const query = new URLSearchParams();
@@ -134,6 +143,12 @@ export function App() {
             page={route.page}
             onPageChange={(page) => navigate(`/service-orders?page=${page}`)}
             onOpen={openOrder}
+            onStartOpening={startOpening}
+          />
+        ) : route.view === "opening" ? (
+          <ServiceOrderOpeningPage
+            csrfToken={session.identity.csrfToken}
+            onBack={() => navigate("/service-orders")}
           />
         ) : (
           <ServiceOrderDetailPage

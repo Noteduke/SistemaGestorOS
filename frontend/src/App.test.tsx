@@ -59,6 +59,55 @@ it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () 
   expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
 });
 
+it("inicia a abertura a partir da lista e reserva o número com CSRF", async () => {
+  window.location.hash = "#/service-orders";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "usuario.teste",
+    isAdmin: false,
+    permissions: ["service_orders.read", "service_orders.opening.create", "service_orders.opening.read"],
+    csrfToken: "csrf-session",
+    session: { expiresAt: "2026-10-13T20:00:00.000Z" },
+  };
+  const opening = {
+    publicId: "75811f19-8b30-45ad-84a5-7ac1bf22e768",
+    visibleNumber: "OS-000132",
+    numberValue: "132",
+    status: "IN_PROGRESS",
+    initiatedByUserPublicId: identity.publicId,
+    createdBy: identity.publicId,
+    customerPublicId: null,
+    equipmentPublicId: null,
+    equipmentDraft: null,
+    equipmentDraftVersion: null,
+    transferRequested: false,
+    transferRequestedByUserPublicId: null,
+    complaint: null,
+    createdAt: "2026-10-13T12:00:00.000Z",
+    updatedAt: "2026-10-13T12:00:00.000Z",
+  };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }))
+    .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: { code: "OPENING_NOT_FOUND", message: "Abertura não encontrada." } }) })
+    .mockResolvedValueOnce(response({ data: opening }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Nova OS" }));
+  expect(await screen.findByText("OS-000132")).toBeInTheDocument();
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    "/api/v1/auth/me",
+    "/api/v1/service-orders?page=1&pageSize=20",
+    "/api/v1/service-orders/openings/current",
+    "/api/v1/service-orders/openings",
+  ]);
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/service-orders/openings", expect.objectContaining({
+    method: "POST",
+    headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }),
+  }));
+});
+
 it("autentica com CSRF, consulta a sessão e libera a leitura de OS", async () => {
   window.location.hash = "#/service-orders";
   const identity = {

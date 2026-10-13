@@ -29,7 +29,7 @@ describe("ServiceOrderListPage", () => {
   it("exibe OS confirmadas com número, cliente e equipamento resumidos", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(pageResult(1)));
     vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} />);
+    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} onStartOpening={vi.fn()} />);
 
     expect(await screen.findByText("OS-000128")).toBeInTheDocument();
     expect(screen.getByText("Marina Costa")).toBeInTheDocument();
@@ -41,25 +41,34 @@ describe("ServiceOrderListPage", () => {
     const fetchMock = vi.fn().mockResolvedValue(response(pageResult(1)));
     vi.stubGlobal("fetch", fetchMock);
     const onPageChange = vi.fn();
-    const view = render(<ServiceOrderListPage page={1} onPageChange={onPageChange} onOpen={vi.fn()} />);
+    const view = render(<ServiceOrderListPage page={1} onPageChange={onPageChange} onOpen={vi.fn()} onStartOpening={vi.fn()} />);
     await screen.findByText("OS-000128");
     fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
     expect(onPageChange).toHaveBeenCalledWith(2);
 
     fetchMock.mockResolvedValue(response(pageResult(2)));
-    view.rerender(<ServiceOrderListPage page={2} onPageChange={onPageChange} onOpen={vi.fn()} />);
+    view.rerender(<ServiceOrderListPage page={2} onPageChange={onPageChange} onOpen={vi.fn()} onStartOpening={vi.fn()} />);
     await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/service-orders?page=2&pageSize=20", expect.any(Object)));
   });
 
   it("exibe mensagem de permissão quando a API responde 403", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ code: "FORBIDDEN", message: "Forbidden" }, 403)));
-    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} />);
+    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} onStartOpening={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("não tem permissão");
   });
 
   it("informa que a sessão é necessária quando a API responde 401", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ code: "UNAUTHORIZED", message: "Unauthorized" }, 401)));
-    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} />);
+    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} onStartOpening={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Sua sessão é necessária");
+  });
+  it("exibe Nova OS e encaminha a ação de abertura", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(pageResult(1)));
+    vi.stubGlobal("fetch", fetchMock);
+    const onStartOpening = vi.fn();
+    render(<ServiceOrderListPage page={1} onPageChange={vi.fn()} onOpen={vi.fn()} onStartOpening={onStartOpening} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Nova OS" }));
+    expect(onStartOpening).toHaveBeenCalledOnce();
   });
 });
