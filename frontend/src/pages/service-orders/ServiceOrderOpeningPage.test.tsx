@@ -635,4 +635,242 @@ describe("ServiceOrderOpeningPage", () => {
     expect(calledUrls.some((url) => /\/equipment-types|\/equipment-brands|\/confirm(?:\?|$)/.test(url))).toBe(false);
     expect(fetchMock.mock.calls.filter(([, options]) => options.method === "PATCH" || String(options.method).startsWith("POST")).length).toBe(0);
   });
+
+  it("mostra Novo equipamento somente com equipment.create e explica a permissão ausente", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ data: linkedOpening })));
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    expect(screen.queryByRole("button", { name: "Novo equipamento" })).not.toBeInTheDocument();
+    expect(screen.getByText(/permissão equipment\.create/)).toBeInTheDocument();
+  });
+
+  it("carrega os catálogos, salva rascunho identificado por PATCH com CSRF e não cria equipamento", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const draft = { typePublicId: type.publicId, brandPublicId: brand.publicId, model: "LATITUDE 5450", serialIdentificationStatus: "IDENTIFIED", serialNumber: "SERIAL-5450" };
+    const savedOpening = { ...linkedOpening, equipmentPublicId: null, equipment: null, equipmentDraft: draft, equipmentDraftVersion: 1 };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: savedOpening }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    expect(await screen.findByRole("option", { name: "NOTEBOOK" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "DELL" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/equipment-types?page=1&pageSize=100", expect.objectContaining({ method: "GET", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/equipment-brands?page=1&pageSize=100", expect.objectContaining({ method: "GET", credentials: "include" }));
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Modelo"), "LATITUDE 5450");
+    await user.type(screen.getByLabelText("Número de série"), "SERIAL-5450");
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+
+    expect(await screen.findByText("Novo equipamento da abertura")).toBeInTheDocument();
+    expect(screen.getByText("Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
+      method: "PATCH",
+      credentials: "include",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session", "Content-Type": "application/json" }),
+      body: JSON.stringify({ equipmentDraft: draft }),
+    }));
+    const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(calledUrls.every((url) => !/\/equipment(?:\?|$)|\/equipment-types(?:\/|\?|$)|\/equipment-brands(?:\/|\?|$)/.test(url) || /^(?:\/api\/v1\/equipment-types|\/api\/v1\/equipment-brands)/.test(url))).toBe(true);
+  });
+
+  it("envia serialNumber nulo quando a série é marcada como não identificada", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "NÃO INFORMADA" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: { ...linkedOpening, equipmentPublicId: null, equipment: null, equipmentDraft: { typePublicId: type.publicId, brandPublicId: brand.publicId, model: "NÃO INFORMADO", serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null }, equipmentDraftVersion: 1 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.click(screen.getByRole("button", { name: "Usar “NÃO INFORMADO”" }));
+    await user.click(screen.getByLabelText("Série não identificada"));
+    expect(screen.queryByLabelText("Número de série")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+    await screen.findByText("Novo equipamento da abertura");
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ equipmentDraft: { typePublicId: type.publicId, brandPublicId: brand.publicId, model: "NÃO INFORMADO", serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null } }),
+    }));
+  });
+
+  it("habilita confirmação com cliente e rascunho salvo; confirmação delega criação ao Backend", async () => {
+    const draft = { typePublicId: "type-public-id", brandPublicId: "brand-public-id", model: "LATITUDE", serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null };
+    const savedOpening = { ...linkedOpening, equipmentDraft: draft, equipmentDraftVersion: 1 };
+    const orderPublicId = "9f491492-4287-4e0f-9201-f642174e94cd";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [{ publicId: draft.typePublicId, name: "NOTEBOOK" }], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [{ publicId: draft.brandPublicId, name: "DELL" }], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: savedOpening }))
+      .mockResolvedValueOnce(response({ data: { publicId: orderPublicId, visibleNumber: "OS-000133", macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const onConfirmed = vi.fn();
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment canConfirmServiceOrderOpening onConfirmed={onConfirmed} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), draft.typePublicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), draft.brandPublicId);
+    await user.type(screen.getByLabelText("Modelo"), draft.model);
+    await user.click(screen.getByLabelText("Série não identificada"));
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+    await screen.findByText("Novo equipamento da abertura");
+    expect(screen.getByRole("button", { name: "Confirmar OS" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("O equipamento novo será criado pelo Backend somente nesta confirmação.");
+    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+
+    expect(onConfirmed).toHaveBeenCalledWith(orderPublicId);
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({ method: "POST", body: "{}", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }) }));
+    expect(fetchMock.mock.calls.some(([url]) => /\/equipment(?:\?|$)|\/equipment-types\/|\/equipment-brands\//.test(String(url)))).toBe(false);
+  });
+
+  it("cancelar uma abertura com rascunho não chama criação direta de equipamento nem confirmação", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const draft = { typePublicId: type.publicId, brandPublicId: brand.publicId, model: "LATITUDE", serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null };
+    const savedOpening = { ...linkedOpening, equipmentDraft: draft, equipmentDraftVersion: 1 };
+    const canceled = { ...savedOpening, status: "CANCELED", numberReleased: true };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: savedOpening }))
+      .mockResolvedValueOnce(response({ data: canceled }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Modelo"), draft.model);
+    await user.click(screen.getByLabelText("Série não identificada"));
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+    await screen.findByText("Novo equipamento da abertura");
+    await user.click(screen.getByRole("button", { name: "Cancelar abertura" }));
+    expect(await screen.findByText("A abertura OS-000132 foi cancelada.")).toBeInTheDocument();
+    const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(calledUrls.some((url) => /\/confirm(?:\?|$)|\/equipment(?:\?|$)/.test(url))).toBe(false);
+  });
+
+  it("trocar para novo equipamento limpa uma seleção existente não salva", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [equipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
+    await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
+    expect(screen.getByText(/Equipamento selecionado:/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    expect(screen.queryByText(/Equipamento selecionado:/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, options]) => options.method === "PATCH")).toHaveLength(0);
+  });
+
+  it("trocar para equipamento existente substitui e limpa o rascunho salvo", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const draft = { typePublicId: type.publicId, brandPublicId: brand.publicId, model: "LATITUDE", serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null };
+    const savedDraftOpening = { ...linkedOpening, equipmentDraft: draft, equipmentDraftVersion: 1 };
+    const savedExistingOpening = { ...linkedOpening, equipmentPublicId: equipment.publicId, equipment: equipmentSummary, equipmentDraft: null, equipmentDraftVersion: null };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: savedDraftOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [equipment], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: savedExistingOpening }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Novo equipamento da abertura");
+    await user.click(screen.getByRole("button", { name: "Editar equipamento da abertura" }));
+    await user.click(screen.getByRole("button", { name: "Equipamento existente" }));
+    await user.click(screen.getByRole("button", { name: "Buscar equipamentos" }));
+    await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
+    await user.click(screen.getByRole("button", { name: "Salvar equipamento" }));
+    expect(await screen.findByText("Equipamento salvo na abertura em andamento.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ equipmentPublicId: equipment.publicId }),
+    }));
+    expect(screen.queryByText("Novo equipamento da abertura")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [400, "Os dados do novo equipamento são inválidos."],
+    [422, "Os dados do novo equipamento são inválidos."],
+    [401, "Sua sessão expirou."],
+    [403, "Você não tem permissão para criar equipamento ou alterar esta abertura."],
+    [404, "A abertura não foi encontrada."],
+    [409, "A abertura mudou de estado."],
+  ])("apresenta orientação segura quando salvar rascunho retorna %s", async (status, expectedMessage) => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(apiError(status, "VALIDATION_ERROR", "Não exibir erro interno"));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Modelo"), "LATITUDE");
+    await user.click(screen.getByLabelText("Série não identificada"));
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(expectedMessage);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Não exibir erro interno");
+  });
+
+  it("apresenta mensagem segura quando a rede falha ao salvar rascunho", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment onConfirmed={vi.fn()} canConfirmServiceOrderOpening={false} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await screen.findByRole("option", { name: "NOTEBOOK" });
+    await user.selectOptions(screen.getByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Modelo"), "LATITUDE");
+    await user.click(screen.getByLabelText("Série não identificada"));
+    await user.click(screen.getByRole("button", { name: "Salvar novo equipamento na abertura" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível salvar o novo equipamento na abertura.");
+  });
 });

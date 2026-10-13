@@ -86,6 +86,15 @@ tbody tr:hover { background: #fbfcfd; }
 .opening-customer__option { display: grid; width: 100%; gap: 5px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: #fff; text-align: left; }
 .opening-customer__option:hover, .opening-customer__option--selected { border-color: #75a9b7; background: #f2f8fa; }
 .opening-customer__selected p { margin: 0; }
+.opening-equipment__mode { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.opening-equipment__draft { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.opening-equipment__draft-fields { display: grid; grid-template-columns: minmax(150px, 190px) minmax(0, 1fr); align-items: center; gap: 10px 14px; max-width: 620px; color: #40586b; font-size: 12px; font-weight: 700; }
+.opening-equipment__draft-fields select, .opening-equipment__draft-fields input:not([type="radio"]) { width: 100%; min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid #d8e1e7; border-radius: 9px; color: var(--ink); background: #fff; font: inherit; font-size: 12px; }
+.opening-equipment__draft-fields fieldset { display: grid; gap: 9px; grid-column: 1 / -1; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.opening-equipment__draft-fields fieldset label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.opening-equipment__draft-fields fieldset input[type="radio"] { accent-color: var(--blue-dark); }
+.opening-equipment__model-field { display: grid; gap: 7px; justify-items: start; }
+@media (max-width: 560px) { .opening-equipment__draft-fields { grid-template-columns: 1fr; } .opening-equipment__draft-fields fieldset { grid-column: auto; } }
 .inline-state, .inline-success, .inline-error { margin: 0; padding: 14px 16px; border-radius: 9px; }
 .inline-state { background: #f1f6f8; color: #435b6d; }
 .inline-success { background: #edf7f0; color: #27613c; }

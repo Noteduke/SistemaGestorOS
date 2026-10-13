@@ -82,6 +82,19 @@ export interface OpeningEquipment {
   owner: { publicId: string; name: string; documentHint?: string | null };
 }
 
+export interface OpeningCatalogOption {
+  publicId: string;
+  name: string;
+}
+
+export interface OpeningEquipmentDraft {
+  typePublicId: string;
+  brandPublicId: string;
+  model: string;
+  serialIdentificationStatus: "IDENTIFIED" | "NOT_IDENTIFIED";
+  serialNumber: string | null;
+}
+
 export interface ServiceOrderOpening {
   publicId: string;
   visibleNumber: string;
@@ -93,7 +106,7 @@ export interface ServiceOrderOpening {
   customer?: Pick<OpeningCustomer, "publicId" | "name" | "documentHint"> | null;
   equipmentPublicId: string | null;
   equipment?: OpeningEquipment | null;
-  equipmentDraft: unknown;
+  equipmentDraft: OpeningEquipmentDraft | null;
   equipmentDraftVersion: number | null;
   transferRequested: boolean;
   transferRequestedByUserPublicId: string | null;
@@ -242,6 +255,18 @@ export function listOpeningEquipment(page: number, pageSize: number, search = ""
   return get<Paginated<OpeningEquipment>>(`/api/v1/equipment/opening-search?${query}`, signal);
 }
 
+export function listOpeningEquipmentTypes(page: number, pageSize: number, search = "", signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) query.set("search", search.trim());
+  return get<Paginated<OpeningCatalogOption>>(`/api/v1/equipment-types?${query}`, signal);
+}
+
+export function listOpeningEquipmentBrands(page: number, pageSize: number, search = "", signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) query.set("search", search.trim());
+  return get<Paginated<OpeningCatalogOption>>(`/api/v1/equipment-brands?${query}`, signal);
+}
+
 export async function updateServiceOrderOpeningCustomer(
   publicId: string,
   customerPublicId: string,
@@ -296,6 +321,36 @@ export async function updateServiceOrderOpeningEquipment(
       response.status,
       typeof errorBody?.code === "string" ? errorBody.code : undefined,
       typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar o equipamento da abertura.",
+    );
+  }
+
+  return body as { data: ServiceOrderOpening };
+}
+
+export async function updateServiceOrderOpeningEquipmentDraft(
+  publicId: string,
+  equipmentDraft: OpeningEquipmentDraft,
+  csrfToken: string,
+): Promise<{ data: ServiceOrderOpening }> {
+  const response = await fetch(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ equipmentDraft }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar o novo equipamento na abertura.",
     );
   }
 

@@ -6,18 +6,24 @@ import {
   confirmServiceOrderOpening,
   createServiceOrderOpening,
   getCurrentServiceOrderOpening,
+  listOpeningEquipmentBrands,
   listOpeningCustomers,
   listOpeningEquipment,
+  listOpeningEquipmentTypes,
   updateServiceOrderOpeningCustomer,
   updateServiceOrderOpeningEquipment,
+  updateServiceOrderOpeningEquipmentDraft,
+  type OpeningCatalogOption,
   type OpeningCustomer,
   type OpeningEquipment,
+  type OpeningEquipmentDraft,
   type ServiceOrderOpening,
 } from "../../api/serviceOrders";
 
 interface ServiceOrderOpeningPageProps {
   csrfToken: string;
   canConfirmServiceOrderOpening: boolean;
+  canCreateEquipment?: boolean;
   onBack: () => void;
   onConfirmed: (publicId: string) => void;
 }
@@ -96,13 +102,39 @@ function saveEquipmentErrorMessage(error: unknown): string {
   return "Não foi possível salvar o equipamento da abertura. Tente novamente.";
 }
 
+function saveEquipmentDraftErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 400 || error.status === 422) return "Os dados do novo equipamento são inválidos. Revise os campos e tente novamente.";
+    if (error.status === 401) return "Sua sessão expirou. Entre novamente para salvar o novo equipamento.";
+    if (error.status === 403) return "Você não tem permissão para criar equipamento ou alterar esta abertura.";
+    if (error.status === 404) return "A abertura não foi encontrada. Atualize a tela e tente novamente.";
+    if (error.status === 409) return "A abertura mudou de estado. Atualize a tela e tente novamente.";
+  }
+  return "Não foi possível salvar o novo equipamento na abertura.";
+}
+
 function equipmentSerialLabel(equipment: OpeningEquipment): string {
   return equipment.serialIdentificationStatus === "NOT_IDENTIFIED" || equipment.serialNumber === null
     ? "Número de série não identificado"
     : `Série: ${equipment.serialNumber}`;
 }
 
-export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
+const emptyEquipmentDraft: OpeningEquipmentDraft = {
+  typePublicId: "",
+  brandPublicId: "",
+  model: "",
+  serialIdentificationStatus: "IDENTIFIED",
+  serialNumber: "",
+};
+
+function hasValidEquipmentDraft(draft: OpeningEquipmentDraft | null): draft is OpeningEquipmentDraft {
+  return Boolean(draft?.typePublicId && draft.brandPublicId && draft.model.trim()
+    && (draft.serialIdentificationStatus === "NOT_IDENTIFIED"
+      ? draft.serialNumber === null
+      : typeof draft.serialNumber === "string" && draft.serialNumber.trim()));
+}
+
+export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, canCreateEquipment = false, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
   const [opening, setOpening] = useState<ServiceOrderOpening | null>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
@@ -132,6 +164,15 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const [savingEquipment, setSavingEquipment] = useState(false);
   const [equipmentSaveError, setEquipmentSaveError] = useState<string | null>(null);
   const [equipmentSaveNotice, setEquipmentSaveNotice] = useState<string | null>(null);
+  const [equipmentMode, setEquipmentMode] = useState<"existing" | "new">("existing");
+  const [equipmentDraftForm, setEquipmentDraftForm] = useState<OpeningEquipmentDraft>(emptyEquipmentDraft);
+  const [equipmentTypes, setEquipmentTypes] = useState<OpeningCatalogOption[]>([]);
+  const [equipmentBrands, setEquipmentBrands] = useState<OpeningCatalogOption[]>([]);
+  const [loadingEquipmentCatalogs, setLoadingEquipmentCatalogs] = useState(false);
+  const [equipmentCatalogError, setEquipmentCatalogError] = useState<string | null>(null);
+  const [savingEquipmentDraft, setSavingEquipmentDraft] = useState(false);
+  const [equipmentDraftError, setEquipmentDraftError] = useState<string | null>(null);
+  const [equipmentDraftNotice, setEquipmentDraftNotice] = useState<string | null>(null);
   const started = useRef(false);
   const confirmingRef = useRef(false);
 
@@ -157,13 +198,27 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setEditingEquipment(false);
     setEquipmentSaveError(null);
     setEquipmentSaveNotice(null);
+    setEquipmentMode("existing");
+    setEquipmentDraftForm(emptyEquipmentDraft);
+    setEquipmentTypes([]);
+    setEquipmentBrands([]);
+    setEquipmentCatalogError(null);
+    setEquipmentDraftError(null);
+    setEquipmentDraftNotice(null);
 
     try {
       try {
         const current = await getCurrentServiceOrderOpening();
         setOpening(current.data);
         setEditingCustomer(!current.data.customerPublicId);
-        setEditingEquipment(!current.data.equipmentPublicId);
+        const draft = current.data.equipmentDraft;
+        const hasDraft = hasValidEquipmentDraft(draft);
+        setEquipmentMode(hasDraft ? "new" : "existing");
+        if (hasDraft) {
+          setEquipmentDraftForm(draft!);
+          void loadEquipmentCatalogs();
+        }
+        setEditingEquipment(!current.data.equipmentPublicId && !hasDraft);
         return;
       } catch (currentError) {
         if (!(currentError instanceof ApiError) || currentError.status !== 404) throw currentError;
@@ -179,7 +234,14 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
           const current = await getCurrentServiceOrderOpening();
           setOpening(current.data);
           setEditingCustomer(!current.data.customerPublicId);
-          setEditingEquipment(!current.data.equipmentPublicId);
+          const draft = current.data.equipmentDraft;
+          const hasDraft = hasValidEquipmentDraft(draft);
+          setEquipmentMode(hasDraft ? "new" : "existing");
+          if (hasDraft) {
+            setEquipmentDraftForm(draft!);
+            void loadEquipmentCatalogs();
+          }
+          setEditingEquipment(!current.data.equipmentPublicId && !hasDraft);
           setNotice("Já existe uma abertura de OS em andamento. Ela foi carregada para continuação.");
         } else {
           throw createError;
@@ -264,6 +326,8 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
       const result = await updateServiceOrderOpeningEquipment(opening.publicId, selectedEquipment.publicId, csrfToken);
       setOpening(result.data);
       setSelectedEquipment(null);
+      setEquipmentMode("existing");
+      setEquipmentDraftForm(emptyEquipmentDraft);
       setEditingEquipment(false);
       setEquipmentSaveNotice("Equipamento salvo na abertura em andamento.");
     } catch (reason) {
@@ -273,8 +337,93 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     }
   }
 
+  async function loadEquipmentCatalogs() {
+    if (loadingEquipmentCatalogs) return;
+    setLoadingEquipmentCatalogs(true);
+    setEquipmentCatalogError(null);
+    try {
+      async function loadAllPages(loader: (page: number, pageSize: number) => Promise<{ data: OpeningCatalogOption[]; pagination: { totalPages: number } }>) {
+        const first = await loader(1, 100);
+        const pages = await Promise.all(Array.from({ length: Math.max(0, first.pagination.totalPages - 1) }, (_, index) => loader(index + 2, 100)));
+        return [...first.data, ...pages.flatMap((page) => page.data)];
+      }
+      const [types, brands] = await Promise.all([
+        loadAllPages(listOpeningEquipmentTypes),
+        loadAllPages(listOpeningEquipmentBrands),
+      ]);
+      setEquipmentTypes(types);
+      setEquipmentBrands(brands);
+      if (types.length === 0 || brands.length === 0) {
+        setEquipmentCatalogError("Não há tipos ou marcas disponíveis no catálogo para informar um novo equipamento.");
+      }
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        setEquipmentCatalogError("Sua sessão expirou. Entre novamente para carregar tipos e marcas.");
+      } else if (reason instanceof ApiError && reason.status === 403) {
+        setEquipmentCatalogError("Você não tem permissão para consultar tipos e marcas na abertura da OS.");
+      } else {
+        setEquipmentCatalogError("Não foi possível carregar tipos e marcas de equipamento. Tente novamente.");
+      }
+    } finally {
+      setLoadingEquipmentCatalogs(false);
+    }
+  }
+
+  function chooseEquipmentMode(mode: "existing" | "new") {
+    if (mode === "new" && !canCreateEquipment) return;
+    setEquipmentMode(mode);
+    setSelectedEquipment(null);
+    setEquipmentSearch("");
+    setEquipments([]);
+    setEquipmentListLoaded(false);
+    setEquipmentSearchError(null);
+    setEquipmentSaveError(null);
+    setEquipmentSaveNotice(null);
+    setEquipmentDraftError(null);
+    setEquipmentDraftNotice(null);
+    setEditingEquipment(true);
+    if (mode === "new") {
+      const savedDraft = opening?.equipmentDraft ?? null;
+      setEquipmentDraftForm(hasValidEquipmentDraft(savedDraft) ? savedDraft : emptyEquipmentDraft);
+      if (equipmentTypes.length === 0 || equipmentBrands.length === 0) void loadEquipmentCatalogs();
+    } else {
+      setEquipmentDraftForm(emptyEquipmentDraft);
+    }
+  }
+
+  async function saveEquipmentDraft() {
+    if (!opening || savingEquipmentDraft || !canCreateEquipment) return;
+    const draft: OpeningEquipmentDraft = {
+      typePublicId: equipmentDraftForm.typePublicId,
+      brandPublicId: equipmentDraftForm.brandPublicId,
+      model: equipmentDraftForm.model.trim(),
+      serialIdentificationStatus: equipmentDraftForm.serialIdentificationStatus,
+      serialNumber: equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED"
+        ? null
+        : equipmentDraftForm.serialNumber?.trim() ?? "",
+    };
+    if (!hasValidEquipmentDraft(draft)) return;
+
+    setSavingEquipmentDraft(true);
+    setEquipmentDraftError(null);
+    setEquipmentDraftNotice(null);
+    try {
+      const result = await updateServiceOrderOpeningEquipmentDraft(opening.publicId, draft, csrfToken);
+      setOpening(result.data);
+      setEquipmentDraftForm(draft);
+      setEquipmentMode("new");
+      setSelectedEquipment(null);
+      setEditingEquipment(false);
+      setEquipmentDraftNotice("Novo equipamento salvo como rascunho da abertura.");
+    } catch (reason) {
+      setEquipmentDraftError(saveEquipmentDraftErrorMessage(reason));
+    } finally {
+      setSavingEquipmentDraft(false);
+    }
+  }
+
   async function cancelOpening() {
-    if (!opening || canceling || confirming) return;
+    if (!opening || canceling || confirming || savingEquipment || savingEquipmentDraft) return;
     setCanceling(true);
     setError(null);
     try {
@@ -322,14 +471,16 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const canConfirm = Boolean(
     opening?.status === "IN_PROGRESS"
     && opening.customerPublicId
-    && opening.equipmentPublicId
-    && opening.equipment?.publicId === opening.equipmentPublicId
-    && opening.equipment.owner.publicId === opening.customerPublicId
+    && ((opening.equipmentPublicId
+      && opening.equipment?.publicId === opening.equipmentPublicId
+      && opening.equipment.owner.publicId === opening.customerPublicId)
+      || (hasValidEquipmentDraft(opening.equipmentDraft) && canCreateEquipment))
     && !opening.transferRequested
     && !editingCustomer
     && !editingEquipment
     && !savingCustomer
     && !savingEquipment
+    && !savingEquipmentDraft
     && !canceling
     && !confirming,
   );
@@ -457,7 +608,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             <div className="section-heading">
               <div>
                 <h2 id="opening-equipment-title">Equipamento</h2>
-                <p>Pesquise e vincule um equipamento existente. Esta etapa não cria nem altera cadastros.</p>
+                <p>Selecione um equipamento existente ou informe um novo para manter como rascunho nesta abertura.</p>
               </div>
             </div>
 
@@ -466,6 +617,22 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             )}
             {waitingForCustomerChange && (
               <p className="muted" role="status">Salve a alteração do cliente antes de selecionar o equipamento.</p>
+            )}
+
+            {opening.equipmentDraft && !editingEquipment && hasValidEquipmentDraft(opening.equipmentDraft) && (
+              <div className="opening-customer__current" aria-label="Novo equipamento da abertura">
+                <strong>Novo equipamento da abertura</strong>
+                <span>Tipo: {equipmentTypes.find((item) => item.publicId === opening.equipmentDraft?.typePublicId)?.name ?? "Tipo selecionado"}</span>
+                <span>Marca: {equipmentBrands.find((item) => item.publicId === opening.equipmentDraft?.brandPublicId)?.name ?? "Marca selecionada"}</span>
+                <span>Modelo: {opening.equipmentDraft.model}</span>
+                <span>{opening.equipmentDraft.serialIdentificationStatus === "NOT_IDENTIFIED" || opening.equipmentDraft.serialNumber === null
+                  ? "Número de série não identificado"
+                  : `Série: ${opening.equipmentDraft.serialNumber}`}</span>
+                <p className="opening-warning">Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.</p>
+                {canCreateEquipment
+                  ? <button className="text-button" type="button" onClick={() => chooseEquipmentMode("new")}>Editar equipamento da abertura</button>
+                  : <p className="muted" role="status">A edição deste rascunho exige a permissão equipment.create.</p>}
+              </div>
             )}
 
             {opening.equipmentPublicId && !editingEquipment && (
@@ -488,6 +655,19 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
 
             {opening.customerPublicId && !waitingForCustomerChange && editingEquipment && (
               <>
+                <div className="opening-equipment__mode" role="group" aria-label="Tipo de equipamento para abertura">
+                  <button type="button" className={equipmentMode === "existing" ? "button button--secondary" : "text-button"} aria-pressed={equipmentMode === "existing"} onClick={() => chooseEquipmentMode("existing")}>
+                    Equipamento existente
+                  </button>
+                  {canCreateEquipment && (
+                    <button type="button" className={equipmentMode === "new" ? "button button--secondary" : "text-button"} aria-pressed={equipmentMode === "new"} onClick={() => chooseEquipmentMode("new")}>
+                      Novo equipamento
+                    </button>
+                  )}
+                </div>
+                {!canCreateEquipment && <p className="muted" role="status">Você não tem a permissão equipment.create para informar um novo equipamento.</p>}
+
+                {equipmentMode === "existing" && <>
                 <form className="assignment-search opening-customer__search" onSubmit={(event) => void searchOpeningEquipment(event)}>
                   <label htmlFor="opening-equipment-search">Buscar equipamento por modelo, série, tipo, marca ou proprietário</label>
                   <div>
@@ -543,18 +723,57 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                   </div>
                 )}
                 {equipmentSaveError && <p className="form-message form-message--error" role="alert">{equipmentSaveError}</p>}
+                </>}
+
+                {equipmentMode === "new" && canCreateEquipment && <section className="opening-equipment__draft" aria-label="Novo equipamento da abertura">
+                  <p className="muted">Preencha os dados para guardar o equipamento como rascunho da abertura.</p>
+                  {loadingEquipmentCatalogs && <p className="inline-state" role="status">Carregando tipos e marcas…</p>}
+                  {equipmentCatalogError && <p className="form-message form-message--error" role="alert">{equipmentCatalogError}</p>}
+                  <div className="opening-equipment__draft-fields">
+                    <label htmlFor="opening-equipment-type">Tipo do equipamento</label>
+                    <select id="opening-equipment-type" value={equipmentDraftForm.typePublicId} onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, typePublicId: event.target.value }))} required disabled={loadingEquipmentCatalogs || equipmentTypes.length === 0}>
+                      <option value="">Selecione um tipo</option>
+                      {equipmentTypes.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
+                    </select>
+                    <label htmlFor="opening-equipment-brand">Marca</label>
+                    <select id="opening-equipment-brand" value={equipmentDraftForm.brandPublicId} onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, brandPublicId: event.target.value }))} required disabled={loadingEquipmentCatalogs || equipmentBrands.length === 0}>
+                      <option value="">Selecione uma marca</option>
+                      {equipmentBrands.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
+                    </select>
+                    <label htmlFor="opening-equipment-model">Modelo</label>
+                    <div className="opening-equipment__model-field">
+                      <input id="opening-equipment-model" value={equipmentDraftForm.model} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, model: event.target.value }))} />
+                      <button className="text-button" type="button" onClick={() => setEquipmentDraftForm((current) => ({ ...current, model: "NÃO INFORMADO" }))}>Usar “NÃO INFORMADO”</button>
+                    </div>
+                    <fieldset>
+                      <legend>Número de série</legend>
+                      <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED"} onChange={() => setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "IDENTIFIED", serialNumber: current.serialNumber ?? "" }))} /> Série identificada</label>
+                      <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED"} onChange={() => setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null }))} /> Série não identificada</label>
+                      {equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && (
+                        <input aria-label="Número de série" value={equipmentDraftForm.serialNumber ?? ""} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, serialNumber: event.target.value }))} />
+                      )}
+                    </fieldset>
+                  </div>
+                  <p className="opening-warning">Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.</p>
+                  <button className="button button--primary" type="button" onClick={() => void saveEquipmentDraft()} disabled={savingEquipmentDraft || loadingEquipmentCatalogs || !hasValidEquipmentDraft({ ...equipmentDraftForm, model: equipmentDraftForm.model.trim(), serialNumber: equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED" ? null : equipmentDraftForm.serialNumber?.trim() ?? "" })}>
+                    {savingEquipmentDraft ? "Salvando rascunho…" : "Salvar novo equipamento na abertura"}
+                  </button>
+                  {equipmentDraftError && <p className="form-message form-message--error" role="alert">{equipmentDraftError}</p>}
+                  {equipmentDraftNotice && <p className="form-message form-message--success" role="status">{equipmentDraftNotice}</p>}
+                </section>}
               </>
             )}
             {equipmentSaveNotice && <p className="form-message form-message--success" role="status">{equipmentSaveNotice}</p>}
           </section>
 
           <div className="opening-actions">
+            {hasValidEquipmentDraft(opening.equipmentDraft) && !canCreateEquipment && <p className="form-message form-message--error" role="status">Confirmar a OS com este novo equipamento exige a permissão equipment.create.</p>}
             {canConfirmServiceOrderOpening && (
               <button className="button button--primary" type="button" onClick={() => { setConfirmationError(null); setShowConfirmation(true); }} disabled={!canConfirm}>
                 Confirmar OS
               </button>
             )}
-            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling || confirming}>
+            <button className="button button--danger" type="button" onClick={() => void cancelOpening()} disabled={canceling || confirming || savingEquipment || savingEquipmentDraft}>
               {canceling ? "Cancelando…" : "Cancelar abertura"}
             </button>
             <button className="text-button" type="button" onClick={onBack}>Voltar para lista</button>
@@ -581,6 +800,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             <div id="opening-confirmation-description" className="opening-confirmation-copy">
               <p>A Ordem de Serviço será criada oficialmente como <strong>ABERTA / TRIAGEM</strong>.</p>
               <p>O número reservado <strong>{opening.visibleNumber}</strong> se tornará definitivo e o Backend registrará os snapshots do cliente e do equipamento.</p>
+              {hasValidEquipmentDraft(opening.equipmentDraft) && <p>O equipamento novo será criado pelo Backend somente nesta confirmação.</p>}
               <p>Esta confirmação não cria orçamento, peças ou registros financeiros.</p>
             </div>
             {confirmationError && <p className="form-message form-message--error" role="alert">{confirmationError}</p>}
