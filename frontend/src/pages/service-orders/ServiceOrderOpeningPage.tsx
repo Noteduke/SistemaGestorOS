@@ -6,8 +6,11 @@ import {
   createServiceOrderOpening,
   getCurrentServiceOrderOpening,
   listOpeningCustomers,
+  listOpeningEquipment,
   updateServiceOrderOpeningCustomer,
+  updateServiceOrderOpeningEquipment,
   type OpeningCustomer,
+  type OpeningEquipment,
   type ServiceOrderOpening,
 } from "../../api/serviceOrders";
 
@@ -48,6 +51,36 @@ function saveCustomerErrorMessage(error: unknown): string {
   return "Não foi possível salvar o cliente da abertura. Tente novamente.";
 }
 
+function equipmentLookupErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sua sessão expirou. Entre novamente para pesquisar equipamentos.";
+    if (error.status === 403) return "Você não tem permissão para pesquisar equipamentos para a abertura da OS.";
+    if (error.status === 400 || error.status === 422) return "A pesquisa não foi aceita. Revise o texto e tente novamente.";
+  }
+  return "Não foi possível pesquisar equipamentos. Tente novamente.";
+}
+
+function saveEquipmentErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sua sessão expirou. Entre novamente para salvar o equipamento.";
+    if (error.status === 403) return "Você não tem permissão para alterar a abertura de OS.";
+    if (error.status === 404 || error.status === 400 || error.status === 422) {
+      return "Não foi possível vincular este equipamento à abertura da OS.";
+    }
+    if (error.status === 409 && error.code === "OWNERSHIP_DECISION_REQUIRED") {
+      return "Este equipamento está vinculado a outro cliente. A transferência de titularidade será tratada em uma etapa posterior.";
+    }
+    if (error.status === 409) return "A abertura ou o equipamento mudou de estado. Atualize a tela e tente novamente.";
+  }
+  return "Não foi possível salvar o equipamento da abertura. Tente novamente.";
+}
+
+function equipmentSerialLabel(equipment: OpeningEquipment): string {
+  return equipment.serialIdentificationStatus === "NOT_IDENTIFIED" || equipment.serialNumber === null
+    ? "Número de série não identificado"
+    : `Série: ${equipment.serialNumber}`;
+}
+
 export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeningPageProps) {
   const [opening, setOpening] = useState<ServiceOrderOpening | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +98,17 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
   const [customerSaveNotice, setCustomerSaveNotice] = useState<string | null>(null);
+  const [equipmentSearch, setEquipmentSearch] = useState("");
+  const [equipments, setEquipments] = useState<OpeningEquipment[]>([]);
+  const [selectedEquipment, setSelectedEquipment] = useState<OpeningEquipment | null>(null);
+  const [savedEquipmentSummary, setSavedEquipmentSummary] = useState<OpeningEquipment | null>(null);
+  const [searchingEquipments, setSearchingEquipments] = useState(false);
+  const [equipmentSearchError, setEquipmentSearchError] = useState<string | null>(null);
+  const [equipmentListLoaded, setEquipmentListLoaded] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState(false);
+  const [savingEquipment, setSavingEquipment] = useState(false);
+  const [equipmentSaveError, setEquipmentSaveError] = useState<string | null>(null);
+  const [equipmentSaveNotice, setEquipmentSaveNotice] = useState<string | null>(null);
   const started = useRef(false);
 
   async function loadOrCreateOpening() {
@@ -79,12 +123,22 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
     setEditingCustomer(false);
     setCustomers([]);
     setCustomerListLoaded(false);
+    setEquipmentSearch("");
+    setEquipments([]);
+    setSelectedEquipment(null);
+    setSavedEquipmentSummary(null);
+    setEquipmentSearchError(null);
+    setEquipmentListLoaded(false);
+    setEditingEquipment(false);
+    setEquipmentSaveError(null);
+    setEquipmentSaveNotice(null);
 
     try {
       try {
         const current = await getCurrentServiceOrderOpening();
         setOpening(current.data);
         setEditingCustomer(!current.data.customerPublicId);
+        setEditingEquipment(!current.data.equipmentPublicId);
         return;
       } catch (currentError) {
         if (!(currentError instanceof ApiError) || currentError.status !== 404) throw currentError;
@@ -94,11 +148,13 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
         const created = await createServiceOrderOpening(csrfToken);
         setOpening(created.data);
         setEditingCustomer(true);
+        setEditingEquipment(true);
       } catch (createError) {
         if (createError instanceof ApiError && createError.status === 409) {
           const current = await getCurrentServiceOrderOpening();
           setOpening(current.data);
           setEditingCustomer(!current.data.customerPublicId);
+          setEditingEquipment(!current.data.equipmentPublicId);
           setNotice("Já existe uma abertura de OS em andamento. Ela foi carregada para continuação.");
         } else {
           throw createError;
@@ -152,6 +208,47 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
     }
   }
 
+  async function searchOpeningEquipment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSearchingEquipments(true);
+    setEquipmentSearchError(null);
+    setEquipments([]);
+    setEquipmentListLoaded(false);
+    setSelectedEquipment(null);
+    setEquipmentSaveError(null);
+    setEquipmentSaveNotice(null);
+    try {
+      const result = await listOpeningEquipment(1, 20, equipmentSearch);
+      setEquipments(result.data);
+      setEquipmentListLoaded(true);
+    } catch (reason) {
+      setEquipmentSearchError(equipmentLookupErrorMessage(reason));
+    } finally {
+      setSearchingEquipments(false);
+    }
+  }
+
+  async function saveEquipment() {
+    if (!opening || !selectedEquipment || savingEquipment || !opening.customerPublicId) return;
+    if (selectedEquipment.owner.publicId !== opening.customerPublicId) return;
+
+    setSavingEquipment(true);
+    setEquipmentSaveError(null);
+    setEquipmentSaveNotice(null);
+    try {
+      const result = await updateServiceOrderOpeningEquipment(opening.publicId, selectedEquipment.publicId, csrfToken);
+      setOpening(result.data);
+      setSavedEquipmentSummary(selectedEquipment);
+      setSelectedEquipment(null);
+      setEditingEquipment(false);
+      setEquipmentSaveNotice("Equipamento salvo na abertura em andamento.");
+    } catch (reason) {
+      setEquipmentSaveError(saveEquipmentErrorMessage(reason));
+    } finally {
+      setSavingEquipment(false);
+    }
+  }
+
   async function cancelOpening() {
     if (!opening || canceling) return;
     setCanceling(true);
@@ -174,6 +271,12 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
         ? opening.customer
         : null
     : null;
+  const selectedEquipmentHasDifferentOwner = Boolean(
+    opening?.customerPublicId && selectedEquipment && selectedEquipment.owner.publicId !== opening.customerPublicId,
+  );
+  const waitingForCustomerChange = Boolean(
+    opening?.customerPublicId && editingCustomer && selectedCustomer && selectedCustomer.publicId !== opening.customerPublicId,
+  );
 
   return (
     <section className="page-section opening-page" aria-labelledby="opening-title">
@@ -205,7 +308,7 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
             <span className="status-badge">Em andamento</span>
           </div>
           <p className="opening-warning">
-            Esta abertura ainda não é uma OS confirmada. Vincular um cliente não cria OS nem snapshot; o equipamento será selecionado em uma próxima etapa.
+            Esta abertura ainda não é uma OS confirmada. Selecionar cliente ou equipamento não cria OS nem snapshot, não altera o cadastro do equipamento e não transfere titularidade.
           </p>
           <p className="muted">A abertura permanece como rascunho e ainda não aparece na lista de OS confirmadas.</p>
 
@@ -291,7 +394,100 @@ export function ServiceOrderOpeningPage({ csrfToken, onBack }: ServiceOrderOpeni
               </>
             )}
 
-            <p className="muted">O equipamento será selecionado em uma próxima etapa. Esta tela ainda não confirma a OS.</p>
+          </section>
+
+          <section className="opening-customer opening-equipment" aria-labelledby="opening-equipment-title">
+            <div className="section-heading">
+              <div>
+                <h2 id="opening-equipment-title">Equipamento</h2>
+                <p>Pesquise e vincule um equipamento existente. Esta etapa não cria nem altera cadastros.</p>
+              </div>
+            </div>
+
+            {!opening.customerPublicId && (
+              <p className="muted" role="status">Selecione e salve um cliente antes de escolher o equipamento.</p>
+            )}
+            {waitingForCustomerChange && (
+              <p className="muted" role="status">Salve a alteração do cliente antes de selecionar o equipamento.</p>
+            )}
+
+            {opening.equipmentPublicId && !editingEquipment && (
+              <div className="opening-customer__current" aria-label="Equipamento vinculado">
+                {savedEquipmentSummary?.publicId === opening.equipmentPublicId ? (
+                  <>
+                    <strong>{savedEquipmentSummary.type.name} · {savedEquipmentSummary.brand.name} · {savedEquipmentSummary.model}</strong>
+                    <span>{equipmentSerialLabel(savedEquipmentSummary)}</span>
+                    <span>Proprietário atual: {savedEquipmentSummary.owner.name}</span>
+                  </>
+                ) : (
+                  <span>Há um equipamento vinculado a esta abertura. O resumo não é retornado pela API de retomada.</span>
+                )}
+                <button className="text-button" type="button" onClick={() => { setEditingEquipment(true); setSelectedEquipment(null); setEquipmentSaveError(null); setEquipmentSaveNotice(null); }}>
+                  Trocar equipamento
+                </button>
+              </div>
+            )}
+
+            {opening.customerPublicId && !waitingForCustomerChange && editingEquipment && (
+              <>
+                <form className="assignment-search opening-customer__search" onSubmit={(event) => void searchOpeningEquipment(event)}>
+                  <label htmlFor="opening-equipment-search">Buscar equipamento por modelo, série, tipo, marca ou proprietário</label>
+                  <div>
+                    <input
+                      id="opening-equipment-search"
+                      value={equipmentSearch}
+                      onChange={(event) => setEquipmentSearch(event.target.value)}
+                      maxLength={100}
+                      autoComplete="off"
+                    />
+                    <button className="button button--secondary" type="submit" disabled={searchingEquipments}>
+                      {searchingEquipments ? "Buscando…" : "Buscar equipamentos"}
+                    </button>
+                  </div>
+                </form>
+
+                {searchingEquipments && <p className="inline-state" role="status">Pesquisando equipamentos…</p>}
+                {equipmentSearchError && <p className="form-message form-message--error" role="alert">{equipmentSearchError}</p>}
+                {equipmentListLoaded && equipments.length === 0 && <p className="muted">Nenhum equipamento encontrado para esta busca.</p>}
+                {equipments.length > 0 && (
+                  <ul className="opening-customer__list" aria-label="Resultados de equipamentos">
+                    {equipments.map((equipment) => (
+                      <li key={equipment.publicId}>
+                        <button
+                          type="button"
+                          className={selectedEquipment?.publicId === equipment.publicId ? "opening-customer__option opening-customer__option--selected" : "opening-customer__option"}
+                          aria-pressed={selectedEquipment?.publicId === equipment.publicId}
+                          onClick={() => { setSelectedEquipment(equipment); setEquipmentSaveError(null); setEquipmentSaveNotice(null); }}
+                        >
+                          <strong>{equipment.type.name} · {equipment.brand.name} · {equipment.model}</strong>
+                          <span>{equipmentSerialLabel(equipment)}</span>
+                          <span>Proprietário atual: {equipment.owner.name}</span>
+                          {equipment.owner.publicId !== opening.customerPublicId && (
+                            <span className="form-message form-message--error">Este equipamento está vinculado a outro cliente.</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {selectedEquipment && (
+                  <div className="opening-customer__selected" role="status">
+                    <p>Equipamento selecionado: <strong>{selectedEquipment.type.name} · {selectedEquipment.brand.name} · {selectedEquipment.model}</strong></p>
+                    <p>{equipmentSerialLabel(selectedEquipment)}</p>
+                    <p>Proprietário atual: {selectedEquipment.owner.name}</p>
+                    {selectedEquipmentHasDifferentOwner && (
+                      <p className="form-message form-message--error" role="alert">Este equipamento está vinculado a outro cliente. A transferência de titularidade será tratada em uma etapa posterior.</p>
+                    )}
+                    <button className="button button--primary" type="button" onClick={() => void saveEquipment()} disabled={savingEquipment || selectedEquipmentHasDifferentOwner || selectedEquipment.publicId === opening.equipmentPublicId}>
+                      {savingEquipment ? "Salvando…" : "Salvar equipamento"}
+                    </button>
+                  </div>
+                )}
+                {equipmentSaveError && <p className="form-message form-message--error" role="alert">{equipmentSaveError}</p>}
+              </>
+            )}
+            {equipmentSaveNotice && <p className="form-message form-message--success" role="status">{equipmentSaveNotice}</p>}
           </section>
 
           <div className="opening-actions">
