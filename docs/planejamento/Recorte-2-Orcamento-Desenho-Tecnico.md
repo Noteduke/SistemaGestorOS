@@ -1,6 +1,6 @@
 # Recorte 2 — Cadastro de Serviços e orçamento simplificado da OS
 
-**Status:** regras funcionais aprovadas por Marcos, consolidadas em [Regras de Negócio](../02-Regras-de-Negocio.md), seção “Orçamento simplificado da OS — decisões aprovadas”. Este documento fecha uma **proposta técnica para revisão**, sem schema, migration, Backend, Frontend ou seed implementados. Nomes físicos, rotas, DTOs, códigos de permissão, limites e constraints ainda não são contratos aprovados de implementação.
+**Status:** regras funcionais aprovadas por Marcos, consolidadas em [Regras de Negócio](../02-Regras-de-Negocio.md), seção “Orçamento simplificado da OS — decisões aprovadas”. O **Cadastro de Serviços** já possui schema, migration, Backend e Frontend implementados; a migration foi aplicada somente em `gestor_os_opening_test`, não no banco principal. As seções sobre itens de orçamento continuam proposta técnica para revisão, sem migration, API ou tela implementadas. Não houve seed genérico.
 
 ## 1. Escopo aprovado e limites
 
@@ -14,13 +14,13 @@ OS ABERTA aceita inclusão/edição/retirada mesmo após autorização, com hist
 
 Consulta estática, sem banco nem execução funcional:
 
-- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. Não há ServiceCatalog, item de orçamento ou modelo de produto/estoque.
+- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. `ServiceCatalog` já foi acrescentado ao schema e testado em banco isolado; ainda não há item de orçamento ou modelo de produto/estoque.
 - EquipmentLookupService e DTOs de Pessoas: consulta paginada, filtro de ativos quando aplicável, ordenação estável com id interno como desempate e projeção pública sem expor id.
 - normalizeGeneralText em Pessoas: trim, colapso de espaços e caixa alta pt-BR. A comparação exata de orçamento requer chave normalizada própria; não pressupor que a collation global tenha a mesma semântica.
-- AuthPolicyService/guards: sessão, permissão explícita, Administrador e CSRF em mutações. O catálogo atual não possui permissões de serviços/orçamento.
+- AuthPolicyService/guards: sessão, permissão explícita, Administrador e CSRF em mutações. `services.manage` já protege o catálogo; permissões de orçamento/custo continuam futuras.
 - ServiceOrderOperationalSituationService: transação Prisma, bloqueio da OS por FOR UPDATE, revalidação de macrostatus/permissão e evento na mesma transação. Reaproveitar o padrão, não copiar autorização espalhada.
 - ServiceOrderEventsReadService: eventos paginados por occurredAt/id e payloads por allowlist. Ainda não trata custo, snapshots de itens nem inserção de observação manual.
-- Frontend: React/TypeScript, rotas por hash, cliente HTTP, estados de carregamento/erro e paginação; telas de OS e login existentes. Não há tela administrativa genérica de Serviços pronta.
+- Frontend: React/TypeScript, rotas por hash, cliente HTTP, estados de carregamento/erro e paginação; telas de OS e login existentes. A tela administrativa de Serviços está em `#/services`; não existe tela de itens de orçamento.
 - Valores monetários devem ser DECIMAL conforme docs/03; não foi encontrado modelo monetário implementado que fixe precisão para esta fatia. O histórico existente usa eventos, não um mecanismo genérico de soft deletion para itens.
 
 Não criar repositories que só repitam Prisma; domínio coordena transações e infraestrutura permanece genérica, conforme DA-017.
@@ -34,32 +34,32 @@ Não criar repositories que só repitam Prisma; domínio coordena transações e
 
 **Recomendação técnica: opção B.** Não criar tabela principal de orçamento. A composição atual é o conjunto de itens com removedAt nulo. Retirar todos marca os itens e grava uma fotografia da composição; novos lançamentos recebem novos publicIds e ficam no fim da ordem de inclusão. Não inventar número de ciclo, versão de orçamento, restauração ou status. Campo técnico de concorrência da composição não é estado de orçamento.
 
-## 4. Cadastro de Serviços — persistência sugerida
+## 4. Cadastro de Serviços — persistência implementada
 
-Entidade candidata ServiceCatalog, tabela service_catalog. Distingui-la dos services NestJS e do tipo Serviço/Mão de obra.
+Entidade `ServiceCatalog`, tabela `service_catalog`. Distingui-la dos services NestJS e do tipo Serviço/Mão de obra. A migration está aplicada somente no banco isolado.
 
 | Campo sugerido | Representação candidata | Finalidade |
 | --- | --- | --- |
 | id / publicId | INT / UUID CHAR(36) unique | Relações internas / identidade pública |
-| name | VARCHAR(191), obrigatório | Nome imutável, normalizado conforme regra textual |
+| name | VARCHAR(120), obrigatório | Nome imutável, apresentação preservada após limpeza de espaços |
 | normalizedName | VARCHAR(191), obrigatório | Correspondência exata, independente da exibição |
-| defaultPrice | DECIMAL(15,2), obrigatório, sem NULL | Preço padrão alterável; zero permitido, negativo proibido (regra aprovada); precisão física sugerida |
-| isActive | boolean | Habilitado/desabilitado; default proposto true |
+| defaultPrice | DECIMAL(15,2), obrigatório, sem NULL | Preço padrão alterável; zero permitido, negativo proibido |
+| isActive | boolean | Habilitado/desabilitado; default true |
 | createdAt / updatedAt | DATETIME(3) | Instantes do servidor |
 | createdByUserId / updatedByUserId | FK User | Autoria das operações |
-| version | INT positivo | Controle otimista proposto contra edição perdida |
+| version | INT positivo | Controle otimista contra edição perdida |
 
-Campos/tamanhos são propostas, não limites funcionais já aprovados. Preço e ativação são editáveis; name e normalizedName não entram no DTO de alteração e não são mutáveis no service. Rejeitar tentativa de renomear em vez de ignorá-la. Mudança de nome exige outro cadastro. Ajuste de preço só altera defaultPrice, nunca itens existentes. Serviço desabilitado continua referenciado pelas OS existentes; seus itens atuais permanecem editáveis enquanto a OS estiver ABERTA. Somente novos lançamentos exigem serviço ativo. Para voltar a lançar em outra OS, reabilitar o cadastro existente.
+Campos/tamanhos acima são o contrato implementado para o catálogo. Preço e ativação são editáveis, inclusive preço de serviço desabilitado; name e normalizedName não entram no DTO de alteração e não são mutáveis no service. Rejeitar tentativa de renomear em vez de ignorá-la. Mudança de nome exige outro cadastro. Ajuste de preço só altera defaultPrice, nunca itens existentes. Como ainda não há itens, a regra de serviço desabilitado em OS histórica e a exigência de serviço ativo para novos lançamentos serão implementadas com a futura associação à OS.
 
-Auditoria sugerida: eventos de criação, preço alterado, habilitação/desabilitação e exclusão no `admin_audit_log` existente, todos na mesma transação da mutação e sem justificativa obrigatória. Preço alterado: serviço/publicId, preço anterior e novo, ator e instante. Ativação: serviço/publicId, ação, ator e instante. Exclusão física: guardar **antes de excluir** snapshot imutável em `details_json` com publicId, nome e preço padrão vigente; `actor_user_id` e `occurred_at` já registram usuário e hora. Não usar FK de `admin_audit_log` para o serviço apagado; o modelo atual só tem `target_user_id` para usuários. Soft delete com unique global manteria o nome reservado; liberá-lo exigiria uma exceção adicional na unicidade e no ciclo do cadastro. Exclusão física de serviço nunca associado, com snapshot administrativo preservado, atende diretamente à reutilização aprovada. A guarda transacional e a FK restritiva dos itens impedem excluir se houve qualquer associação, inclusive item retirado.
+Auditoria implementada: eventos de criação, preço alterado, habilitação/desabilitação e exclusão no `admin_audit_log` existente, na mesma transação da mutação e sem justificativa obrigatória. Preço alterado guarda serviço/publicId, preço anterior e novo; ativação guarda situação anterior/nova; ambos registram ator e instante. Exclusão física guarda, **antes de excluir**, snapshot em `details_json` com publicId, nome e preço padrão vigente; `actor_user_id` e `occurred_at` registram usuário e hora. Não há FK do log para o serviço apagado. Soft delete com unique global manteria o nome reservado; a exclusão física libera a chave. A guarda por associação histórica e a FK restritiva dos itens ainda serão implementadas quando houver itens; não há associação hoje.
 
 ### 4.1 Duplicidade, índices e constraints
 
 - Unique publicId e **unique global de normalizedName, sem filtrar por atividade**. A chave permanece ocupada pelo serviço desabilitado e é liberada apenas após exclusão física permitida. Reabilitar atualiza o cadastro existente, sem nova linha.
-- Índice de consulta `(isActive, normalizedName, id)` e busca pela chave normalizada inclusive inativos. Avaliar redundância dos índices na migration para evitar duplicação inútil.
-- Nome obrigatório/não vazio, preço padrão `NOT NULL` e `>= 0` com duas casas. O tamanho do nome, a precisão DECIMAL e a collation física continuam propostas. A chave deve aplicar exatamente a normalização aprovada, sem equivalência involuntária por collation acento insensível; testar no MySQL 8 isolado.
+- Índices reais de consulta `(isActive, name, id)` e `(name, id)`, com busca pela chave normalizada inclusive entre inativos; a chave possui unique próprio.
+- Nome obrigatório/não vazio até 120 caracteres após limpeza, preço padrão `DECIMAL(15,2) NOT NULL` e `>= 0`. A chave normalizada ignora caixa, acentos e diferenças de espaços, mas considera pontuação; `utf8mb4_bin` protege a comparação canônica. Migration e operações foram testadas no MySQL 8 isolado.
 - Imutabilidade do nome fica no DTO/service e na revisão das operações administrativas; CHECK não compara valor antigo com novo. Nunca oferecer rename no contrato.
-- Item → serviço com FK RESTRICT na exclusão, mesmo para item retirado. Checar vínculo e excluir na mesma transação; a FK é defesa final contra corrida com associação. Não usar CASCADE que apague histórico.
+- Item → serviço com FK RESTRICT na exclusão, mesmo para item retirado, permanece contrato futuro. Ainda não existe associação no schema; ao implementá-la, checar vínculo e excluir na mesma transação, com FK como defesa final. Não usar CASCADE que apague histórico.
 - Desabilitado fica disponível para consulta histórica e para bloquear avulso correspondente; novos lançamentos cadastrados exigem reabilitação. Preço padrão novo afeta somente lançamentos futuros.
 
 ## 5. Itens diretamente na OS — persistência sugerida
@@ -73,7 +73,7 @@ Entidade ServiceOrderBudgetItem, tabela service_order_budget_items. Não é sche
 | itemType | SERVICE_LABOR ou MANUAL_PART nesta fatia | STOCK_PART reservado conceitualmente à fase posterior |
 | origin | REGISTERED ou MANUAL | Origem não é quarto tipo |
 | serviceCatalogId | FK nullable RESTRICT | Só serviço cadastrado; nunca vincular peça avulsa |
-| description / normalizedDescription | VARCHAR(191) sugerido | Snapshot do nome ou descrição livre e chave exata |
+| description / normalizedDescription | Capacidade mínima de 255 caracteres após limpeza para avulsos; representação física a revisar | Snapshot do nome ou descrição livre e chave exata |
 | quantity | INT, default 1 | Inteiro ≥1; valor inicial 1, teto técnico a aprovar |
 | unitPrice | DECIMAL(15,2) | Valor cobrado ≥0 |
 | unitCost | DECIMAL(15,2) nullable | Só MANUAL_PART; NULL e zero distintos |
@@ -98,14 +98,14 @@ Sugestões de constraints:
 - Nome cadastrado inalterável; macrostatus ABERTA; correspondência contra catálogo; valores copiados e histórico atômico são invariantes de domínio. CHECK não consulta outras tabelas.
 - Índices (serviceOrderId, removedAt, id) para itens atuais/históricos e (serviceCatalogId) para vínculo histórico/exclusão.
 - Unique condicional de (serviceOrderId, serviceCatalogId) só para serviço cadastrado ATUAL; itens removidos não bloqueiam relançamento manual. Uma constraint incondicional impediria os ciclos aprovados. Em tentativa duplicada, retornar conflito com publicId do item atual para o Frontend destacá-lo; nunca somar quantidade automaticamente.
-- Unique condicional para descrição avulsa normalizada na composição atual. **Pendente:** unicidade separada por tipo ou conjunta entre mão de obra avulsa e peça avulsa. Não fixar a chave antes da resposta.
+- Unique condicional para descrição avulsa normalizada na composição atual, separada por categoria: mão de obra avulsa e peça avulsa podem ter a mesma descrição entre si, mas não podem duplicá-la dentro da mesma categoria.
 - Índices funcionais/chaves condicionais têm precedente nas migrations de principalidade de contatos. A expressão física e compatibilidade MySQL/Prisma devem ser validadas futuramente em banco isolado; não criar SQL nesta etapa.
 
 Cada item removido permanece armazenado. Um novo lançamento do mesmo serviço depois da retirada é novo item, não restauração. Histórico e FK impedem excluir o serviço que já teve associação.
 
 ### 5.2 Normalização e impedimento de contorno
 
-Propor helper compartilhável com semântica observada: trim → substituir sequências de espaços por um espaço → caixa alta pt-BR. Não remover acentos, pontuação nem fazer fuzzy/sinônimos por inferência. Usar comparação exata da chave; uma collation que ignore acentos pode equiparar nomes além da regra aprovada. Sugerir collation binária/adequada à chave canônica, sujeita a teste e escolha física posterior.
+O helper do catálogo limpa espaços externos/duplicados e preserva caixa, acentos e pontuação no nome exibido; a chave canônica remove acentos, uniformiza caixa e espaços, mas mantém pontuação significativa. Não há fuzzy nem sinônimos. Descrição manual futura segue a mesma semântica, obrigatória e limitada a 255 caracteres após limpeza. Usar comparação exata da chave em collation binária; a estratégia física dos itens ainda requer revisão.
 
 Ao criar/editar mão de obra avulsa, procurar chave correspondente em TODO Cadastro de Serviços, inclusive inativos. Ao criar/editar peça avulsa, a regra equivalente exige TODO catálogo de peças/produtos, inclusive inativos.
 
@@ -146,7 +146,7 @@ Na mudança para NÃO AUTORIZADO com orçamento atual, propor ampliar o DTO exis
 
 Retirar a composição exige a **única permissão de editar orçamento**, além da permissão atual de mudar a situação; quem só muda situação não recebe edição de orçamento por consequência. Nome/canal/evidência/assinatura/motivo não são obrigatórios. Observação manual opcional no histórico é regra aprovada, mas o contrato de escrita ainda não existe e requer fatia própria; a atual GET /events não recebe escrita. A aprovação do reparo usa o evento de mudança de situação existente, sem formulário ou evento de aprovação separado.
 
-## 8. Permissões — categorias aprovadas, códigos técnicos propostos
+## 8. Permissões — catálogo implementado e categorias futuras
 
 | Código candidato | Capacidade funcional aprovada |
 | --- | --- |
@@ -155,22 +155,22 @@ Retirar a composição exige a **única permissão de editar orçamento**, além
 | `service_orders.budget.costs.read` | Visualizar custo interno da peça avulsa |
 | `service_orders.budget.costs.update` | Alterar custo interno da peça avulsa; pressupõe leitura |
 
-As quatro **categorias e sua granularidade estão aprovadas**; os códigos acima são proposta de nomenclatura, ainda não adicionada ao catálogo ou seed. A separação funcional visualizar/alterar custo já está aprovada. Política central sugerida: `costs.update` pressupõe capacidade efetiva `costs.read`, sem conceder edição geral por consequência; escrita de custo exige também `budget.update`. Concessão/revogação deve preservar essa dependência. Administrador segue política central existente.
+As quatro **categorias e sua granularidade estão aprovadas**. `services.manage` já foi acrescentada ao catálogo fonte de permissões do Backend, mas não foi executado seed no banco principal; os três códigos de orçamento/custo acima ainda são propostas. A separação funcional visualizar/alterar custo já está aprovada. Política central sugerida: `costs.update` pressupõe capacidade efetiva `costs.read`, sem conceder edição geral por consequência; escrita de custo exige também `budget.update`. Concessão/revogação deve preservar essa dependência. Administrador segue política central existente.
 
-Não criar permissão de leitura do orçamento nem permissão separada de preço cobrado. `service_orders.read` dá leitura de itens, descrições, quantidades, valores cobrados e total atual, mas não do custo; histórico usa `service_orders.events.read` e mutação da situação usa `service_orders.situation.update`. Consulta administrativa do catálogo usa `services.manage`; a consulta auxiliar de serviços ativos para a OS usa `service_orders.budget.update` e não permite administrar catálogo. O guard atual exige TODAS as permissões declaradas: não modelar “manage OU budget.update” como uma chamada simples a `@RequirePermissions`. Administrador segue a política central. Não adicionar permissões ao seed neste trabalho.
+Não criar permissão de leitura do orçamento nem permissão separada de preço cobrado. `service_orders.read` dará leitura de itens, descrições, quantidades, valores cobrados e total atual, mas não do custo; histórico usa `service_orders.events.read` e mutação da situação usa `service_orders.situation.update`. Consulta administrativa do catálogo já usa `services.manage`; a consulta auxiliar futura de serviços ativos para a OS usará `service_orders.budget.update` e não permitirá administrar catálogo. O guard atual exige TODAS as permissões declaradas: não modelar “manage OU budget.update” como uma chamada simples a `@RequirePermissions`. Administrador segue a política central. Apenas a permissão do catálogo foi adicionada à fonte nesta missão; nenhum seed foi executado.
 
-## 9. API e DTOs propostos — contratos a revisar
+## 9. API e DTOs do catálogo; itens propostos
 
-Todas as rotas abaixo sob /api/v1, sessão obrigatória e CSRF em mutações. Respostas públicas com publicId, valores monetários string e datas ISO; nunca ids internos. Listas paginadas com page/pageSize obrigatórios, máximo sugerido 100 e deslocamento seguro, ordenação estável. Não implementar rotas nesta tarefa.
+Todas as rotas abaixo sob /api/v1, sessão obrigatória e CSRF em mutações. Respostas públicas com publicId, valores monetários string e datas ISO; nunca ids internos. As rotas administrativas de `/services` foram implementadas com page/pageSize obrigatórios, máximo 100 e deslocamento seguro; as rotas de itens e `/services/available` continuam propostas.
 
 | Método/rota candidata | Corpo/query proposto | Finalidade |
 | --- | --- | --- |
-| GET /services | page, pageSize, search, includeInactive | Lista administrativa; exige `services.manage` |
+| GET /services | page, pageSize, search, status=active/inactive/all | Lista administrativa implementada; exige `services.manage`, active por padrão |
 | GET /services/available | page, pageSize, search | Lookup de ativos para editor da OS; exige `service_orders.budget.update` |
 | GET /services/:publicId | — | Detalhe cadastral administrativo |
 | POST /services | name, defaultPrice | Criar, nome definitivo |
 | PATCH /services/:publicId | `defaultPrice` OU `isActive`, mais `expectedVersion` | Uma ação por chamada: preço ou habilitar/desabilitar; rejeitar name |
-| DELETE /services/:publicId | expectedVersion a definir no contrato | Exclusão somente nunca associado |
+| DELETE /services/:publicId | expectedVersion obrigatório na query | Exclusão implementada; proteção por vínculo histórico depende dos itens futuros |
 | GET /service-orders/:publicId/budget-items | page, pageSize | Exige `service_orders.read`; itens atuais em ordem de inclusão, total de TODA composição e versão |
 | POST /service-orders/:publicId/budget-items | união discriminada descrita abaixo | Criar item |
 | PATCH /service-orders/:publicId/budget-items/:itemPublicId | quantity, unitPrice, description avulsa, unitCost se permitido, expectedVersion | Editar campos aplicáveis |
@@ -178,7 +178,7 @@ Todas as rotas abaixo sob /api/v1, sessão obrigatória e CSRF em mutações. Re
 | PATCH /service-orders/:publicId/operational-situation (existente) | situação + budgetDisposition/expectedBudgetVersion propostos | Manter/retirar orçamento no não autorizado |
 | GET /service-orders/:publicId/events (existente) | page, pageSize | Histórico allowlisted, estendido com filtragem de custo |
 
-**Escolha de contrato candidata:** `PATCH /services/:publicId` com allowlist de `defaultPrice` OU `isActive`, um campo mutável por requisição, é mais simples que rotas separadas `/price`, `/enable` e `/disable` e gera evento administrativo inequívoco por ação. `name` nunca é mutável. O mesmo `services.manage` governa todas as mutações administrativas. A separação entre listagem administrativa e `/services/available` evita regra “OU” no guard atual e impede que o editor do orçamento consulte inativos pela rota auxiliar. Ordenar listagens por nome normalizado e id; limite de paginação e validação devem seguir os padrões existentes. Os nomes de rota/DTO ainda precisam de aprovação contratual.
+**Contrato implementado do catálogo:** `PATCH /services/:publicId` aceita `defaultPrice` OU `isActive`, exatamente um campo mutável por requisição, além de `expectedVersion`; `name` nunca é mutável. Operação que não altera o valor retorna o cadastro sem nova auditoria nem incremento de versão; mudança efetiva registra evento. `services.manage` governa todas as rotas administrativas. A listagem é ordenada por nome exibido e id, com paginação obrigatória até 100 e filtro ativo por padrão. `/services/available` continua futura, para a missão de itens de orçamento.
 
 Não criar rota autônoma Budget/status/restore/approve. Retirada total acontece pela decisão em situação NÃO AUTORIZADO, exigindo também edição de orçamento. Uma OS pode estar aguardando aprovação com lista vazia. Revisar tratamento de situação já vigente para não criar mutação oculta no atual no-op.
 
@@ -221,12 +221,12 @@ Nenhum teste funcional será executado nesta tarefa documental.
 
 ## 13. Decisões pendentes e ordem recomendada
 
-1. Marcos: duplicidade de descrições avulsas **entre** Mão de obra avulsa e Peça avulsa; dentro de cada categoria o bloqueio já está aprovado.
-2. Revisão do contrato proposto: códigos técnicos das quatro permissões, rotas, DTOs, erros, consulta auxiliar de serviços, transação de manter/retirar e edição concorrente. Categorias e granularidade funcional de permissão já estão aprovadas.
-3. Aprovação física: comprimentos e máximos de quantidade/valores, precisão DECIMAL além da escala aprovada de duas casas, collation da chave normalizada e garantia concorrente. Zero/negativo do preço padrão e do valor cobrado já estão decididos.
+1. A duplicidade de descrições avulsas foi decidida: separada por categoria, permitindo a mesma descrição entre categorias.
+2. Revisão do contrato proposto dos itens: códigos técnicos das três permissões futuras, rotas, DTOs, erros, consulta auxiliar de serviços, transação de manter/retirar e edição concorrente. `services.manage` já foi implementada.
+3. Aprovação física dos itens: comprimentos e máximos de quantidade/valores, precisão DECIMAL, collation e garantia concorrente. O catálogo já usa nome até 120, preço DECIMAL(15,2) e atividade ativa por padrão; esses parâmetros não permanecem pendentes para ele.
 4. Limitação temporal aceita no desenho: sem catálogo/estoque consultável na primeira fatia, não há como conferir peça avulsa equivalente; a regra definitiva será exigida quando houver catálogo. Detalhar futuramente o tratamento de peças avulsas anteriores, sem alterar registros por inferência.
 5. Fatia futura de observação manual opcional no histórico da OS; hoje há apenas eventos automáticos e GET. Não criar aprovação estruturada nem endpoint genérico por inferência.
-6. Confirmar detalhes técnicos ainda sugeridos, como default de atividade e máximo do nome. Seleção de desabilitado para novo lançamento está vedada pela decisão aprovada; reabilitar antes.
+6. Implementar no futuro a consulta de seleção com somente serviços ativos em ordem alfabética; serviço desabilitado já usado permanecerá visível/editável na OS existente. Não há `/services/available` neste recorte.
 7. PDF/impressão, envio, validade e aprovação parcial continuam sem desenho aprovado. Não impor novo aceite automático. Estoque, fiscal, faturamento e desconto no fechamento seguem posteriores.
 
-Próxima tarefa recomendada: revisar o contrato proposto e decidir a duplicidade entre os dois tipos avulsos. Em seguida, aprovar modelo físico/migration sob autorização específica. A ausência temporal do catálogo de peças deve continuar visível no escopo e nos critérios da primeira entrega.
+Próxima tarefa recomendada: revisar o contrato técnico dos itens simplificados e, depois, aprovar sua migration própria. A ausência temporal do catálogo de peças deve continuar visível no escopo e nos critérios da entrega.

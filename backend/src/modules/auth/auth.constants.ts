@@ -23,6 +23,7 @@ export const PERMISSION_CATALOG = [
   ["equipment.reactivate", "Reativar equipamentos."],
   ["equipment.delete_unlinked", "Excluir equipamento sem vínculos."],
   ["equipment.transfer_ownership", "Transferir titularidade de equipamentos."],
+  ["services.manage", "Administrar o Cadastro de Serviços."],
   ["service_orders.opening.create", "Iniciar e gerenciar a própria abertura de OS."],
   ["service_orders.opening.read", "Consultar a própria abertura de OS."],
   ["service_orders.opening.manage", "Gerenciar aberturas de OS de outros usuários."],

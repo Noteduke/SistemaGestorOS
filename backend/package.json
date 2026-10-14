@@ -13,7 +13,8 @@
     "equipment:seed-unspecified-brand": "npm run build && node dist/scripts/seed-unspecified-brand.js",
     "prisma:generate": "prisma generate",
     "prisma:format": "prisma format",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "test:services": "npm run build && node --test test/services.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.1.2",

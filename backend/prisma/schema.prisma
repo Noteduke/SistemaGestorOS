@@ -146,6 +146,8 @@ model User {
   serviceOrderEvents            ServiceOrderEvent[]      @relation("ServiceOrderEventActor")
   initiatedServiceOrderEvents   ServiceOrderEvent[]      @relation("ServiceOrderEventInitiator")
   equipmentOwnershipChanges     EquipmentOwnership[]     @relation("EquipmentOwnershipActor")
+  createdCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogCreator")
+  updatedCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogUpdater")
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -229,6 +231,28 @@ model AdminAuditLog {
   @@index([targetUserId, occurredAt])
   @@index([attemptedUsername, occurredAt])
   @@map("admin_audit_log")
+}
+
+model ServiceCatalog {
+  id              Int      @id @default(autoincrement())
+  publicId        String   @unique @default(uuid()) @map("public_id") @db.Char(36)
+  name            String   @db.VarChar(120)
+  normalizedName  String   @unique @map("normalized_name") @db.VarChar(191)
+  defaultPrice    Decimal  @map("default_price") @db.Decimal(15, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId Int      @map("created_by_user_id")
+  updatedByUserId Int      @map("updated_by_user_id")
+  createdBy       User     @relation("ServiceCatalogCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy       User     @relation("ServiceCatalogUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([isActive, name, id])
+  @@index([name, id])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+  @@map("service_catalog")
 }
 
 model PersonAddress {

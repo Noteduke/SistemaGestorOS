@@ -221,7 +221,7 @@ Cada mudança de situação e de atribuição deve gerar histórico com usuário
 
 ### Orçamento simplificado da OS — decisões aprovadas
 
-As regras desta seção são funcionais e aprovadas por Marcos. O desenho físico, contratos e permissões técnicas sugeridos estão em [Recorte 2](planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md); não estão implementados.
+As regras desta seção são funcionais e aprovadas por Marcos. O Cadastro de Serviços já possui schema, API e interface administrativa; a migration foi aplicada somente em `gestor_os_opening_test` e ainda não no banco principal. Os itens de orçamento e sua integração à OS continuam propostos em [Recorte 2](planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md), sem implementação.
 
 #### Composição, quantidade e valores
 
@@ -231,9 +231,9 @@ Uma OS admite vários serviços diferentes e várias peças avulsas, inclusive s
 
 #### Cadastro de Serviços e origem do item
 
-O Cadastro de Serviços terá nome obrigatório e imutável desde a criação, preço padrão obrigatório, não negativo e inclusive zero, ativo/inativo e auditoria. Preço padrão NULL é inválido; usuário autorizado pode alterá-lo sem justificativa obrigatória. Alterações de preço registram serviço, preço anterior/novo, usuário e data/hora, sem mudar OS anteriores. Habilitação/desabilitação registra serviço, ação, usuário e data/hora no histórico do cadastro, sem justificativa obrigatória; não modifica OS existentes. Serviço associado alguma vez a qualquer OS não pode ser excluído, mesmo que seu item tenha sido retirado do orçamento atual: pode apenas ser desabilitado. Se nunca foi associado, usuário autorizado pode excluí-lo fisicamente; a auditoria administrativa preserva nome, preço padrão vigente, usuário e data/hora, sem justificativa. Após exclusão real, o nome pode ser reutilizado.
+O Cadastro de Serviços possui nome obrigatório, imutável e limitado a 120 caracteres após limpeza de espaços; preço padrão obrigatório, não negativo e inclusive zero, com duas casas decimais; novo registro ativo por padrão; e auditoria. Preço padrão NULL é inválido; usuário autorizado pode alterá-lo sem justificativa obrigatória, inclusive quando o serviço está desabilitado. Alterações de preço registram serviço, preço anterior/novo, usuário e data/hora, sem mudar OS anteriores. Habilitação/desabilitação registra serviço, ação, usuário e data/hora no Log Administrativo, sem justificativa obrigatória; não modifica OS existentes. Serviço associado alguma vez a qualquer OS não pode ser excluído, mesmo que seu item tenha sido retirado do orçamento atual: pode apenas ser desabilitado. Se nunca foi associado, usuário autorizado pode excluí-lo fisicamente enquanto ativo ou desabilitado; a auditoria administrativa preserva nome, preço padrão vigente, usuário e data/hora, sem justificativa. Após exclusão real, o nome pode ser reutilizado. Como ainda não existem itens de orçamento ligados a serviços, a verificação de vínculo histórico e a FK restritiva serão implementadas com essa futura associação; este recorte não simula vínculos inexistentes.
 
-O nome normalizado é único entre TODOS os serviços existentes, ativos ou desabilitados. Não criar cadastro com nome de serviço desabilitado: para reutilizá-lo, habilitar o registro existente e ajustar seu preço padrão se necessário. A comparação ignora diferenças de caixa, espaços externos e espaços duplicados entre palavras, sem busca aproximada nem sinônimos automáticos.
+O nome normalizado é único entre TODOS os serviços existentes, ativos ou desabilitados. Não criar cadastro com nome de serviço desabilitado: para reutilizá-lo, habilitar o registro existente e ajustar seu preço padrão se necessário. A exibição preserva caixa, acentos e pontuação após `trim` e colapso de espaços. A chave de comparação ignora caixa, acentos e diferenças de espaços externos/internos, mas considera pontuação; não há busca aproximada nem sinônimos automáticos.
 
 Uma única permissão administrativa abrange criação, alteração de preço padrão, habilitação, desabilitação e exclusão permitida do Cadastro de Serviços. Usar serviço numa OS pertence à permissão de editar orçamento, não à administração do cadastro.
 
@@ -256,9 +256,9 @@ Peça avulsa não pertence ao estoque, não possui saldo, não movimenta, reserv
 
 Não permitir mão de obra avulsa correspondente a serviço já cadastrado, inclusive desabilitado. Não permitir peça avulsa correspondente a peça cadastrada/no estoque, inclusive inativa. Desabilitar cadastro não autoriza versão avulsa equivalente.
 
-Correspondência exata considera caixa, espaços externos e espaços duplicados entre palavras: “Reparo de Placa”, “reparo de placa” e “Reparo   de   Placa” correspondem. Não usar fuzzy matching nem equivalência automática de sinônimos: “Troca de conector” e “Substituição de conector” não são automaticamente iguais.
+Correspondência exata ignora diferenças de caixa, acentos e espaços externos ou duplicados entre palavras: “Reparo de Placa”, “reparo de placa” e “Reparo   de   Placa” correspondem. Pontuação diferencia as chaves. Não usar fuzzy matching nem equivalência automática de sinônimos: “Troca de conector” e “Substituição de conector” não são automaticamente iguais.
 
-Não permitir duas linhas avulsas com a mesma descrição normalizada na mesma OS, tanto para mão de obra avulsa como para peça avulsa; editar o item existente. A aplicação conjunta ou separada dessa unicidade entre os dois tipos deve ser explicitada no contrato técnico antes de implementar, sem presumir a resposta. A regra incide na composição atual para permitir novos ciclos manuais após retirada, mantendo todo histórico.
+Não permitir duas linhas avulsas com a mesma descrição normalizada na mesma OS dentro de cada categoria: mão de obra avulsa e peça avulsa são comparadas separadamente. A mesma descrição pode existir uma vez em cada categoria. A descrição manual é obrigatória, com até 255 caracteres após `trim` e colapso de espaços; a exibição preserva caixa, acentos e pontuação. A chave de comparação ignora caixa, acentos e diferenças de espaços, mas considera pontuação, sem fuzzy ou sinônimos. A regra incide na composição atual para permitir novos ciclos manuais após retirada, mantendo todo histórico. Esses itens ainda não foram implementados.
 
 #### Edição, autorização e não autorização
 
