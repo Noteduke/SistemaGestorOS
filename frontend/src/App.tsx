@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthApiError, getCurrentIdentity, login, logout } from "./api/auth";
 import type { AuthIdentity } from "./api/auth";
 import { LoginPage } from "./pages/auth/LoginPage";
@@ -40,20 +40,45 @@ function readRoute(): Route {
   return { view: "list", page: positivePage(query.get("page")) };
 }
 
-function useHashRoute(): [Route, (hash: string) => void] {
+function useHashRoute(onExternalNavigation: (target: string) => boolean): [Route, (hash: string) => void] {
   const [route, setRoute] = useState(readRoute);
+  const currentHash = useRef(window.location.hash);
+  const allowHashChange = useRef(false);
 
   useEffect(() => {
-    const update = () => setRoute(readRoute());
+    const update = () => {
+      const target = window.location.hash;
+      if (allowHashChange.current) {
+        allowHashChange.current = false;
+        currentHash.current = target;
+        setRoute(readRoute());
+        return;
+      }
+      if (target !== currentHash.current && !onExternalNavigation(target)) {
+        allowHashChange.current = true;
+        window.location.hash = currentHash.current;
+        return;
+      }
+      currentHash.current = target;
+      setRoute(readRoute());
+    };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
-  }, []);
+  }, [onExternalNavigation]);
 
-  return [route, (hash) => { window.location.hash = hash; }];
+  return [route, (hash) => { allowHashChange.current = true; window.location.hash = hash; }];
 }
 
 export function App() {
-  const [route, navigate] = useHashRoute();
+  const unsavedChangesRef = useRef(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
+  const [discardChangesVersion, setDiscardChangesVersion] = useState(0);
+  const onExternalNavigation = useCallback((target: string) => {
+    if (!unsavedChangesRef.current) return true;
+    setPendingLeaveAction(() => () => navigate(target));
+    return false;
+  }, []);
+  const [route, navigate] = useHashRoute(onExternalNavigation);
   const [session, setSession] = useState<
     | { status: "checking" }
     | { status: "anonymous"; message?: string }
@@ -83,7 +108,27 @@ export function App() {
     navigate("/service-orders");
   }
 
-  async function handleLogout() {
+  function requestLeave(action: () => void) {
+    if (unsavedChangesRef.current) {
+      setPendingLeaveAction(() => action);
+      return;
+    }
+    action();
+  }
+
+  function confirmLeaveWithoutSaving() {
+    const action = pendingLeaveAction;
+    setPendingLeaveAction(null);
+    unsavedChangesRef.current = false;
+    setDiscardChangesVersion((version) => version + 1);
+    action?.();
+  }
+
+  function navigateSafely(hash: string) {
+    requestLeave(() => navigate(hash));
+  }
+
+  async function performLogout() {
     if (session.status !== "authenticated") return;
     setLogoutMessage("");
     try {
@@ -95,19 +140,21 @@ export function App() {
     }
   }
 
+  function handleLogout() { requestLeave(() => void performLogout()); }
+
   function openOrder(publicId: string) {
-    navigate(`/service-orders/${encodeURIComponent(publicId)}`);
+    navigateSafely(`/service-orders/${encodeURIComponent(publicId)}`);
   }
 
   function startOpening() {
-    navigate("/service-orders/opening");
+    navigateSafely("/service-orders/opening");
   }
 
   function changeDetailSection(section: "details" | "events") {
     if (route.view !== "detail") return;
     const query = new URLSearchParams();
     if (section === "events") query.set("section", "events");
-    navigate(`/service-orders/${encodeURIComponent(route.publicId)}${query.size ? `?${query}` : ""}`);
+    navigateSafely(`/service-orders/${encodeURIComponent(route.publicId)}${query.size ? `?${query}` : ""}`);
   }
 
   if (session.status === "checking") {
@@ -123,12 +170,12 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#/service-orders" aria-label="Sistema Gestor OS, início">
+        <a className="brand" href="#/service-orders" onClick={(event) => { event.preventDefault(); navigateSafely("/service-orders"); }} aria-label="Sistema Gestor OS, início">
           <span className="brand-mark" aria-hidden="true">G</span>
           <span><strong>Gestor OS</strong><small>Operação técnica</small></span>
         </a>
         <div className="topbar-meta">
-          {canManageServices && <a className="topbar-link" href="#/services">Serviços</a>}
+          {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
           {logoutMessage && <span role="status">{logoutMessage}</span>}
@@ -141,7 +188,7 @@ export function App() {
         ) : route.view === "list" ? (
           <ServiceOrderListPage
             page={route.page}
-            onPageChange={(page) => navigate(`/service-orders?page=${page}`)}
+            onPageChange={(page) => navigateSafely(`/service-orders?page=${page}`)}
             onOpen={openOrder}
             onStartOpening={startOpening}
           />
@@ -154,11 +201,12 @@ export function App() {
               session.identity.permissions.includes("service_orders.opening.create")
               && session.identity.permissions.includes("service_orders.create")
             )}
-            onBack={() => navigate("/service-orders")}
+            onBack={() => navigateSafely("/service-orders")}
             onConfirmed={(publicId) => openOrder(publicId)}
           />
         ) : (
           <ServiceOrderDetailPage
+            key={route.publicId}
             publicId={route.publicId}
             csrfToken={session.identity.csrfToken}
             canCreateNote={session.identity.isAdmin || session.identity.permissions.includes("service_orders.update")}
@@ -177,10 +225,22 @@ export function App() {
             )}
             section={route.section}
             onSectionChange={changeDetailSection}
-            onBack={() => navigate("/service-orders")}
+            onBack={() => navigateSafely("/service-orders")}
+            discardChangesVersion={discardChangesVersion}
+            onUnsavedChange={(dirty) => { unsavedChangesRef.current = dirty; }}
           />
         )}
       </main>
+      {pendingLeaveAction && <div className="unsaved-backdrop" role="presentation">
+        <section className="unsaved-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-dialog-title" aria-describedby="unsaved-dialog-description">
+          <h2 id="unsaved-dialog-title">Alterações não salvas</h2>
+          <p id="unsaved-dialog-description">Existem alterações não salvas. Deseja sair mesmo assim?</p>
+          <div className="unsaved-dialog__actions">
+            <button className="button button--secondary" type="button" onClick={() => setPendingLeaveAction(null)}>Continuar editando</button>
+            <button className="button button--primary" type="button" onClick={confirmLeaveWithoutSaving}>Sair sem salvar</button>
+          </div>
+        </section>
+      </div>}
       <footer className="app-footer">Sistema Gestor OS <span>·</span> consultas e atualização operacional</footer>
     </div>
   );

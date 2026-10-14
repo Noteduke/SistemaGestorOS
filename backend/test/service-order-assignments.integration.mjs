@@ -58,6 +58,11 @@ try {
     if (options.cookie) headers.cookie = options.cookie;
     if (options.csrf) headers["x-csrf-token"] = options.csrf;
     if (options.editToken) headers["x-service-order-edit-token"] = options.editToken;
+    const revisionTarget = path.match(/^\/service-orders\/([0-9a-f-]+)\/assignments$/iu);
+    if (revisionTarget && ["PUT", "PATCH"].includes(method)) {
+      const current = await db.serviceOrder.findUnique({ where: { publicId: revisionTarget[1] }, select: { updatedAt: true } });
+      if (current) headers["x-service-order-revision"] = current.updatedAt.toISOString();
+    }
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + path, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     const body = await response.text();

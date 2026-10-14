@@ -40,6 +40,20 @@ function createEditToken(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+function getTabEditToken(publicId: string): { token: string; created: boolean } {
+  const key = `service-order-edit-context:${publicId}`;
+  const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (navigation?.type === "reload") {
+    try {
+      const stored = sessionStorage.getItem(key);
+      if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(stored)) return { token: stored, created: false };
+    } catch { /* storage can be disabled; a fresh context remains safe */ }
+  }
+  const token = createEditToken();
+  try { sessionStorage.setItem(key, token); } catch { /* the in-memory token still scopes this page */ }
+  return { token, created: true };
+}
+
 interface ServiceOrderDetailPageProps {
   publicId: string;
   csrfToken: string;
@@ -56,6 +70,8 @@ interface ServiceOrderDetailPageProps {
   section: "details" | "events";
   onSectionChange: (section: "details" | "events") => void;
   onBack: () => void;
+  discardChangesVersion?: number;
+  onUnsavedChange?: (dirty: boolean) => void;
 }
 
 function dateLabel(value: string | null | undefined): string {
@@ -74,7 +90,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +123,13 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [budgetItemCount, setBudgetItemCount] = useState(0);
-  const [editToken] = useState(() => createEditToken());
+  const [initialEditContext] = useState(() => getTabEditToken(publicId));
+  const [editToken, setEditToken] = useState(initialEditContext.token);
+  const [editRevision, setEditRevision] = useState("");
+  const [dataConflict, setDataConflict] = useState(false);
+  const [latestConflictOrder, setLatestConflictOrder] = useState<ServiceOrderDetail | null>(null);
+  const [budgetDirty, setBudgetDirty] = useState(false);
+  const [budgetResetVersion, setBudgetResetVersion] = useState(0);
   const [editControl, setEditControl] = useState<ServiceOrderEditControlState | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editControlMessage, setEditControlMessage] = useState<string | null>(null);
@@ -116,54 +138,108 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [stayReadOnly, setStayReadOnly] = useState(false);
   const isEditingRef = useRef(false);
   const editTokenRef = useRef(editToken);
+  const orderRef = useRef<ServiceOrderDetail | null>(order);
+  orderRef.current = order;
   const generationRef = useRef<number | null>(null);
   const everOwnedRef = useRef(false);
   const invalidatedRef = useRef(false);
+  const initialAutoAcquireRef = useRef(initialEditContext.created);
+  const initialControlResolvedRef = useRef(false);
+  const previousHeldRef = useRef(false);
+  const baseRevisionRef = useRef("");
+  const unsavedRef = useRef(false);
+  const editableDraftRef = useRef(false);
+  const lastDiscardChangesVersionRef = useRef(discardChangesVersion);
   const orderLoaded = Boolean(order);
 
-  function markEditControlLost() {
+  function markEditControlLost(message = "O controle desta OS foi transferido para outro contexto. Seus valores locais foram preservados em somente leitura.") {
     invalidatedRef.current = true;
     isEditingRef.current = false;
     setIsEditing(false);
-    setEditControlMessage("O controle desta OS foi transferido para outro contexto. A tela foi alterada para somente leitura.");
-    void getServiceOrderEditControl(publicId, editToken).then((result) => setEditControl(result.data)).catch(() => undefined);
+    setEditControlMessage(message);
+    void getServiceOrderEditControl(publicId, editTokenRef.current).then((result) => setEditControl(result.data)).catch(() => undefined);
+  }
+
+  function rotateEditToken(): string {
+    const next = createEditToken();
+    editTokenRef.current = next;
+    try { sessionStorage.setItem(`service-order-edit-context:${publicId}`, next); } catch { /* keep the token in memory for this page */ }
+    setEditToken(next);
+    return next;
+  }
+
+  async function reconcileOrderAfterControlRegain() {
+    const latest = (await getServiceOrder(publicId)).data;
+    const previousRevision = baseRevisionRef.current;
+    const hasDraft = editableDraftRef.current;
+    setOrder(latest);
+    if (hasDraft && previousRevision && latest.updatedAt !== previousRevision) {
+      setLatestConflictOrder(latest);
+      setDataConflict(true);
+      setEditControlMessage("A OS mudou enquanto você estava sem controle. Seus valores continuam na tela; revise os dados atuais antes de salvar.");
+      return;
+    }
+    baseRevisionRef.current = latest.updatedAt;
+    setEditRevision(latest.updatedAt);
+    setLatestConflictOrder(null);
+    setDataConflict(false);
+    if (!hasDraft) {
+      const current = operationalSituationOptions.find(({ label }) => label === latest.operationalSituation)?.value;
+      setSelectedSituation(current ?? "");
+      setSelectedUserPublicIds(latest.assignedUserPublicIds);
+    }
   }
 
   useEffect(() => {
     if (!orderLoaded) return;
     let active = true;
+    const effectToken = editToken;
     const refreshControl = async () => {
       try {
-        const result = await getServiceOrderEditControl(publicId, editToken);
+        const result = await getServiceOrderEditControl(publicId, effectToken);
         if (!active) return;
         if (generationRef.current === null) generationRef.current = result.data.generation;
-        else if (everOwnedRef.current && result.data.generation !== generationRef.current) {
-          generationRef.current = result.data.generation;
-          markEditControlLost();
+        if (result.data.orderEditable === false) {
+          if (everOwnedRef.current) markEditControlLost("Esta OS não está aberta. O controle foi encerrado e a tela permanece somente para leitura.");
+          setEditControl(result.data); isEditingRef.current = false; setIsEditing(false); previousHeldRef.current = false; return;
         }
-        if (invalidatedRef.current) { setEditControl(result.data); return; }
+        if (invalidatedRef.current) { setEditControl(result.data); previousHeldRef.current = result.data.held; return; }
         if (result.data.isCurrentContext) {
           everOwnedRef.current = true;
+          generationRef.current = result.data.generation;
           setEditControl(result.data); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
         }
-        if (!result.data.held && canManageEdit && !stayReadOnly) {
+        if (everOwnedRef.current) {
+          generationRef.current = result.data.generation;
+          markEditControlLost(result.data.currentContextExpired
+            ? "Seu controle de edição expirou. Seus valores locais foram preservados; clique em Editar OS para iniciar um novo controle."
+            : result.data.held
+              ? `Seu controle de edição foi assumido por ${result.data.holder?.username ?? "outra pessoa"}. Seus valores locais foram preservados em somente leitura.`
+              : "Seu controle de edição foi encerrado. Seus valores locais foram preservados em somente leitura.");
+          setEditControl(result.data); previousHeldRef.current = result.data.held; return;
+        }
+        const autoAcquire = initialAutoAcquireRef.current && !initialControlResolvedRef.current;
+        initialControlResolvedRef.current = true;
+        if (!result.data.held && autoAcquire && canManageEdit && !stayReadOnly) {
           try {
-            const acquired = await acquireServiceOrderEditControl(publicId, csrfToken, editToken);
+            const acquired = await acquireServiceOrderEditControl(publicId, csrfToken, effectToken);
             if (!active) {
-              await releaseServiceOrderEditControl(publicId, csrfToken, editToken).catch(() => undefined);
+              await releaseServiceOrderEditControl(publicId, csrfToken, effectToken).catch(() => undefined);
               return;
             }
             generationRef.current = acquired.data.generation; everOwnedRef.current = true;
-            const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: acquired.data.expiresAt, isCurrentContext: true, generation: acquired.data.generation, heartbeatIntervalSeconds: acquired.data.heartbeatIntervalSeconds };
+            const next = { orderEditable: true, held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: acquired.data.expiresAt, isCurrentContext: true, currentContextExpired: false, generation: acquired.data.generation, heartbeatIntervalSeconds: acquired.data.heartbeatIntervalSeconds };
             setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
           } catch (reason) {
             if (reason instanceof ApiError && reason.code !== "SERVICE_ORDER_EDIT_CONTROL_HELD") throw reason;
-            const latest = await getServiceOrderEditControl(publicId, editToken);
+            const latest = await getServiceOrderEditControl(publicId, effectToken);
             if (active) { setEditControl(latest.data); setIsEditing(false); isEditingRef.current = false; }
             return;
           }
         }
-        setEditControl(result.data); setIsEditing(false); isEditingRef.current = false;
+        if (previousHeldRef.current && !result.data.held) setEditControlMessage("Esta OS agora está disponível para edição.");
+        if (result.data.currentContextExpired) setEditControlMessage("Seu controle de edição expirou. Seus valores locais foram preservados; clique em Editar OS para iniciar um novo controle.");
+        setEditControl(result.data); setIsEditing(false); isEditingRef.current = false; previousHeldRef.current = result.data.held;
       } catch (reason) {
         if (active) { setEditControlError(reason instanceof Error ? reason.message : "Não foi possível consultar o controle de edição."); setIsEditing(false); isEditingRef.current = false; }
       }
@@ -173,7 +249,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     return () => {
       active = false;
       window.clearInterval(poll);
-      if (isEditingRef.current) void releaseServiceOrderEditControl(publicId, csrfToken, editTokenRef.current).catch(() => undefined);
+      if (isEditingRef.current) void releaseServiceOrderEditControl(publicId, csrfToken, effectToken).catch(() => undefined);
     };
   }, [publicId, csrfToken, editToken, canManageEdit, currentUsername, orderLoaded, stayReadOnly]);
 
@@ -185,7 +261,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     return () => window.clearInterval(interval);
   }, [publicId, csrfToken, editToken, isEditing, editControl?.heartbeatIntervalSeconds]);
 
-  useEffect(() => { if (!isEditing) setEditingAssignments(false); }, [isEditing]);
+  useEffect(() => { editTokenRef.current = editToken; }, [editToken]);
 
   async function takeOverEditing() {
     const transferOwnTab = Boolean(editControl?.isSameUser);
@@ -198,10 +274,31 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     try {
       const response = await takeoverServiceOrderEditControl(publicId, csrfToken, editToken);
       generationRef.current = response.data.generation; everOwnedRef.current = true; invalidatedRef.current = false;
-      const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: response.data.expiresAt, isCurrentContext: true, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
+      const next = { orderEditable: true, held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: response.data.expiresAt, isCurrentContext: true, currentContextExpired: false, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
       setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlMessage(null);
+      await reconcileOrderAfterControlRegain();
     } catch (reason) { setEditControlError(reason instanceof Error ? reason.message : "Não foi possível assumir a edição."); }
     finally { setTakingOver(false); }
+  }
+
+  async function startEditing() {
+    if (takingOver || !canManageEdit || editControl?.orderEditable === false || editControl?.held) return;
+    setTakingOver(true); setEditControlError(null);
+    const token = rotateEditToken();
+    try {
+      const response = await acquireServiceOrderEditControl(publicId, csrfToken, token);
+      generationRef.current = response.data.generation; everOwnedRef.current = true; invalidatedRef.current = false;
+      const next = { orderEditable: true, held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: response.data.expiresAt, isCurrentContext: true, currentContextExpired: false, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
+      setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlMessage(null);
+      await reconcileOrderAfterControlRegain();
+    } catch (reason) {
+      isEditingRef.current = false; setIsEditing(false);
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_HELD") {
+        const latest = await getServiceOrderEditControl(publicId, token).catch(() => null);
+        if (latest) { setEditControl(latest.data); previousHeldRef.current = latest.data.held; }
+        setEditControlMessage("Outra pessoa obteve o controle primeiro. Esta aba continua somente para leitura.");
+      } else setEditControlError(reason instanceof Error ? reason.message : "Não foi possível iniciar a edição.");
+    } finally { setTakingOver(false); }
   }
 
   function mergeAssignmentLabels(labels: Record<string, string>) {
@@ -211,6 +308,74 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
 
   const currentSituation = operationalSituationOptions.find(({ label }) => label === order?.operationalSituation)?.value;
 
+  const unsaved = Boolean(order && currentSituation && selectedSituation !== currentSituation)
+    || Boolean(order && editingAssignments && !sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds))
+    || budgetDirty || Boolean(noteText.trim());
+  const editableDraft = Boolean(order && currentSituation && selectedSituation !== currentSituation)
+    || Boolean(order && editingAssignments && !sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds))
+    || budgetDirty;
+  useEffect(() => {
+    unsavedRef.current = unsaved;
+    editableDraftRef.current = editableDraft;
+    onUnsavedChange?.(unsaved);
+  }, [unsaved, editableDraft, onUnsavedChange]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!unsavedRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
+
+  useEffect(() => {
+    if (lastDiscardChangesVersionRef.current === discardChangesVersion) return;
+    lastDiscardChangesVersionRef.current = discardChangesVersion;
+    const currentOrder = orderRef.current;
+    if (currentOrder) {
+      const current = operationalSituationOptions.find(({ label }) => label === currentOrder.operationalSituation)?.value;
+      setSelectedSituation(current ?? "");
+      setSelectedUserPublicIds(currentOrder.assignedUserPublicIds);
+    }
+    setEditingAssignments(false);
+    setNoteText("");
+    setBudgetDirty(false);
+    setBudgetResetVersion((version) => version + 1);
+  }, [discardChangesVersion]);
+
+  async function reportDataConflict() {
+    setDataConflict(true);
+    setEditControlMessage("A OS mudou enquanto você estava sem controle. Seus valores locais foram preservados; revise os dados atuais antes de salvar.");
+    try {
+      const latest = (await getServiceOrder(publicId)).data;
+      setLatestConflictOrder(latest);
+      setOrder(latest);
+    } catch { /* preserve the local draft and conflict notice if refresh fails */ }
+  }
+
+  async function reviewCurrentData() {
+    if (!window.confirm("Carregar os dados atuais da OS e descartar os valores locais não salvos?")) return;
+    try {
+      const latest = (await getServiceOrder(publicId)).data;
+      setOrder(latest);
+      baseRevisionRef.current = latest.updatedAt;
+      setEditRevision(latest.updatedAt);
+      const current = operationalSituationOptions.find(({ label }) => label === latest.operationalSituation)?.value;
+      setSelectedSituation(current ?? "");
+      setSelectedUserPublicIds(latest.assignedUserPublicIds);
+      setEditingAssignments(false);
+      setLatestConflictOrder(null);
+      setDataConflict(false);
+      setBudgetDirty(false);
+      setBudgetResetVersion((version) => version + 1);
+      setEditControlMessage("Dados atuais carregados. Revise e salve novamente quando estiver pronto.");
+    } catch (reason) {
+      setEditControlError(reason instanceof Error ? reason.message : "Não foi possível carregar os dados atuais.");
+    }
+  }
+
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -218,6 +383,8 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     getServiceOrder(publicId, controller.signal)
       .then((response) => {
         setOrder(response.data);
+        baseRevisionRef.current = response.data.updatedAt;
+        setEditRevision(response.data.updatedAt);
         const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
         setSelectedSituation(current ?? "");
       })
@@ -353,21 +520,24 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   }, [editingAssignments, assignablePage, assignableSearch, publicId]);
 
   async function saveSituation() {
-    if (!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation) return;
+    if (!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation || dataConflict) return;
     setUpdatingSituation(true);
     setSituationMessage(null);
     setSituationError(null);
     try {
       const notAuthorized = selectedSituation === "NOT_AUTHORIZED_REASSEMBLE" || selectedSituation === "NOT_AUTHORIZED_READY_DELIVERY";
       const withdrawBudget = notAuthorized && budgetItemCount > 0 && window.confirm("Deseja retirar todos os itens atuais do orçamento? Esta ação será registrada no histórico e não poderá ser desfeita.");
-      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget, editToken);
+      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget, editToken, editRevision);
       setOrder(response.data);
+      baseRevisionRef.current = response.data.updatedAt;
+      setEditRevision(response.data.updatedAt);
       const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
       setSelectedSituation(current ?? "");
       setSituationMessage("Situação operacional atualizada.");
       if (section === "events") setEventsReload((value) => value + 1);
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") markEditControlLost();
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_DATA_CONFLICT") void reportDataConflict();
       setSituationError(operationalSituationErrorMessage(reason));
     } finally {
       setUpdatingSituation(false);
@@ -404,7 +574,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   }
 
   async function saveAssignments() {
-    if (!order || savingAssignments) return;
+    if (!order || savingAssignments || dataConflict) return;
     if (sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)) {
       setAssignmentMessage("Nenhuma alteração nos responsáveis.");
       return;
@@ -413,8 +583,10 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setAssignmentMessage(null);
     setAssignmentError(null);
     try {
-      const response = await replaceServiceOrderAssignments(publicId, selectedUserPublicIds, csrfToken, editToken);
+      const response = await replaceServiceOrderAssignments(publicId, selectedUserPublicIds, csrfToken, editToken, editRevision);
       setOrder(response.data);
+      baseRevisionRef.current = response.data.updatedAt;
+      setEditRevision(response.data.updatedAt);
       setSelectedUserPublicIds(response.data.assignedUserPublicIds);
       mergeAssignmentLabels(Object.fromEntries(assignableUsers.map((user) => [user.publicId, user.username])));
       setAssignmentMessage("Responsáveis da OS atualizados.");
@@ -422,6 +594,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       setEventsReload((value) => value + 1);
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") markEditControlLost();
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_DATA_CONFLICT") void reportDataConflict();
       setAssignmentError(assignmentsErrorMessage(reason, "update"));
     } finally {
       setSavingAssignments(false);
@@ -435,15 +608,19 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       {!loading && !error && order && (
         <>
           <section className="info-card edit-control-banner" aria-live="polite">
-            {isEditing ? <p><strong>Você está editando esta OS.</strong> O controle é renovado automaticamente enquanto esta tela permanecer aberta.</p>
+            {order.macroStatus !== "ABERTA" ? <p><strong>OS {order.macroStatus.toLocaleLowerCase("pt-BR")}.</strong> Esta OS permanece somente para leitura e não recebe controle de edição.</p>
+              : isEditing ? <p><strong>Você está editando esta OS.</strong> O controle é renovado automaticamente enquanto esta tela permanecer aberta.</p>
+              : editControl?.currentContextExpired ? <p><strong>Seu controle de edição expirou.</strong> Seus valores locais foram preservados; inicie um novo controle para editar.</p>
               : editControl?.held && editControl.isSameUser ? <p><strong>Você já está editando esta OS em outra aba.</strong> Esta aba está em somente leitura até a transferência.</p>
                 : editControl?.held ? <p><strong>OS em edição por {editControl.holder?.username ?? "outro usuário"}.</strong> Somente visualização.</p>
-                : <p><strong>Somente visualização.</strong> {stayReadOnly ? "Esta aba permanecerá sem o controle de edição." : canManageEdit ? "O controle de edição está sendo verificado." : "Você não possui autorização para editar esta OS."}</p>}
-            {editControlMessage && <p className="form-message form-message--error" role="alert">{editControlMessage}</p>}
+                : <p><strong>Somente visualização.</strong> {stayReadOnly ? "Esta aba permanecerá sem o controle de edição." : editControlMessage?.includes("disponível para edição") ? editControlMessage : canManageEdit ? "O controle de edição está disponível quando você escolher Editar OS." : "Você não possui autorização para editar esta OS."}</p>}
+            {editControlMessage && !editControlMessage.includes("disponível para edição") && <p className="form-message form-message--error" role="alert">{editControlMessage}</p>}
             {editControlError && <p className="form-message form-message--error" role="alert">{editControlError}</p>}
-            {!isEditing && editControl?.held && editControl.isSameUser && !stayReadOnly && <button className="button button--secondary" type="button" onClick={() => setStayReadOnly(true)}>Somente visualização</button>}
-            {!isEditing && editControl?.held && editControl.isSameUser && canManageEdit && !stayReadOnly && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Transferindo…" : "Transferir edição para esta aba"}</button>}
-            {!isEditing && editControl?.held && !editControl.isSameUser && canTakeoverEdit && canManageEdit && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Assumindo…" : "Assumir edição"}</button>}
+            {dataConflict && <div className="form-message form-message--error" role="alert"><p>Os dados atuais foram alterados durante a perda do controle{latestConflictOrder ? ` (revisão ${dateLabel(latestConflictOrder.updatedAt)})` : ""}. Valores locais não foram enviados.</p><button className="button button--secondary" type="button" onClick={() => void reviewCurrentData()}>Carregar dados atuais e descartar valores locais</button></div>}
+            {!isEditing && order.macroStatus === "ABERTA" && !editControl?.held && canManageEdit && !stayReadOnly && <button className="button button--primary" type="button" onClick={() => void startEditing()} disabled={takingOver}>{takingOver ? "Obtendo controle…" : "Editar OS"}</button>}
+            {!isEditing && order.macroStatus === "ABERTA" && editControl?.held && editControl.isSameUser && !stayReadOnly && <button className="button button--secondary" type="button" onClick={() => setStayReadOnly(true)}>Somente visualização</button>}
+            {!isEditing && order.macroStatus === "ABERTA" && editControl?.held && editControl.isSameUser && canManageEdit && !stayReadOnly && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Transferindo…" : "Transferir edição para esta aba"}</button>}
+            {!isEditing && order.macroStatus === "ABERTA" && editControl?.held && !editControl.isSameUser && canTakeoverEdit && canManageEdit && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Assumindo…" : "Assumir edição"}</button>}
           </section>
           <div className="page-heading detail-heading">
             <div>
@@ -486,11 +663,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                     id="operational-situation"
                     value={selectedSituation}
                     onChange={(event) => { setSelectedSituation(event.target.value as OperationalSituation); setSituationMessage(null); setSituationError(null); }}
-                    disabled={!isEditing || !canUpdateSituation || !currentSituation || updatingSituation}
+                    disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || updatingSituation}
                   >
                     {operationalSituationOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                   </select>
-                  <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
+                  <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
                     {updatingSituation ? "Salvando…" : "Salvar situação"}
                   </button>
                 </div>
@@ -516,8 +693,8 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                     <form className="assignment-search" onSubmit={submitAssignableSearch}>
                       <label htmlFor="assignable-user-search">Buscar usuário por username</label>
                       <div>
-                        <input id="assignable-user-search" value={assignableSearchInput} onChange={(event) => setAssignableSearchInput(event.target.value)} maxLength={50} />
-                        <button className="button button--secondary" type="submit" disabled={assignableLoading}>Buscar</button>
+                        <input id="assignable-user-search" value={assignableSearchInput} onChange={(event) => setAssignableSearchInput(event.target.value)} maxLength={50} disabled={!isEditing || dataConflict} />
+                        <button className="button button--secondary" type="submit" disabled={!isEditing || dataConflict || assignableLoading}>Buscar</button>
                       </div>
                     </form>
                     {assignableError && <p className="form-message form-message--error" role="alert">{assignableError}</p>}
@@ -528,7 +705,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                         <ul className="assignable-user-list" aria-label="Usuários atribuíveis">
                           {assignableUsers.map((user) => (
                             <li key={user.publicId}>
-                              <label><input type="checkbox" checked={selectedUserPublicIds.includes(user.publicId)} onChange={() => toggleSelectedUser(user.publicId)} /> {user.username}</label>
+                              <label><input type="checkbox" checked={selectedUserPublicIds.includes(user.publicId)} disabled={!isEditing || dataConflict} onChange={() => toggleSelectedUser(user.publicId)} /> {user.username}</label>
                             </li>
                           ))}
                         </ul>
@@ -546,7 +723,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                             <ul>
                               {selectedUserPublicIds.map((id) => {
                                 const label = assignmentLabels[id] ?? assignableUsers.find((user) => user.publicId === id)?.username ?? "Usuário indisponível";
-                                return <li key={id}><span>{label}</span><button className="text-button" type="button" onClick={() => toggleSelectedUser(id)} aria-label={`Remover ${label}`}>Remover</button></li>;
+                                return <li key={id}><span>{label}</span><button className="text-button" type="button" disabled={!isEditing || dataConflict} onClick={() => toggleSelectedUser(id)} aria-label={`Remover ${label}`}>Remover</button></li>;
                               })}
                             </ul>
                           ) : <p className="muted">Nenhum usuário selecionado.</p>}
@@ -554,7 +731,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                       </>
                     )}
                     <div className="assignment-actions">
-                      <button className="button button--primary" type="button" onClick={() => void saveAssignments()} disabled={!isEditing || assignableLoading || savingAssignments || Boolean(assignableError) || sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)}>
+                      <button className="button button--primary" type="button" onClick={() => void saveAssignments()} disabled={!isEditing || dataConflict || assignableLoading || savingAssignments || Boolean(assignableError) || sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)}>
                         {savingAssignments ? "Salvando…" : "Salvar responsáveis"}
                       </button>
                       <button className="button button--secondary" type="button" onClick={() => { setEditingAssignments(false); setAssignmentError(null); }} disabled={savingAssignments}>Cancelar</button>
@@ -564,13 +741,18 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 )}
               </section>
               {canReadBudget && <ServiceOrderBudgetPanel
+                key={`${publicId}-${budgetResetVersion}`}
                 publicId={publicId}
                 csrfToken={csrfToken}
                 editToken={editToken}
-                canEdit={canEditBudget && isEditing}
+                expectedRevision={editRevision}
+                canEdit={canEditBudget && isEditing && !dataConflict}
                 canReadCosts={canReadBudgetCosts}
                 canUpdateCosts={canUpdateBudgetCosts}
                 onEditControlLost={markEditControlLost}
+                onRevisionChange={(revision) => { baseRevisionRef.current = revision; setEditRevision(revision); setOrder((current) => current ? { ...current, updatedAt: revision } : current); }}
+                onDirtyChange={setBudgetDirty}
+                onDataConflict={() => void reportDataConflict()}
                 isOpen={order.macroStatus === "ABERTA"}
                 onActiveCountChange={setBudgetItemCount}
               />}

@@ -5,7 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { OperationalSituationPatchInput } from "./dto/operational-situation-patch.dto.js";
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
-import { assertEditControlInTransaction } from "./service-order-edit-control.service.js";
+import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -15,7 +15,7 @@ type Tx = Prisma.TransactionClient;
 export class ServiceOrderOperationalSituationService {
   constructor(private readonly prisma: PrismaService, private readonly budgetItems: ServiceOrderBudgetItemsService) {}
 
-  async update(publicId: string, input: OperationalSituationPatchInput, actor: AuthenticatedUser, editToken?: string) {
+  async update(publicId: string, input: OperationalSituationPatchInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
     if (!PUBLIC_ID.test(publicId)) {
       throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." });
     }
@@ -37,6 +37,7 @@ export class ServiceOrderOperationalSituationService {
         });
         if (!current) throw serviceOrderNotFound();
         await assertEditControlInTransaction(tx, locked.id, actor, editToken);
+        assertServiceOrderRevision(current.updatedAt, expectedRevision);
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }
@@ -51,10 +52,7 @@ export class ServiceOrderOperationalSituationService {
 
         const now = new Date();
         if (input.withdrawBudget) await this.budgetItems.withdrawAllInTransaction(tx, { id: locked.id, numberValue: current.numberValue }, actor);
-        await tx.serviceOrder.update({
-          where: { id: locked.id },
-          data: { operationalSituation: input.operationalSituation },
-        });
+        await advanceServiceOrderRevision(tx, locked.id, current.updatedAt, { operationalSituation: input.operationalSituation });
         await tx.serviceOrderEvent.create({
           data: {
             serviceOrderId: locked.id,

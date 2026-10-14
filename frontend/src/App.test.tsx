@@ -285,3 +285,61 @@ it("encerra somente a sessão atual usando o token CSRF da sessão", async () =>
     headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session-memory-only" }),
   }));
 });
+
+it("avisa antes de sair da OS com alteração local e permite continuar editando", async () => {
+  const orderId = order.publicId;
+  window.location.hash = `#/service-orders/${orderId}?section=events`;
+  const identity = { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "usuario.teste", isAdmin: true, permissions: ["service_orders.read", "service_orders.events.read", "service_orders.update"], csrfToken: "csrf-session", session: { expiresAt: "2026-10-20T20:00:00.000Z" } };
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/v1/auth/me") return Promise.resolve(response({ data: identity }));
+    if (url === `/api/v1/service-orders/${orderId}`) return Promise.resolve(response({ data: order }));
+    if (url.includes(`/service-orders/${orderId}/history`)) return Promise.resolve(response({ data: [], nextCursor: null, hasMore: false }));
+    if (url === "/api/v1/service-orders?page=1&pageSize=20") return Promise.resolve(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }));
+    if (url.endsWith("/edit-control") && init?.method === "DELETE") return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { released: true } }) });
+    return Promise.resolve(response({ data: [] }));
+  });
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
+  render(<App />);
+
+  const note = await screen.findByRole("textbox", { name: "Nova observação" });
+  await userEvent.type(note, "Nota ainda não salva");
+  await userEvent.click(screen.getByRole("link", { name: "Sistema Gestor OS, início" }));
+  expect(await screen.findByRole("dialog", { name: "Alterações não salvas" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Continuar editando" }));
+  expect(screen.getByRole("textbox", { name: "Nova observação" })).toHaveValue("Nota ainda não salva");
+  expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/service-orders?page=1&pageSize=20")).toBe(false);
+
+  await userEvent.click(screen.getByRole("link", { name: "Sistema Gestor OS, início" }));
+  await userEvent.click(screen.getByRole("button", { name: "Sair sem salvar" }));
+  expect(await screen.findByText("Ainda não há Ordens de Serviço confirmadas.")).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Nova observação" })).not.toBeInTheDocument();
+});
+
+it("pede confirmação antes do logout quando o formulário da OS está sujo", async () => {
+  const orderId = order.publicId;
+  window.location.hash = `#/service-orders/${orderId}?section=events`;
+  const identity = { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "usuario.teste", isAdmin: true, permissions: ["service_orders.read", "service_orders.events.read", "service_orders.update"], csrfToken: "csrf-session", session: { expiresAt: "2026-10-20T20:00:00.000Z" } };
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/v1/auth/me") return Promise.resolve(response({ data: identity }));
+    if (url === `/api/v1/service-orders/${orderId}`) return Promise.resolve(response({ data: order }));
+    if (url.includes(`/service-orders/${orderId}/history`)) return Promise.resolve(response({ data: [], nextCursor: null, hasMore: false }));
+    if (url === "/api/v1/auth/logout") return Promise.resolve({ ok: true, status: 204, json: async () => null });
+    if (url.endsWith("/edit-control") && init?.method === "DELETE") return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { released: true } }) });
+    return Promise.resolve(response({ data: [] }));
+  });
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
+  render(<App />);
+
+  await userEvent.type(await screen.findByRole("textbox", { name: "Nova observação" }), "Não descartar sem confirmar");
+  await userEvent.click(screen.getByRole("button", { name: "Sair" }));
+  expect(await screen.findByRole("dialog", { name: "Alterações não salvas" })).toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/auth/logout")).toBe(false);
+  await userEvent.click(screen.getByRole("button", { name: "Continuar editando" }));
+  expect(screen.getByRole("textbox", { name: "Nova observação" })).toHaveValue("Não descartar sem confirmar");
+  await userEvent.click(screen.getByRole("button", { name: "Sair" }));
+  await userEvent.click(screen.getByRole("button", { name: "Sair sem salvar" }));
+  expect(await screen.findByRole("heading", { name: "Acesse sua conta" })).toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/auth/logout")).toHaveLength(1);
+});

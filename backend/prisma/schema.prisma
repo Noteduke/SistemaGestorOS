@@ -184,18 +184,19 @@ model UserPermission {
 }
 
 model UserSession {
-  id            Int       @id @default(autoincrement())
-  userId        Int       @map("user_id")
-  tokenHash     String    @unique @map("token_hash") @db.Char(64)
-  csrfTokenHash String    @map("csrf_token_hash") @db.Char(64)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  lastUsedAt    DateTime  @map("last_used_at") @db.DateTime(3)
-  expiresAt     DateTime  @map("expires_at") @db.DateTime(3)
-  revokedAt     DateTime? @map("revoked_at") @db.DateTime(3)
-  userAgent     String?   @map("user_agent") @db.Text
-  ipAddress     String?   @map("ip_address") @db.VarChar(45)
-  origin        String?   @db.VarChar(2048)
-  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                       Int                       @id @default(autoincrement())
+  userId                   Int                       @map("user_id")
+  tokenHash                String                    @unique @map("token_hash") @db.Char(64)
+  csrfTokenHash            String                    @map("csrf_token_hash") @db.Char(64)
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.DateTime(3)
+  lastUsedAt               DateTime                  @map("last_used_at") @db.DateTime(3)
+  expiresAt                DateTime                  @map("expires_at") @db.DateTime(3)
+  revokedAt                DateTime?                 @map("revoked_at") @db.DateTime(3)
+  userAgent                String?                   @map("user_agent") @db.Text
+  ipAddress                String?                   @map("ip_address") @db.VarChar(45)
+  origin                   String?                   @db.VarChar(2048)
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrderEditControls ServiceOrderEditControl[]
 
   @@index([userId, expiresAt])
   @@index([userId, revokedAt])
@@ -603,6 +604,7 @@ model ServiceOrderEditControl {
   id               Int          @id @default(autoincrement())
   serviceOrderId   Int          @unique @map("service_order_id")
   holderUserId     Int?         @map("holder_user_id")
+  holderSessionId  Int?         @map("holder_session_id")
   contextTokenHash String?      @map("context_token_hash") @db.Char(64)
   leaseVersion     Int          @default(0) @map("lease_version")
   lastHeartbeatAt  DateTime     @map("last_heartbeat_at") @db.DateTime(3)
@@ -611,8 +613,10 @@ model ServiceOrderEditControl {
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
   serviceOrder     ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   holder           User?        @relation(fields: [holderUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  holderSession    UserSession? @relation(fields: [holderSessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([holderUserId, expiresAt])
+  @@index([holderSessionId, expiresAt])
   @@index([expiresAt])
   @@map("service_order_edit_controls")
 }

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
 const configured = new URL(process.env.DATABASE_URL ?? "");
@@ -67,6 +67,12 @@ try {
     if (options.cookie) headers.cookie = options.cookie;
     if (options.csrf) headers["x-csrf-token"] = options.csrf;
     if (options.editToken) headers["x-service-order-edit-token"] = options.editToken;
+    if (options.revision) headers["x-service-order-revision"] = options.revision;
+    const revisionTarget = path.match(/^\/service-orders\/([0-9a-f-]+)\/(?:assignments|operational-situation|budget-items(?:\/|$))/iu);
+    if (!options.revision && options.autoRevision !== false && revisionTarget && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      const current = await db.serviceOrder.findUnique({ where: { publicId: revisionTarget[1] }, select: { updatedAt: true } });
+      if (current) headers["x-service-order-revision"] = current.updatedAt.toISOString();
+    }
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + path, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     const body = await response.text();
@@ -93,6 +99,8 @@ try {
   const budgetEditorSession = await login(budgetEditor);
   const specialOnlySession = await login(specialOnly);
   const readOnlySession = await login(readOnly);
+  const adminSession = await login(admin);
+  const adminSecondSession = await login(admin);
   const aliceTab1 = randomUUID();
   const aliceTab2 = randomUUID();
   const bobTab = randomUUID();
@@ -198,8 +206,12 @@ try {
   const assignmentWrite = await request("PUT", `${orderPath}/assignments`, { ...finalOwnerSession, editToken: finalOwnerToken, body: { userPublicIds: [assignee.publicId] } });
   status(assignmentWrite, 200, "holder with assignment permission can mutate");
   assert.deepEqual(assignmentWrite.body.data.assignedUserPublicIds, [assignee.publicId]);
+  const staleRevision = assignmentWrite.body.data.updatedAt;
   const budgetWrite = await request("POST", `${orderPath}/budget-items/manual-labor`, { ...finalOwnerSession, editToken: finalOwnerToken, body: { description: `TESTE ${suffix}`, quantity: 1, unitPrice: "0.00" } });
   status(budgetWrite, 201, "holder with budget permission can mutate budget");
+  const staleBudgetWrite = await request("POST", `${orderPath}/budget-items/manual-part`, { ...finalOwnerSession, editToken: finalOwnerToken, revision: staleRevision, body: { description: `STALE ${suffix}`, quantity: 1, unitPrice: "1.00" } });
+  status(staleBudgetWrite, 409, "stale aggregate revision blocks overwriting after another mutation");
+  assert.equal(staleBudgetWrite.body.code, "SERVICE_ORDER_DATA_CONFLICT");
   status(await request("DELETE", `${orderPath}/budget-items/${budgetWrite.body.data.publicId}`, { ...finalOwnerSession, editToken: finalOwnerToken }), 200, "budget removal also requires and accepts current control");
 
   const budgetEditorToken = randomUUID();
@@ -224,11 +236,52 @@ try {
   const eventsBeforeExpiry = await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } });
   await db.serviceOrderEditControl.update({ where: { id: control.id }, data: { expiresAt: new Date(Date.now() - 1) } });
   assert.equal((await request("GET", path, { ...bobSession, editToken: bobTab })).body.data.held, false, "lease expires after ten minutes without valid heartbeat");
+  const expiredOwnerAcquire = await request("POST", path, { ...budgetEditorSession, editToken: budgetEditorToken });
+  status(expiredOwnerAcquire, 409, "expired owner cannot revive the same context through acquire");
+  assert.equal(expiredOwnerAcquire.body.code, "SERVICE_ORDER_EDIT_CONTEXT_EXPIRED");
+  const expiredHeartbeat = await request("POST", `${path}/heartbeat`, { ...budgetEditorSession, editToken: budgetEditorToken });
+  status(expiredHeartbeat, 409, "expired owner cannot revive the same context through a late heartbeat");
+  assert.equal(expiredHeartbeat.body.code, "SERVICE_ORDER_EDIT_CONTROL_LOST");
   const afterExpiry = await request("POST", path, { ...bobSession, editToken: bobTab });
   status(afterExpiry, 201, "expired control can be acquired");
   status(await request("DELETE", path, { ...bobSession, editToken: bobTab }), 200, "normal exit releases current context");
   assert.equal(await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } }), auditBeforeExpiry, "expiry, acquisition and release do not create administrative entries");
   assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } }), eventsBeforeExpiry, "expiry, acquisition and release do not create OS history events");
+
+  async function createAdminOrder(session) {
+    const draft = await request("POST", "/service-orders/openings", { ...session, body: {} });
+    status(draft, 201, "Admin creates an order for logout-lock validation");
+    status(await request("PATCH", `/service-orders/openings/${draft.body.data.publicId}`, { ...session, body: { customerPublicId: customer.publicId, equipmentPublicId: equipment.publicId } }), 200, "Admin selects existing customer and equipment");
+    const result = await request("POST", `/service-orders/openings/${draft.body.data.publicId}/confirm`, { ...session, body: {} });
+    status(result, 201, "Admin confirms an order for logout-lock validation");
+    return result.body.data.publicId;
+  }
+  const logoutOrderA = await createAdminOrder(adminSession);
+  const logoutOrderB = await createAdminOrder(adminSession);
+  const otherSessionOrder = await createAdminOrder(adminSecondSession);
+  const adminSessionId = (await db.userSession.findUniqueOrThrow({
+    where: { tokenHash: createHash("sha256").update(adminSession.cookie.split("=")[1]).digest("hex") }, select: { id: true },
+  })).id;
+  const adminSecondSessionId = (await db.userSession.findUniqueOrThrow({
+    where: { tokenHash: createHash("sha256").update(adminSecondSession.cookie.split("=")[1]).digest("hex") }, select: { id: true },
+  })).id;
+  const logoutTokenA = randomUUID();
+  const logoutTokenB = randomUUID();
+  const otherSessionToken = randomUUID();
+  status(await request("POST", `/service-orders/${logoutOrderA}/edit-control`, { ...adminSession, editToken: logoutTokenA }), 201, "first Admin session owns first OS");
+  status(await request("POST", `/service-orders/${logoutOrderB}/edit-control`, { ...adminSession, editToken: logoutTokenB }), 201, "first Admin session owns second OS");
+  status(await request("POST", `/service-orders/${otherSessionOrder}/edit-control`, { ...adminSecondSession, editToken: otherSessionToken }), 201, "second Admin session owns independent OS");
+  status(await request("POST", "/auth/logout", adminSession), 204, "logout releases every edit control belonging to this session");
+  const logoutControls = await db.serviceOrderEditControl.findMany({
+    where: { serviceOrder: { publicId: { in: [logoutOrderA, logoutOrderB, otherSessionOrder] } } },
+    select: { holderUserId: true, holderSessionId: true },
+  });
+  assert.equal(logoutControls.filter((entry) => entry.holderSessionId === null && entry.holderUserId === null).length, 2, "logout clears both controls held by the ending session");
+  assert.ok(logoutControls.some((entry) => entry.holderSessionId === adminSecondSessionId), "another login session of the same user keeps its own control");
+  assert.equal(logoutControls.some((entry) => entry.holderSessionId === adminSessionId), false, "revoked session no longer owns edit controls");
+  status(await request("POST", `/service-orders/${logoutOrderA}/edit-control/heartbeat`, { ...adminSession, editToken: logoutTokenA }), 401, "revoked session cannot heartbeat a stale context");
+  status(await request("PUT", `/service-orders/${logoutOrderA}/assignments`, { ...adminSession, editToken: logoutTokenA, body: { userPublicIds: [] } }), 401, "revoked session cannot mutate through its old edit context");
+  status(await request("POST", `/service-orders/${otherSessionOrder}/edit-control/heartbeat`, { ...adminSecondSession, editToken: otherSessionToken }), 201, "different active session remains valid after logout");
 
   const controls = await db.serviceOrderEditControl.count({ where: { serviceOrderId: control.serviceOrderId } });
   assert.equal(controls, 1, "only one control row exists for the OS");

@@ -253,3 +253,24 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 .budget-table td:last-child { white-space: nowrap; }
 .budget-item--conflict { outline: 3px solid #d68b00; outline-offset: -3px; background: #fff7dc; }
 .table-scroll { overflow-x: auto; }
+.unsaved-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(15 23 42 / 58%);
+}
+
+.unsaved-dialog {
+  width: min(100%, 32rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border, #d7deea);
+  border-radius: 0.75rem;
+  background: var(--surface, #fff);
+  box-shadow: 0 1.5rem 4rem rgb(15 23 42 / 28%);
+}
+
+.unsaved-dialog h2 { margin-top: 0; }
+.unsaved-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }

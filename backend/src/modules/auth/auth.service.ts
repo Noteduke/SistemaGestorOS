@@ -149,6 +149,16 @@ export class AuthService {
         where: { id: user.sessionId, userId: user.id, revokedAt: null },
         data: { revokedAt: now },
       });
+      await tx.serviceOrderEditControl.updateMany({
+        where: { holderSessionId: user.sessionId },
+        data: {
+          holderUserId: null,
+          holderSessionId: null,
+          contextTokenHash: null,
+          leaseVersion: { increment: 1 },
+          expiresAt: now,
+        },
+      });
       await tx.adminAuditLog.create({
         data: {
           eventCode: AUTH_AUDIT_EVENT.LOGOUT,

@@ -58,6 +58,11 @@ async function api(pathname, { method = "GET", body, auth = true, csrf = true } 
     if (csrf) headers["X-CSRF-Token"] = csrfToken;
   }
   if (editToken) headers["X-Service-Order-Edit-Token"] = editToken;
+  const revisionTarget = pathname.match(/^\/service-orders\/([0-9a-f-]+)\/(?:assignments|operational-situation|budget-items(?:\/|$))/iu);
+  if (revisionTarget && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const current = await prisma.serviceOrder.findUnique({ where: { publicId: revisionTarget[1] }, select: { updatedAt: true } });
+    if (current) headers["X-Service-Order-Revision"] = current.updatedAt.toISOString();
+  }
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(`http://127.0.0.1:3137/api/v1${pathname}`, {
     method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }),

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { operationalSituationOptions, type ServiceOrderEditControlState } from "../../api/serviceOrders";
 import { ServiceOrderDetailPage } from "./ServiceOrderDetailPage";
@@ -72,6 +72,156 @@ describe("ServiceOrderDetailPage", () => {
 
     expect(await screen.findByText("Você não possui autorização para editar esta OS.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it.each(["FECHADA", "CANCELADA"] as const)("mantém OS %s em somente visualização sem criar lock", async (macroStatus) => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: { ...detail, macroStatus } }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { orderEditable: false, held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, currentContextExpired: false, generation: 0, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageEdit canTakeoverEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByText(new RegExp(`OS ${macroStatus.toLocaleLowerCase("pt-BR")}`))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar OS" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("não assume quando a OS fica livre; só adquire após ação explícita", async () => {
+    const intervals = new Map<number, () => void>();
+    vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, timeout = 0) => {
+      if (typeof handler === "function") intervals.set(timeout, handler as () => void);
+      return timeout as unknown as number;
+    }) as typeof window.setInterval);
+    let controlRead = 0;
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET") {
+        controlRead += 1;
+        const state = controlRead === 1
+          ? { held: true, holder: { publicId: "other", username: "joao" }, isSameUser: false, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 3, heartbeatIntervalSeconds: 60 }
+          : controlRead === 2
+            ? { held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, generation: 4, heartbeatIntervalSeconds: 60 }
+            : { held: true, holder: { publicId: "current", username: "maria" }, isSameUser: true, expiresAt: "2026-10-14T16:10:00.000Z", isCurrentContext: true, generation: 5, heartbeatIntervalSeconds: 60 };
+        return Promise.resolve(response({ data: state }));
+      }
+      if (String(input).endsWith("/edit-control") && init?.method === "POST") return Promise.resolve(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 5, heartbeatIntervalSeconds: 60 } }));
+      return fetchMock(input, init);
+    }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageEdit currentUsername="maria" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByText("OS em edição por joao.")).toBeInTheDocument();
+    await act(async () => { intervals.get(15_000)?.(); await Promise.resolve(); });
+    await waitFor(() => expect(screen.getByText("Esta OS agora está disponível para edição.")).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Editar OS" }));
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it("reutiliza o contexto da aba no F5 e cria contexto novo ao reabrir sem navegação de reload", async () => {
+    const key = `service-order-edit-context:${publicId}`;
+    const previousToken = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    sessionStorage.setItem(key, previousToken);
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([{ type: "reload" } as unknown as PerformanceEntry] as PerformanceEntryList);
+    const requests: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+    const reloadApi = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push([input, init]);
+      if (String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET") return Promise.resolve(response({ data: { held: true, holder: { publicId: "current", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 8, heartbeatIntervalSeconds: 60 } }));
+      return reloadApi(input, init);
+    }));
+    const firstView = render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    expect(requests.some(([url, init]) => String(url).endsWith("/edit-control") && (init?.headers as Record<string, string>)["X-Service-Order-Edit-Token"] === previousToken)).toBe(true);
+
+    firstView.unmount();
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([{ type: "navigate" } as unknown as PerformanceEntry] as PerformanceEntryList);
+    const reopenedApi = vi.fn().mockResolvedValue(response({ data: detail }));
+    const requestStart = requests.length;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push([input, init]);
+      if (String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET") return Promise.resolve(response({ data: { held: true, holder: { publicId: "current", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 8, heartbeatIntervalSeconds: 60 } }));
+      return reopenedApi(input, init);
+    }));
+    const reopened = render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Transferir edição para esta aba" })).toBeInTheDocument();
+    const newToken = requests.slice(requestStart).find(([url]) => String(url).endsWith("/edit-control"))?.[1]?.headers as Record<string, string>;
+    expect(newToken).toBeDefined();
+    expect(newToken["X-Service-Order-Edit-Token"]).not.toBe(previousToken);
+    expect(sessionStorage.getItem(key)).toBe(newToken["X-Service-Order-Edit-Token"]);
+    reopened.unmount();
+  });
+
+  it("mostra contexto expirado e só inicia nova edição após clique explícito", async () => {
+    const key = `service-order-edit-context:${publicId}`;
+    const expiredToken = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    sessionStorage.setItem(key, expiredToken);
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([{ type: "reload" } as unknown as PerformanceEntry] as PerformanceEntryList);
+    const requests: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+    let acquiredToken: string | null = null;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push([input, init]);
+      if (String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET") {
+        const token = (init?.headers as Record<string, string>)?.["X-Service-Order-Edit-Token"];
+        return Promise.resolve(response({ data: token === acquiredToken && acquiredToken
+          ? { orderEditable: true, held: true, holder: { publicId: "current", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:10:00.000Z", isCurrentContext: true, generation: 9, heartbeatIntervalSeconds: 60 }
+          : { orderEditable: true, held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, currentContextExpired: true, generation: 8, heartbeatIntervalSeconds: 60 } }));
+      }
+      if (String(input).endsWith("/edit-control") && init?.method === "POST") {
+        acquiredToken = (init.headers as Record<string, string>)["X-Service-Order-Edit-Token"];
+        return Promise.resolve(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 9, heartbeatIntervalSeconds: 60 } }));
+      }
+      return Promise.resolve(response({ data: detail }));
+    }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByText("Seu controle de edição expirou. Seus valores locais foram preservados; clique em Editar OS para iniciar um novo controle.")).toBeInTheDocument();
+    expect(requests.some(([url, init]) => String(url).endsWith("/edit-control") && init?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Editar OS" }));
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    const acquireRequest = requests.find(([url, init]) => String(url).endsWith("/edit-control") && init?.method === "POST");
+    const newToken = (acquireRequest?.[1]?.headers as Record<string, string>)?.["X-Service-Order-Edit-Token"];
+    expect(newToken).toBeDefined();
+    expect(newToken).not.toBe(expiredToken);
+  });
+
+  it("preserva seleção local e torna os campos somente leitura após perder o controle", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(assignableResponse())
+      .mockResolvedValueOnce(response({ code: "SERVICE_ORDER_EDIT_CONTROL_LOST", message: "Controle transferido." }, 409));
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    await openAssignmentsEditor();
+    const ana = await screen.findByRole("checkbox", { name: "ana.tech" });
+    fireEvent.click(ana);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
+    expect(await screen.findByText(/Seus valores locais foram preservados em somente leitura/)).toBeInTheDocument();
+    expect(ana).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "ana.tech" })).toBeDisabled();
+  });
+
+  it("bloqueia salvar quando a OS mudou e exige carregar os dados atuais", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const latest = { ...detail, assignedUserPublicIds: [assignableUsers[1].publicId], updatedAt: "2026-10-14T14:00:00.000Z" };
+    let detailReads = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `/api/v1/service-orders/${publicId}`) return Promise.resolve(response({ data: detailReads++ === 0 ? detail : latest }));
+      if (url.startsWith("/api/v1/users/assignable")) return Promise.resolve(assignableResponse());
+      if (url.endsWith("/assignments") && init?.method === "PUT") return Promise.resolve(response({ code: "SERVICE_ORDER_DATA_CONFLICT", message: "Conflito." }, 409));
+      return Promise.resolve(response({ data: [] }));
+    });
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    await openAssignmentsEditor();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
+    expect(await screen.findByText(/Valores locais não foram enviados/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "ana.tech" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Salvar responsáveis" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Carregar dados atuais e descartar valores locais" }));
+    await screen.findByRole("button", { name: "Editar responsáveis" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    expect(await screen.findByRole("checkbox", { name: "bruno.tech" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "ana.tech" })).not.toBeChecked();
   });
 
   it("transfere para outra aba do mesmo usuário sem permissão especial e pede confirmação própria", async () => {

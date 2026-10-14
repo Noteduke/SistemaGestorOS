@@ -14,7 +14,7 @@ function response(body: unknown) { return { ok: true, status: 200, json: async (
 it("oculta custo e total de custo sem autorização específica", async () => {
   const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ ...item, unitCost: undefined, totalCost: undefined }], total: "20.00", canReadCosts: false }));
   vi.stubGlobal("fetch", fetchMock);
-  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf" editToken="00000000-0000-4000-8000-000000000001" canEdit={false} canReadCosts={false} canUpdateCosts={false} isOpen />);
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit={false} canReadCosts={false} canUpdateCosts={false} isOpen />);
   expect(await screen.findByText("Fonte")).toBeInTheDocument();
   expect(screen.queryByText("Custo unitário")).not.toBeInTheDocument();
   expect(screen.queryByText("R$ 5.00")).not.toBeInTheDocument();
@@ -28,7 +28,7 @@ it("envia peça com quantidade máxima, custo opcional e CSRF", async () => {
     .mockResolvedValueOnce(response({ data: item }))
     .mockResolvedValueOnce(response({ data: [item], total: "20.00", canReadCosts: true }));
   vi.stubGlobal("fetch", fetchMock);
-  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" canEdit canReadCosts canUpdateCosts isOpen />);
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canReadCosts canUpdateCosts isOpen />);
   await userEvent.selectOptions(await screen.findByLabelText("Tipo"), "part");
   fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "Fonte" } });
   fireEvent.change(screen.getByLabelText("Valor unitário"), { target: { value: "10.00" } });
@@ -41,4 +41,24 @@ it("envia peça com quantidade máxima, custo opcional e CSRF", async () => {
     method: "POST", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token" }),
     body: JSON.stringify({ description: "Fonte", quantity: 999, unitPrice: "10.00", unitCost: "5.00" }),
   }));
+});
+
+it("mantém rascunho do orçamento visível e somente leitura após perder o controle", async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))
+    .mockResolvedValueOnce(response({ data: [] }));
+  vi.stubGlobal("fetch", fetchMock);
+  const props = { publicId: orderId, csrfToken: "csrf", editToken: "00000000-0000-4000-8000-000000000001", expectedRevision: "2026-10-14T12:00:00.000Z", canReadCosts: true, canUpdateCosts: true, isOpen: true };
+  const view = render(<ServiceOrderBudgetPanel {...props} canEdit />);
+  await userEvent.selectOptions(await screen.findByLabelText("Tipo"), "part");
+  fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "Fonte digitada localmente" } });
+  fireEvent.change(screen.getByLabelText("Valor unitário"), { target: { value: "125.00" } });
+
+  view.rerender(<ServiceOrderBudgetPanel {...props} canEdit={false} />);
+  expect(screen.getByLabelText("Descrição")).toHaveValue("Fonte digitada localmente");
+  expect(screen.getByLabelText("Descrição")).toBeDisabled();
+  expect(screen.getByLabelText("Valor unitário")).toHaveValue("125.00");
+  expect(screen.getByLabelText("Valor unitário")).toBeDisabled();
+  expect(screen.getByText("Rascunho não salvo preservado em somente leitura.")).toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([, init]) => ["POST", "PATCH", "DELETE"].includes(init?.method ?? ""))).toBe(false);
 });

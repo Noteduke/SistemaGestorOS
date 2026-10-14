@@ -5,7 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { normalizeServiceName } from "../services/domain/service-name.js";
 import type { CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
 import { acquireCatalogNameLock } from "../../infrastructure/prisma/catalog-name-lock.js";
-import { assertEditControlInTransaction } from "./service-order-edit-control.service.js";
+import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
 
 type Tx = Prisma.TransactionClient;
 const txOptions = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 15_000 } as const;
@@ -34,7 +34,7 @@ async function canReadCosts(tx: Tx, actor: AuthenticatedUser): Promise<boolean> 
 async function lockedOrder(tx: Tx, publicId: string) {
   const lock = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_orders WHERE public_id = ${publicId} FOR UPDATE`;
   if (!lock[0]) throw orderNotFound();
-  const order = await tx.serviceOrder.findFirst({ where: { id: lock[0].id, ...confirmedWhere }, select: { id: true, publicId: true, numberValue: true, macroStatus: true } });
+  const order = await tx.serviceOrder.findFirst({ where: { id: lock[0].id, ...confirmedWhere }, select: { id: true, publicId: true, numberValue: true, macroStatus: true, updatedAt: true } });
   if (!order) throw orderNotFound();
   if (order.macroStatus !== "OPEN") throw orderNotOpen();
   return order;
@@ -97,12 +97,13 @@ export class ServiceOrderBudgetItemsService {
     return { data: data.map((service) => ({ publicId: service.publicId, name: service.name, defaultPrice: serializeDecimal(service.defaultPrice) })) };
   }
 
-  async createRegistered(orderPublicId: string, input: CreateRegisteredLaborInput, actor: AuthenticatedUser, editToken?: string) {
+  async createRegistered(orderPublicId: string, input: CreateRegisteredLaborInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
     assertId(orderPublicId); assertId(input.servicePublicId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
+        assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         const serviceLocks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE public_id = ${input.servicePublicId} FOR UPDATE`;
         if (!serviceLocks[0]) throw new NotFoundException({ code: "SERVICE_NOT_FOUND", message: "Serviço não encontrado." });
@@ -118,20 +119,21 @@ export class ServiceOrderBudgetItemsService {
         } });
         const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
         await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_CRIADO", item, [{ field: "item", before: null, after: snapshot(item) }], total(beforeRows), total(items));
-        return { data: itemView(item, await canReadCosts(tx, actor)) };
+        const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
+        return { data: itemView(item, await canReadCosts(tx, actor)), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
 
-  async createManualLabor(orderPublicId: string, input: CreateManualLaborInput, actor: AuthenticatedUser, editToken?: string) {
-    return this.createManual(orderPublicId, input, actor, "SERVICE_LABOR", editToken);
+  async createManualLabor(orderPublicId: string, input: CreateManualLaborInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
+    return this.createManual(orderPublicId, input, actor, "SERVICE_LABOR", editToken, expectedRevision);
   }
 
-  async createManualPart(orderPublicId: string, input: CreateManualPartInput, actor: AuthenticatedUser, editToken?: string) {
-    return this.createManual(orderPublicId, input, actor, "MANUAL_PART", editToken);
+  async createManualPart(orderPublicId: string, input: CreateManualPartInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
+    return this.createManual(orderPublicId, input, actor, "MANUAL_PART", editToken, expectedRevision);
   }
 
-  private async createManual(orderPublicId: string, input: CreateManualLaborInput | CreateManualPartInput, actor: AuthenticatedUser, itemType: "SERVICE_LABOR" | "MANUAL_PART", editToken?: string) {
+  private async createManual(orderPublicId: string, input: CreateManualLaborInput | CreateManualPartInput, actor: AuthenticatedUser, itemType: "SERVICE_LABOR" | "MANUAL_PART", editToken?: string, expectedRevision?: string) {
     assertId(orderPublicId);
     const description = input.description.trim().replace(/\s+/gu, " ");
     const normalizedDescription = normalizeServiceName(description);
@@ -139,6 +141,7 @@ export class ServiceOrderBudgetItemsService {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
+        assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         if (itemType === "MANUAL_PART" && "unitCost" in input && input.unitCost != null) {
           await assertPermission(tx, actor, "service_orders.budget.costs.read");
@@ -160,18 +163,20 @@ export class ServiceOrderBudgetItemsService {
         const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
         const before = total(items).sub(item.unitPrice.mul(item.quantity));
         await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_CRIADO", item, [{ field: "item", before: null, after: snapshot(item) }], before, total(items));
-        return { data: itemView(item, await canReadCosts(tx, actor)) };
+        const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
+        return { data: itemView(item, await canReadCosts(tx, actor)), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
         }
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
 
-  async update(orderPublicId: string, itemPublicId: string, input: UpdateBudgetItemInput, actor: AuthenticatedUser, editToken?: string) {
+  async update(orderPublicId: string, itemPublicId: string, input: UpdateBudgetItemInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
     assertId(orderPublicId); assertId(itemPublicId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
+        assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
         if (!locked[0]) throw itemNotFound();
@@ -213,7 +218,7 @@ export class ServiceOrderBudgetItemsService {
           const after = next === null ? null : serializeDecimal(next);
           if (before !== after) changes.push({ field: "unitCost", before, after });
         }
-        if (!changes.length) return { data: itemView(current, includeCosts) };
+        if (!changes.length) return { data: itemView(current, includeCosts), serviceOrderRevision: order.updatedAt.toISOString() };
         const updateData: Prisma.ServiceOrderBudgetItemUpdateInput = {
           ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
           ...(input.unitPrice !== undefined ? { unitPrice: decimal(input.unitPrice) } : {}),
@@ -226,18 +231,20 @@ export class ServiceOrderBudgetItemsService {
         const nextTotal = total(items);
         const previousTotal = nextTotal.sub(updated.unitPrice.mul(updated.quantity)).add(current.unitPrice.mul(current.quantity));
         await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_ALTERADO", updated, changes as Array<{ field: string; before: Prisma.InputJsonValue | null; after: Prisma.InputJsonValue | null }>, previousTotal, nextTotal);
-        return { data: itemView(updated, includeCosts) };
+        const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
+        return { data: itemView(updated, includeCosts), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
         }
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
 
-  async remove(orderPublicId: string, itemPublicId: string, actor: AuthenticatedUser, editToken?: string) {
+  async remove(orderPublicId: string, itemPublicId: string, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
     assertId(orderPublicId); assertId(itemPublicId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
+        assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         const locks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
         if (!locks[0]) throw itemNotFound();
@@ -250,7 +257,8 @@ export class ServiceOrderBudgetItemsService {
         const afterRows = beforeRows.filter((row) => row.id !== item.id);
         const afterTotal = total(afterRows);
         await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_REMOVIDO", removed, [{ field: "item", before: snapshot(item), after: null }], beforeTotal, afterTotal);
-        return { data: { removed: true, publicId: item.publicId, total: serializeDecimal(afterTotal) } };
+        const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
+        return { data: { removed: true, publicId: item.publicId, total: serializeDecimal(afterTotal) }, serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
