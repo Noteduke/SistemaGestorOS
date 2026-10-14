@@ -527,6 +527,7 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(assignableResponse())
       .mockResolvedValueOnce(response({ data: updated }))
+      .mockResolvedValueOnce(response({ data: updated }))
       .mockResolvedValueOnce(response({
         data: [{ kind: "SYSTEM_EVENT", eventType: "ATRIBUICOES_ALTERADAS", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { newUserPublicIds: [assignableUsers[0].publicId] } }],
         nextCursor: null, hasMore: false,

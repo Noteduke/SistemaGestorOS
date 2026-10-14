@@ -3,9 +3,10 @@ import { Prisma, type ServiceOrderBudgetItem } from "../../generated/prisma/clie
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { normalizeServiceName } from "../services/domain/service-name.js";
-import type { CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
+import type { BudgetEditableField, CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
 import { acquireCatalogNameLock } from "../../infrastructure/prisma/catalog-name-lock.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
+import { signBudgetSnapshot, verifyBudgetSnapshot } from "./service-order-budget-snapshot.js";
 
 type Tx = Prisma.TransactionClient;
 const txOptions = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 15_000 } as const;
@@ -19,6 +20,18 @@ function orderNotOpen(): ConflictException { return new ConflictException({ code
 function assertId(value: string): void { if (!uuidPattern.test(value)) throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." }); }
 function decimal(value: string): Prisma.Decimal { return new Prisma.Decimal(value); }
 function serializeDecimal(value: Prisma.Decimal): string { return value.toFixed(2); }
+function revisionDate(expectedRevision?: string): Date {
+  if (!expectedRevision) throw new BadRequestException({ code: "SERVICE_ORDER_REVISION_REQUIRED", message: "A revisão atual da OS é obrigatória para salvar." });
+  const date = new Date(expectedRevision);
+  if (!Number.isFinite(date.getTime())) throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_REVISION", message: "A revisão informada da OS é inválida." });
+  return date;
+}
+
+async function assertCompositionSnapshot(tx: Tx, orderId: number, lastWithdrawalId: number | null, confirmedEventId?: number): Promise<void> {
+  const withdrawn = await tx.serviceOrderEvent.findFirst({ where: { serviceOrderId: orderId, eventType: "ORCAMENTO_RETIRADO" }, orderBy: { id: "desc" }, select: { id: true } });
+  const currentId = withdrawn?.id ?? null;
+  if (currentId !== lastWithdrawalId && currentId !== confirmedEventId) throw new ConflictException({ code: "BUDGET_COMPOSITION_CONFLICT", message: "A composição do orçamento foi retirada enquanto você estava sem o controle da OS. Decida explicitamente antes de criar novos itens.", details: { compositionEventId: currentId } });
+}
 
 async function assertPermission(tx: Tx, actor: AuthenticatedUser, code: string): Promise<void> {
   if (actor.isAdmin) return;
@@ -29,6 +42,12 @@ async function assertPermission(tx: Tx, actor: AuthenticatedUser, code: string):
 async function canReadCosts(tx: Tx, actor: AuthenticatedUser): Promise<boolean> {
   if (actor.isAdmin) return true;
   return Boolean(await tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.budget.costs.read" } }, select: { userId: true } }));
+}
+
+async function sessionTokenHash(tx: Tx, actor: AuthenticatedUser): Promise<string> {
+  const session = await tx.userSession.findUnique({ where: { id: actor.sessionId }, select: { tokenHash: true } });
+  if (!session) throw new ForbiddenException({ code: "SESSION_REVOKED", message: "Sessão encerrada." });
+  return session.tokenHash;
 }
 
 async function lockedOrder(tx: Tx, publicId: string) {
@@ -81,13 +100,19 @@ export class ServiceOrderBudgetItemsService {
       const order = await tx.serviceOrder.findFirst({ where: { ...confirmedWhere, publicId: orderPublicId }, select: { id: true } });
       if (!order) throw orderNotFound();
       const includeCosts = await canReadCosts(tx, actor);
+      const hash = await sessionTokenHash(tx, actor);
       const [items, linked] = await Promise.all([
         tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" } }),
         tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null, serviceCatalogId: { not: null } }, select: { serviceCatalog: { select: { publicId: true } }, publicId: true } }),
       ]);
       const linkedIds = new Map(linked.map((entry) => [entry.publicId, entry.serviceCatalog?.publicId]));
-      const data = items.map((item) => ({ ...itemView(item, includeCosts), servicePublicId: linkedIds.get(item.publicId) ?? null }));
-      return { data, total: serializeDecimal(total(items)), canReadCosts: includeCosts };
+      const withdrawal = await tx.serviceOrderEvent.findFirst({ where: { serviceOrderId: order.id, eventType: "ORCAMENTO_RETIRADO" }, orderBy: { id: "desc" }, select: { id: true } });
+      const data = items.map((item) => ({ ...itemView(item, includeCosts), servicePublicId: linkedIds.get(item.publicId) ?? null,
+        snapshotToken: signBudgetSnapshot({ kind: "item", orderId: order.id, sessionId: actor.sessionId, itemPublicId: item.publicId, itemVersion: item.version, lastWithdrawalId: withdrawal?.id ?? null,
+          values: { quantity: item.quantity, unitPrice: serializeDecimal(item.unitPrice), description: item.description,
+            ...(includeCosts ? { unitCost: item.unitCost === null ? null : serializeDecimal(item.unitCost) } : {}) } }, hash) }));
+      return { data, total: serializeDecimal(total(items)), canReadCosts: includeCosts,
+        compositionToken: signBudgetSnapshot({ kind: "composition", orderId: order.id, sessionId: actor.sessionId, lastWithdrawalId: withdrawal?.id ?? null }, hash) };
     }, txOptions);
   }
 
@@ -103,7 +128,11 @@ export class ServiceOrderBudgetItemsService {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
-        assertServiceOrderRevision(order.updatedAt, expectedRevision);
+        revisionDate(expectedRevision);
+        if (input.compositionToken) {
+          const snapshot = verifyBudgetSnapshot(input.compositionToken, await sessionTokenHash(tx, actor), "composition", order.id, actor.sessionId);
+          await assertCompositionSnapshot(tx, order.id, snapshot.lastWithdrawalId ?? null, input.compositionConfirmed);
+        } else assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         const serviceLocks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE public_id = ${input.servicePublicId} FOR UPDATE`;
         if (!serviceLocks[0]) throw new NotFoundException({ code: "SERVICE_NOT_FOUND", message: "Serviço não encontrado." });
@@ -141,7 +170,11 @@ export class ServiceOrderBudgetItemsService {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
-        assertServiceOrderRevision(order.updatedAt, expectedRevision);
+        revisionDate(expectedRevision);
+        if (input.compositionToken) {
+          const snapshot = verifyBudgetSnapshot(input.compositionToken, await sessionTokenHash(tx, actor), "composition", order.id, actor.sessionId);
+          await assertCompositionSnapshot(tx, order.id, snapshot.lastWithdrawalId ?? null, input.compositionConfirmed);
+        } else assertServiceOrderRevision(order.updatedAt, expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         if (itemType === "MANUAL_PART" && "unitCost" in input && input.unitCost != null) {
           await assertPermission(tx, actor, "service_orders.budget.costs.read");
@@ -176,19 +209,29 @@ export class ServiceOrderBudgetItemsService {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
-        assertServiceOrderRevision(order.updatedAt, expectedRevision);
+        revisionDate(expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
-        const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
-        if (!locked[0]) throw itemNotFound();
-        const current = await tx.serviceOrderBudgetItem.findUniqueOrThrow({ where: { id: locked[0].id } });
-        if (current.removedAt) throw itemNotFound();
-        if (current.version !== input.expectedVersion) throw new ConflictException({ code: "BUDGET_ITEM_VERSION_CONFLICT", message: "O item mudou desde que foi aberto. Recarregue a composição." });
-        const includeCosts = await canReadCosts(tx, actor);
         const costRequested = Object.hasOwn(input, "unitCost");
         if (costRequested) {
           await assertPermission(tx, actor, "service_orders.budget.costs.read");
           await assertPermission(tx, actor, "service_orders.budget.costs.update");
         }
+        const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
+        if (!locked[0]) throw itemNotFound();
+        const current = await tx.serviceOrderBudgetItem.findUniqueOrThrow({ where: { id: locked[0].id } });
+        const snapshot = input.snapshotToken ? verifyBudgetSnapshot(input.snapshotToken, await sessionTokenHash(tx, actor), "item", order.id, actor.sessionId) : null;
+        if (snapshot && (snapshot.itemPublicId !== itemPublicId || snapshot.itemVersion !== input.expectedVersion || !snapshot.values)) throw new BadRequestException({ code: "INVALID_BUDGET_SNAPSHOT", message: "Fotografia original inválida. Recarregue o orçamento." });
+        if (snapshot && input.original) {
+          for (const field of Object.keys(input.original) as BudgetEditableField[]) {
+            if (input.original[field] !== snapshot.values?.[field]) throw new BadRequestException({ code: "INVALID_BUDGET_SNAPSHOT", message: "Valor original não corresponde à fotografia lida." });
+          }
+        }
+        if (current.removedAt) {
+          if (snapshot) await assertCompositionSnapshot(tx, order.id, snapshot.lastWithdrawalId ?? null);
+          throw new ConflictException({ code: "BUDGET_ITEM_REMOVED", message: "Este item foi removido enquanto você estava sem o controle da OS." });
+        }
+        if ((!snapshot || !input.original) && current.version !== input.expectedVersion) throw new ConflictException({ code: "BUDGET_ITEM_VERSION_CONFLICT", message: "O item mudou desde que foi aberto. Recarregue a composição." });
+        const includeCosts = await canReadCosts(tx, actor);
         let description = input.description ?? current.description;
         let normalizedDescription = current.normalizedDescription;
         {
@@ -196,34 +239,49 @@ export class ServiceOrderBudgetItemsService {
           if (current.origin !== "MANUAL") throw new BadRequestException({ code: "REGISTERED_DESCRIPTION_IMMUTABLE", message: "A descrição de serviço cadastrado é imutável na OS." });
           description = input.description.trim().replace(/\s+/gu, " ");
           normalizedDescription = normalizeServiceName(description);
+        }
+        const currentValues: Partial<Record<BudgetEditableField, string | number | null>> = {
+          quantity: current.quantity, unitPrice: serializeDecimal(current.unitPrice), description: current.description,
+          ...(includeCosts ? { unitCost: current.unitCost === null ? null : serializeDecimal(current.unitCost) } : {}),
+        };
+        const wanted: Partial<Record<BudgetEditableField, string | number | null>> = {
+          ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
+          ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
+          ...(input.description !== undefined ? { description } : {}),
+          ...(costRequested && includeCosts ? { unitCost: input.unitCost ?? null } : {}),
+        };
+        const labels: Record<BudgetEditableField, string> = { quantity: "Quantidade", unitPrice: "Valor unitário", description: "Descrição", unitCost: "Custo unitário" };
+        const conflicts: Array<{ field: BudgetEditableField; label: string; current: string | number | null; wanted: string | number | null }> = [];
+        const changes: Array<{ field: BudgetEditableField; before: string | number | null; after: string | number | null }> = [];
+        for (const field of Object.keys(wanted) as BudgetEditableField[]) {
+          const before = currentValues[field]!;
+          const after = wanted[field]!;
+          if (before === after) continue;
+          const chosenMine = input.useMine?.includes(field) && input.resolvedCurrent?.[field] === before;
+          if (input.original && input.original[field] !== before && !chosenMine) {
+            conflicts.push({ field, label: labels[field], current: before, wanted: after });
+          } else changes.push({ field, before, after });
+        }
+        if (conflicts.length) throw new ConflictException({ code: "BUDGET_FIELD_CONFLICT", message: "Resolva cada campo alterado por outra pessoa antes de salvar.", details: { conflicts } });
+        if (!changes.length) return { data: itemView(current, includeCosts), serviceOrderRevision: order.updatedAt.toISOString() };
+        if (changes.some(({ field }) => field === "description")) {
           if (current.itemType === "SERVICE_LABOR") {
-            await acquireCatalogNameLock(tx, normalizedDescription);
+            await acquireCatalogNameLock(tx, normalizedDescription!);
             if ((await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE normalized_name = ${normalizedDescription} FOR UPDATE`).length) {
               throw new ConflictException({ code: "MANUAL_LABOR_MATCHES_CATALOG", message: "Use o serviço cadastrado correspondente." });
             }
           }
+          const duplicate = await tx.serviceOrderBudgetItem.findFirst({ where: {
+            serviceOrderId: order.id, id: { not: current.id }, itemType: current.itemType, origin: "MANUAL", normalizedDescription,
+            removedAt: null,
+          }, select: { publicId: true } });
+          if (duplicate) throw duplicateItem(duplicate.publicId);
         }
-        const duplicate = await tx.serviceOrderBudgetItem.findFirst({ where: {
-          serviceOrderId: order.id, id: { not: current.id }, itemType: current.itemType, origin: "MANUAL", normalizedDescription,
-          removedAt: null,
-        }, select: { publicId: true } });
-        if (current.origin === "MANUAL" && duplicate) throw duplicateItem(duplicate.publicId);
-        const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
-        if (input.quantity !== undefined && input.quantity !== current.quantity) changes.push({ field: "quantity", before: current.quantity, after: input.quantity });
-        if (input.unitPrice !== undefined && !current.unitPrice.equals(input.unitPrice)) changes.push({ field: "unitPrice", before: serializeDecimal(current.unitPrice), after: input.unitPrice });
-        if (input.description !== undefined && input.description !== current.description) changes.push({ field: "description", before: current.description, after: description });
-        if (costRequested && includeCosts) {
-          const next = input.unitCost == null ? null : decimal(input.unitCost);
-          const before = current.unitCost === null ? null : serializeDecimal(current.unitCost);
-          const after = next === null ? null : serializeDecimal(next);
-          if (before !== after) changes.push({ field: "unitCost", before, after });
-        }
-        if (!changes.length) return { data: itemView(current, includeCosts), serviceOrderRevision: order.updatedAt.toISOString() };
         const updateData: Prisma.ServiceOrderBudgetItemUpdateInput = {
-          ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
-          ...(input.unitPrice !== undefined ? { unitPrice: decimal(input.unitPrice) } : {}),
-          ...(input.description !== undefined && current.origin === "MANUAL" ? { description, normalizedDescription } : {}),
-          ...(costRequested && includeCosts ? { unitCost: input.unitCost == null ? null : decimal(input.unitCost) } : {}),
+          ...(changes.some(({ field }) => field === "quantity") ? { quantity: input.quantity } : {}),
+          ...(changes.some(({ field }) => field === "unitPrice") ? { unitPrice: decimal(input.unitPrice!) } : {}),
+          ...(changes.some(({ field }) => field === "description") && current.origin === "MANUAL" ? { description, normalizedDescription } : {}),
+          ...(changes.some(({ field }) => field === "unitCost") ? { unitCost: input.unitCost == null ? null : decimal(input.unitCost) } : {}),
           updatedBy: { connect: { id: actor.id } }, version: { increment: 1 },
         };
         const updated = await tx.serviceOrderBudgetItem.update({ where: { id: current.id }, data: updateData });
@@ -244,7 +302,7 @@ export class ServiceOrderBudgetItemsService {
       return await this.prisma.$transaction(async (tx) => {
         const order = await lockedOrder(tx, orderPublicId);
         await assertEditControlInTransaction(tx, order.id, actor, editToken);
-        assertServiceOrderRevision(order.updatedAt, expectedRevision);
+        revisionDate(expectedRevision);
         await assertPermission(tx, actor, "service_orders.budget.update");
         const locks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
         if (!locks[0]) throw itemNotFound();

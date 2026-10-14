@@ -38,8 +38,8 @@ export class ServiceOrdersController {
 
   @Get(":publicId")
   @RequirePermissions("service_orders.read")
-  getByPublicId(@Param("publicId") publicId: string) {
-    return this.orders.getByPublicId(publicId);
+  getByPublicId(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.orders.getByPublicId(publicId, request.auth!);
   }
 
   @Get(":publicId/edit-control")

@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { AssignmentsPutInput } from "./dto/assignments-put.dto.js";
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
+import { verifyBudgetSnapshot } from "./service-order-budget-snapshot.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -37,10 +38,23 @@ export class ServiceOrderAssignmentsService {
         });
         if (!current) throw serviceOrderNotFound();
         await assertEditControlInTransaction(tx, locked.id, actor, editToken);
-        assertServiceOrderRevision(current.updatedAt, expectedRevision);
+        if (!input.originalUserPublicIds) assertServiceOrderRevision(current.updatedAt, expectedRevision);
+        else {
+          if (!expectedRevision || !Number.isFinite(new Date(expectedRevision).getTime())) assertServiceOrderRevision(current.updatedAt, expectedRevision);
+          const session = await tx.userSession.findUniqueOrThrow({ where: { id: actor.sessionId }, select: { tokenHash: true } });
+          const snapshot = verifyBudgetSnapshot(input.editSnapshotToken, session.tokenHash, "order", locked.id, actor.sessionId);
+          if (!snapshot.assignedUserPublicIds || !samePublicIds(snapshot.assignedUserPublicIds, input.originalUserPublicIds)) throw new BadRequestException({ code: "INVALID_EDIT_SNAPSHOT", message: "Responsáveis originais não correspondem à fotografia lida." });
+        }
         await assertAssignmentPermission(tx, actor);
 
+        const currentPublicIds = current.assignments.map(({ user }) => user.publicId).sort();
+        const requestedPublicIds = [...input.userPublicIds].sort();
+        if (input.originalUserPublicIds && !samePublicIds(currentPublicIds, input.originalUserPublicIds) && !samePublicIds(currentPublicIds, requestedPublicIds) && !samePublicIds(currentPublicIds, input.resolvedCurrentUserPublicIds ?? [])) {
+          throw new ConflictException({ code: "SERVICE_ORDER_FIELD_CONFLICT", message: "Os responsáveis foram alterados. Escolha o valor que deve prevalecer.", details: { field: "assignedUserPublicIds", current: currentPublicIds, wanted: requestedPublicIds } });
+        }
+
         const requestedIds = [...input.userPublicIds].sort((left, right) => left.localeCompare(right));
+        if (samePublicIds(currentPublicIds, requestedIds)) return { data: toServiceOrderDetailView(current) };
         const resolvedUsers = new Map<string, UserLock>();
         for (const userPublicId of requestedIds) {
           const rows = await tx.$queryRaw<UserLock[]>`
@@ -54,7 +68,6 @@ export class ServiceOrderAssignmentsService {
 
         const currentUserIds = new Set(current.assignments.map(({ userId }) => userId));
         const requestedUserIds = new Set([...resolvedUsers.values()].map(({ id }) => id));
-        if (sameSet(currentUserIds, requestedUserIds)) return { data: toServiceOrderDetailView(current) };
 
         const previousUserPublicIds = current.assignments.map(({ user }) => user.publicId).sort();
         const newUserPublicIds = [...resolvedUsers.values()].map(({ public_id }) => public_id).sort();
@@ -103,6 +116,10 @@ export class ServiceOrderAssignmentsService {
       throw error;
     }
   }
+}
+
+function samePublicIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id) => right.includes(id));
 }
 
 async function assertAssignmentPermission(tx: Tx, actor: AuthenticatedUser): Promise<void> {

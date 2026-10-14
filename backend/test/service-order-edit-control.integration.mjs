@@ -207,11 +207,14 @@ try {
   status(assignmentWrite, 200, "holder with assignment permission can mutate");
   assert.deepEqual(assignmentWrite.body.data.assignedUserPublicIds, [assignee.publicId]);
   const staleRevision = assignmentWrite.body.data.updatedAt;
+  const compositionRead = await request("GET", `${orderPath}/budget-items`, finalOwnerSession);
+  status(compositionRead, 200, "budget baseline for independent additions");
+  const compositionToken = compositionRead.body.compositionToken;
   const budgetWrite = await request("POST", `${orderPath}/budget-items/manual-labor`, { ...finalOwnerSession, editToken: finalOwnerToken, body: { description: `TESTE ${suffix}`, quantity: 1, unitPrice: "0.00" } });
   status(budgetWrite, 201, "holder with budget permission can mutate budget");
-  const staleBudgetWrite = await request("POST", `${orderPath}/budget-items/manual-part`, { ...finalOwnerSession, editToken: finalOwnerToken, revision: staleRevision, body: { description: `STALE ${suffix}`, quantity: 1, unitPrice: "1.00" } });
-  status(staleBudgetWrite, 409, "stale aggregate revision blocks overwriting after another mutation");
-  assert.equal(staleBudgetWrite.body.code, "SERVICE_ORDER_DATA_CONFLICT");
+  const staleBudgetWrite = await request("POST", `${orderPath}/budget-items/manual-part`, { ...finalOwnerSession, editToken: finalOwnerToken, revision: staleRevision, body: { description: `STALE ${suffix}`, quantity: 1, unitPrice: "1.00", compositionToken } });
+  status(staleBudgetWrite, 201, "another budget item does not conflict with a different item");
+  status(await request("DELETE", `${orderPath}/budget-items/${staleBudgetWrite.body.data.publicId}`, { ...finalOwnerSession, editToken: finalOwnerToken }), 200, "independent item can be removed");
   status(await request("DELETE", `${orderPath}/budget-items/${budgetWrite.body.data.publicId}`, { ...finalOwnerSession, editToken: finalOwnerToken }), 200, "budget removal also requires and accepts current control");
 
   const budgetEditorToken = randomUUID();
