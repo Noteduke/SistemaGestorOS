@@ -144,6 +144,7 @@ model User {
   serviceOrderAssignments       ServiceOrderAssignment[] @relation("AssignmentUser")
   serviceOrderAssignmentsMade   ServiceOrderAssignment[] @relation("AssignmentActor")
   serviceOrderEvents            ServiceOrderEvent[]      @relation("ServiceOrderEventActor")
+  serviceOrderNotes             ServiceOrderNote[]       @relation("ServiceOrderNoteAuthor")
   initiatedServiceOrderEvents   ServiceOrderEvent[]      @relation("ServiceOrderEventInitiator")
   equipmentOwnershipChanges     EquipmentOwnership[]     @relation("EquipmentOwnershipActor")
   createdCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogCreator")
@@ -472,6 +473,7 @@ model ServiceOrder {
   createdBy        User                         @relation("ServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assignments      ServiceOrderAssignment[]
   events           ServiceOrderEvent[]
+  notes            ServiceOrderNote[]
   ownershipEvents  EquipmentOwnership[]
 
   @@index([macroStatus, operationalSituation, openedAt])
@@ -518,4 +520,20 @@ model ServiceOrderEvent {
   @@index([actorUserId, occurredAt])
   @@index([eventType, occurredAt])
   @@map("service_order_events")
+}
+
+model ServiceOrderNote {
+  id             Int      @id @default(autoincrement())
+  publicId       String   @unique @default(uuid()) @map("public_id") @db.Char(36)
+  serviceOrderId Int      @map("service_order_id")
+  authorUserId   Int      @map("author_user_id")
+  text           String   @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  author       User         @relation("ServiceOrderNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([serviceOrderId, createdAt, id])
+  @@index([authorUserId])
+  @@map("service_order_notes")
 }

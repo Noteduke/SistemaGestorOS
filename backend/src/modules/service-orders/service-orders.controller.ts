@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Put, Query, Req } from "@nestjs/common";
-import { RequirePermissions } from "../auth/decorators/auth-metadata.js";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
+import { RequireAuthenticated, RequirePermissions } from "../auth/decorators/auth-metadata.js";
 import type { AuthRequest } from "../auth/auth.types.js";
 import { parseListServiceOrdersQuery } from "./dto/list-service-orders-query.dto.js";
 import { parseOperationalSituationPatch } from "./dto/operational-situation-patch.dto.js";
@@ -9,6 +9,10 @@ import { parseListServiceOrderEventsQuery } from "./dto/list-service-order-event
 import { ServiceOrderAssignmentsService } from "./service-order-assignments.service.js";
 import { ServiceOrderEventsReadService } from "./service-order-events-read.service.js";
 import { ServiceOrdersReadService } from "./service-orders-read.service.js";
+import { parseCreateServiceOrderNote } from "./dto/service-order-note.dto.js";
+import { parseListServiceOrderHistoryQuery } from "./dto/list-service-order-history-query.dto.js";
+import { ServiceOrderNotesService } from "./service-order-notes.service.js";
+import { ServiceOrderHistoryService } from "./service-order-history.service.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
@@ -17,6 +21,8 @@ export class ServiceOrdersController {
     private readonly events: ServiceOrderEventsReadService,
     private readonly situations: ServiceOrderOperationalSituationService,
     private readonly assignments: ServiceOrderAssignmentsService,
+    private readonly notes: ServiceOrderNotesService,
+    private readonly history: ServiceOrderHistoryService,
   ) {}
 
   @Get()
@@ -35,6 +41,24 @@ export class ServiceOrdersController {
   @RequirePermissions("service_orders.events.read")
   listEvents(@Param("publicId") publicId: string, @Query() query: Record<string, unknown>) {
     return this.events.list(publicId, parseListServiceOrderEventsQuery(query));
+  }
+
+  @Get(":publicId/history")
+  @RequirePermissions("service_orders.events.read")
+  listHistory(@Param("publicId") publicId: string, @Query() query: Record<string, unknown>, @Req() request: AuthRequest) {
+    return this.history.list(publicId, parseListServiceOrderHistoryQuery(query), request.auth!);
+  }
+
+  @Post(":publicId/notes")
+  @RequirePermissions("service_orders.update")
+  createNote(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.notes.create(publicId, parseCreateServiceOrderNote(body), request.auth!);
+  }
+
+  @Delete(":publicId/notes/:notePublicId")
+  @RequireAuthenticated()
+  removeNote(@Param("publicId") publicId: string, @Param("notePublicId") notePublicId: string, @Req() request: AuthRequest) {
+    return this.notes.remove(publicId, notePublicId, request.auth!);
   }
 
   @Patch(":publicId/operational-situation")

@@ -187,4 +187,8 @@ O retrato não substitui checklist de recebimento. Estado físico, acessórios, 
 
 # 11. Evolução
 
-A base atual usa React + TypeScript + Vite, proxy local `/api` para `http://127.0.0.1:3000`, listener Vite restrito a `127.0.0.1`, navegação por hash e cliente HTTP com sessão/cookies. A aplicação inicial contém listagem, detalhe e histórico somente leitura de OS confirmadas. Padrões mais amplos de componentes, gerenciamento de estado, temas e biblioteca visual poderão ser definidos conforme novos módulos forem implementados.
+A base atual usa React + TypeScript + Vite, proxy local `/api` para `http://127.0.0.1:3000`, listener Vite restrito a `127.0.0.1`, navegação por hash e cliente HTTP com sessão/cookies. A aplicação contém listagem e detalhe de OS confirmadas e uma aba Histórico que combina eventos automáticos e observações manuais. Padrões mais amplos de componentes, gerenciamento de estado, temas e biblioteca visual poderão ser definidos conforme novos módulos forem implementados.
+
+## Observações manuais no Histórico da OS
+
+A aba Histórico consulta `/history` e exibe eventos automáticos e notas numa lista cronológica única; “Carregar mais” envia `nextCursor`, sem mesclagem local de fontes. O campo de uma linha para criar nota é mostrado apenas para `service_orders.update` ou Administrador, tem limite visual de 255 caracteres e envia CSRF. A API valida o texto de forma definitiva. Notas são exibidas como texto comum escapado pelo React, com autor e instante; não há edição, HTML, Markdown ou anexos. O botão Excluir aparece somente para nota com `canDelete`, pede confirmação e envia CSRF. `canDelete` orienta a interface e não substitui autorização no Backend. Eventos automáticos nunca oferecem Excluir. Aberturas provisórias não oferecem nota. A regra também admite OS FECHADA/CANCELADA quando esses estados existirem no schema; a interface não impõe o bloqueio OPEN.

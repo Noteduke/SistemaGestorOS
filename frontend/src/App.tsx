@@ -11,7 +11,7 @@ type Route =
   | { view: "list"; page: number }
   | { view: "opening" }
   | { view: "services" }
-  | { view: "detail"; publicId: string; section: "details" | "events"; eventsPage: number };
+  | { view: "detail"; publicId: string; section: "details" | "events" };
 
 function positivePage(value: string | null): number {
   if (!value || !/^\d+$/.test(value)) return 1;
@@ -35,7 +35,6 @@ function readRoute(): Route {
       view: "detail",
       publicId: decodeURIComponent(segments[1]),
       section: query.get("section") === "events" ? "events" : "details",
-      eventsPage: positivePage(query.get("eventsPage")),
     };
   }
   return { view: "list", page: positivePage(query.get("page")) };
@@ -108,14 +107,7 @@ export function App() {
     if (route.view !== "detail") return;
     const query = new URLSearchParams();
     if (section === "events") query.set("section", "events");
-    if (section === "events" && route.eventsPage > 1) query.set("eventsPage", String(route.eventsPage));
     navigate(`/service-orders/${encodeURIComponent(route.publicId)}${query.size ? `?${query}` : ""}`);
-  }
-
-  function changeEventsPage(page: number) {
-    if (route.view !== "detail") return;
-    const query = new URLSearchParams({ section: "events", eventsPage: String(page) });
-    navigate(`/service-orders/${encodeURIComponent(route.publicId)}?${query}`);
   }
 
   if (session.status === "checking") {
@@ -169,10 +161,9 @@ export function App() {
           <ServiceOrderDetailPage
             publicId={route.publicId}
             csrfToken={session.identity.csrfToken}
+            canCreateNote={session.identity.isAdmin || session.identity.permissions.includes("service_orders.update")}
             section={route.section}
-            eventsPage={route.eventsPage}
             onSectionChange={changeDetailSection}
-            onEventsPageChange={changeEventsPage}
             onBack={() => navigate("/service-orders")}
           />
         )}

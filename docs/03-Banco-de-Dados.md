@@ -245,3 +245,9 @@ Prisma Client é o mecanismo padrão de acesso aos dados. Quando sua API normal 
 # 17. Transações
 
 Operações que exijam atomicidade deverão utilizar os mecanismos transacionais do Prisma, especialmente `$transaction`. `PrismaService` disponibiliza essa infraestrutura; o service responsável pelo fluxo de negócio decidirá quando iniciar a transação e quais operações ela abrangerá. Mudança de titular e seu evento histórico, movimentos de estoque, baixas financeiras e alterações de OS com histórico são exemplos futuros, sem implementação nesta etapa.
+
+# 18. Observações manuais e histórico unificado de OS
+
+A migration `20261014180000_service_order_notes` cria `service_order_notes` separada de `service_order_events`, com `id`, `public_id` único, `service_order_id`, `author_user_id`, texto `VARCHAR(255)` e `created_at DATETIME(3)`. Há FKs restritivas para OS e usuário, índice `(service_order_id, created_at, id)` e índice de autor. Não há `updated_at` nem `deleted_at`: nota não é editada e sua exclusão é física, condicionada ao snapshot integral em `admin_audit_log` na mesma transação. O evento automático e as migrations anteriores não foram modificados.
+
+A consulta `/history` lê as duas tabelas, ordena por instante descendente, evento antes de nota em empate, e ID interno descendente dentro da fonte; os IDs internos são apenas chaves técnicas de paginação, não campos do DTO. `/events` permanece exclusivamente de eventos. O catálogo idempotente de permissões recebeu `service_orders.update` e `service_orders.notes.delete_any`, sem inclusão de linhas por migration SQL. A nova migration e o seed dessas permissões foram aplicados somente no banco isolado `gestor_os_opening_test`; o banco principal `gestor_os` não foi alterado nesta etapa.

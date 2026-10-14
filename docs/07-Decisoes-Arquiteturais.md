@@ -501,3 +501,7 @@ Toda nova decisão deverá seguir o formato:
 # Evolução
 
 Este documento deverá ser atualizado sempre que uma decisão permanente for aprovada.
+
+## Decisão aprovada para observações manuais da OS — 14/10/2026
+
+Observações manuais usam `ServiceOrderNote` separada de `ServiceOrderEvent`. A linha do tempo unificada é uma projeção de leitura em `/history`, paginada por cursor; `/events` preserva seu contrato. A criação usa a capacidade geral `service_orders.update`, e a exclusão de terceiros usa `service_orders.notes.delete_any`. O autor pode excluir a própria nota sem essa permissão administrativa. A exclusão é física e atomicamente acompanhada de snapshot integral no `AdminAuditLog`. A abertura provisória não aceita notas. A regra de criação/exclusão alcança OS ABERTA, FECHADA ou CANCELADA, embora o schema atual só tenha ABERTA. Esta seção registra a decisão sem atribuir novo número de DA.

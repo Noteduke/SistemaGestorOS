@@ -320,3 +320,11 @@ Desconto único do futuro faturamento, somente no fechamento da OS, futuramente 
 Este glossário deverá crescer continuamente durante o desenvolvimento do projeto.
 
 Toda nova nomenclatura aprovada deverá ser registrada neste documento.
+
+## Observação manual da OS
+
+Nota de texto simples, em uma linha e com até 255 caracteres, escrita por usuário autorizado numa OS confirmada. Fica em `ServiceOrderNote`, separada do evento automático. Pode ser excluída pelo autor ou por autorizado administrativo, com snapshot integral no Log Administrativo. Não admite edição e não pertence à abertura provisória.
+
+## Linha do tempo unificada da OS
+
+Projeção cronológica de eventos automáticos imutáveis e observações manuais ativas no endpoint `/history`. O endpoint `/events` continua exclusivamente de eventos automáticos; o Log Administrativo não integra a linha do tempo operacional.

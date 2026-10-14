@@ -266,7 +266,7 @@ Quem pode consultar a OS pode consultar itens, descrições, quantidades, valore
 
 OS FECHADA ou CANCELADA permite somente consulta dos itens; não adicionar, remover, editar descrição, quantidade, valor ou custo. Correção futura exige reabertura conforme regras próprias.
 
-Não criar entidade ou formulário estruturado de aprovação, canal/evidência/assinatura/justificativa obrigatórios. Ao mudar a situação para reparo autorizado (AUTORIZADO REPARO no catálogo atual), registrar automaticamente mudança, operador e data/hora. O operador pode registrar observação manual no histórico, por exemplo “Cliente autorizou pelo WhatsApp”; não é requisito de aprovação. A capacidade de inserir observações manuais ainda precisa de contrato próprio, pois a rota de eventos atual é somente leitura.
+Não criar entidade ou formulário estruturado de aprovação, canal/evidência/assinatura/justificativa obrigatórios. Ao mudar a situação para reparo autorizado (AUTORIZADO REPARO no catálogo atual), registrar automaticamente mudança, operador e data/hora. O operador pode registrar observação manual no histórico, por exemplo “Cliente autorizou pelo WhatsApp”; não é requisito de aprovação. Essa observação usa o recurso próprio de notas da OS confirmada; a rota de eventos automáticos continua somente leitura.
 
 Não autorização segue a mesma simplicidade: sem motivo estruturado, canal, formulário ou evidência obrigatórios; mudança, operador e data/hora automáticos e observação manual opcional. Ao mudar para uma das situações NÃO AUTORIZADO, se houver orçamento, perguntar se deseja manter a composição atual ou retirá-la da apresentação principal.
 
@@ -445,3 +445,9 @@ Este documento crescerá continuamente durante o desenvolvimento do projeto.
 Nenhuma regra importante deverá permanecer apenas em conversas.
 
 Toda decisão aprovada deverá ser registrada aqui ou em um documento específico do módulo correspondente.
+
+## Observações manuais da OS confirmada
+
+`ServiceOrderNote` é distinta dos eventos automáticos imutáveis. A observação contém texto simples obrigatório, em uma linha e com até 255 caracteres; não aceita HTML, Markdown, anexo ou edição. A abertura provisória não aceita observações. A nota pode ser criada em OS confirmada ABERTA, FECHADA ou CANCELADA sem alterar qualquer estado, orçamento, equipamento ou financeiro; hoje o schema implementa somente ABERTA.
+
+Administrador ou usuário com `service_orders.update` pode criar. O autor autenticado pode excluir a própria nota, e Administrador ou usuário com `service_orders.notes.delete_any` pode excluir a de qualquer autor. A exclusão não exige justificativa: grava snapshot integral no Log Administrativo e faz hard delete na mesma transação. O texto excluído não aparece no histórico operacional; eventos automáticos nunca podem ser excluídos. `service_orders.events.read` autoriza a leitura dos eventos e das notas ativas na linha do tempo unificada, sem acesso ao Log Administrativo.

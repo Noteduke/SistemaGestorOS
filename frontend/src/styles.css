@@ -174,6 +174,11 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 .snapshot-grid { gap: 14px 20px; }
 .snapshot-date { margin: 17px 0 0; color: #8995a1; font-size: 11px; }
 .history-section { display: grid; gap: 20px; }
+.note-form { display: grid; gap: 8px; }
+.note-form label { color: #40586b; font-size: 12px; font-weight: 700; }
+.note-form__controls { display: flex; gap: 10px; }
+.note-form__controls input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #d8e1e7; border-radius: 9px; font: inherit; }
+.note-text { margin: 14px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .timeline { position: relative; display: grid; gap: 15px; margin: 0; padding: 0 0 0 18px; list-style: none; }
 .timeline::before { position: absolute; top: 10px; bottom: 18px; left: 5px; width: 1px; background: #d8e4e9; content: ""; }
 .timeline-item { position: relative; }
@@ -233,4 +238,5 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
   .detail-grid__wide { grid-column: auto; }
   .pagination { align-items: start; flex-direction: column; }
   .event-payload { grid-template-columns: 1fr; }
+  .note-form__controls { flex-direction: column; align-items: stretch; }
 }

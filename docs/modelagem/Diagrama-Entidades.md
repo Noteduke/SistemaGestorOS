@@ -323,3 +323,22 @@ erDiagram
 | 08/10/2026 | Complemento dos detalhes conceituais de sessão, retenção do Log Administrativo, inativação de usuário e FK opcional para autoria de contatos. |
 | 08/10/2026 | Atualização do diagrama e do estado da migration Auth: schema Prisma criado, migration pendente no principal, incluindo `PreAuthCsrfContext` e autoria opcional de eventos. |
 | 08/10/2026 | Migration Auth aplicada no banco principal; seis tabelas Auth e autoria opcional de eventos presentes, com seed de 24 permissões idempotente, primeiro Administrador criado e principais testes HTTP autenticados locais concluídos. |
+| 14/10/2026 | Modelo físico de `ServiceOrderNote` acrescentado ao schema/migration isolada; aplicação somente em `gestor_os_opening_test`, ainda pendente no banco principal. |
+
+## Relação física adicional — observações da OS
+
+```mermaid
+erDiagram
+    ServiceOrder ||--o{ ServiceOrderNote : possui
+    User ||--o{ ServiceOrderNote : escreve
+    ServiceOrderNote {
+        int id PK
+        char36 public_id UK
+        int service_order_id FK
+        int author_user_id FK
+        varchar255 text
+        datetime3 created_at
+    }
+```
+
+`ServiceOrderNote` não é subtipo de `ServiceOrderEvent`: os eventos são imutáveis, enquanto notas podem ser excluídas mediante snapshot integral em `AdminAuditLog`. A linha do tempo unificada é uma projeção de leitura e não uma tabela adicional.

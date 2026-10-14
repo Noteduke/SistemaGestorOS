@@ -60,6 +60,12 @@ export interface ServiceOrderEvent {
   payload: Record<string, unknown> | null;
 }
 
+export type ServiceOrderHistoryItem =
+  | { kind: "SYSTEM_EVENT"; occurredAt: string; actor: { publicId: string; username: string }; eventType: string; serviceOrderNumber: string; payload: Record<string, unknown> | null }
+  | { kind: "MANUAL_NOTE"; publicId: string; occurredAt: string; actor: { publicId: string; username: string }; text: string; canDelete: boolean };
+
+export interface ServiceOrderHistoryPage { data: ServiceOrderHistoryItem[]; nextCursor: string | null; hasMore: boolean }
+
 export interface AssignableUser {
   publicId: string;
   username: string;
@@ -468,6 +474,36 @@ export function listServiceOrderEvents(publicId: string, page: number, pageSize:
     `/api/v1/service-orders/${encodeURIComponent(publicId)}/events?${query}`,
     signal,
   );
+}
+
+export function listServiceOrderHistory(publicId: string, pageSize: number, cursor?: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({ pageSize: String(pageSize) });
+  if (cursor) query.set("cursor", cursor);
+  return get<ServiceOrderHistoryPage>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/history?${query}`, signal);
+}
+
+async function mutateNote(path: string, method: "POST" | "DELETE", csrfToken: string, text?: string): Promise<void> {
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: { Accept: "application/json", "X-CSRF-Token": csrfToken, ...(text === undefined ? {} : { "Content-Type": "application/json" }) },
+    ...(text === undefined ? {} : { body: JSON.stringify({ text }) }),
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(response.status, typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível alterar a observação.");
+  }
+}
+
+export function createServiceOrderNote(publicId: string, text: string, csrfToken: string) {
+  return mutateNote(`/api/v1/service-orders/${encodeURIComponent(publicId)}/notes`, "POST", csrfToken, text);
+}
+
+export function deleteServiceOrderNote(publicId: string, notePublicId: string, csrfToken: string) {
+  return mutateNote(`/api/v1/service-orders/${encodeURIComponent(publicId)}/notes/${encodeURIComponent(notePublicId)}`, "DELETE", csrfToken);
 }
 
 export function errorMessage(error: unknown, context: "list" | "detail" | "events"): string {

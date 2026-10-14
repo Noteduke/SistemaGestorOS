@@ -125,3 +125,7 @@ A arquitetura deverá permitir crescimento contínuo sem necessidade de reescrit
 - 02-Regras-de-Negocio.md
 - 03-Banco-de-Dados.md
 - 04-API.md
+
+## Histórico operacional unificado da OS
+
+O Backend mantém `ServiceOrderEvent` para eventos automáticos imutáveis e `ServiceOrderNote` para observações manuais sem edição. A projeção de leitura `/history` combina as duas fontes com paginação por cursor no Backend; `/events` permanece compatível e exclusivamente automático. A exclusão de uma nota usa transação Prisma para gravar seu snapshot integral no `AdminAuditLog` e depois removê-la. O Log Administrativo tem fronteira de leitura separada e não é fonte da linha do tempo comum.

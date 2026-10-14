@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   assignmentsErrorMessage,
+  createServiceOrderNote,
+  deleteServiceOrderNote,
   errorMessage,
   getServiceOrder,
   listAssignableUsers,
-  listServiceOrderEvents,
+  listServiceOrderHistory,
   operationalSituationErrorMessage,
   operationalSituationOptions,
   replaceServiceOrderAssignments,
@@ -14,10 +16,9 @@ import {
   type OperationalSituation,
   type Paginated,
   type ServiceOrderDetail,
-  type ServiceOrderEvent,
+  type ServiceOrderHistoryPage,
 } from "../../api/serviceOrders";
 import { AsyncState } from "../../components/AsyncState";
-import { PaginationControls } from "../../components/PaginationControls";
 import { SnapshotCard } from "../../components/SnapshotCard";
 
 const PAGE_SIZE = 20;
@@ -26,10 +27,9 @@ const ASSIGNABLE_PAGE_SIZE = 100;
 interface ServiceOrderDetailPageProps {
   publicId: string;
   csrfToken: string;
+  canCreateNote?: boolean;
   section: "details" | "events";
-  eventsPage: number;
   onSectionChange: (section: "details" | "events") => void;
-  onEventsPageChange: (page: number) => void;
   onBack: () => void;
 }
 
@@ -49,15 +49,20 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPage, onSectionChange, onEventsPageChange, onBack }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [events, setEvents] = useState<Paginated<ServiceOrderEvent> | null>(null);
+  const [history, setHistory] = useState<ServiceOrderHistoryPage | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [eventsReload, setEventsReload] = useState(0);
+  const [noteText, setNoteText] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteDeleting, setNoteDeleting] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [moreLoading, setMoreLoading] = useState(false);
   const [selectedSituation, setSelectedSituation] = useState<OperationalSituation | "">("");
   const [updatingSituation, setUpdatingSituation] = useState(false);
   const [situationMessage, setSituationMessage] = useState<string | null>(null);
@@ -106,10 +111,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
   useEffect(() => {
     if (section !== "events") return;
     const controller = new AbortController();
+    setHistory(null);
     setEventsLoading(true);
     setEventsError(null);
-    listServiceOrderEvents(publicId, eventsPage, PAGE_SIZE, controller.signal)
-      .then(setEvents)
+    listServiceOrderHistory(publicId, PAGE_SIZE, undefined, controller.signal)
+      .then(setHistory)
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setEventsError(errorMessage(reason, "events"));
       })
@@ -117,7 +123,52 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
         if (!controller.signal.aborted) setEventsLoading(false);
       });
     return () => controller.abort();
-  }, [publicId, section, eventsPage, reload, eventsReload]);
+  }, [publicId, section, reload, eventsReload]);
+
+  async function loadMoreHistory() {
+    if (!history?.nextCursor || moreLoading) return;
+    setMoreLoading(true);
+    setEventsError(null);
+    try {
+      const next = await listServiceOrderHistory(publicId, PAGE_SIZE, history.nextCursor);
+      setHistory((current) => current && current.nextCursor === history.nextCursor
+        ? { ...next, data: [...current.data, ...next.data] } : current);
+    } catch (reason) {
+      setEventsError(errorMessage(reason, "events"));
+    } finally {
+      setMoreLoading(false);
+    }
+  }
+
+  async function addNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canCreateNote || !noteText.trim() || noteSaving) return;
+    setNoteSaving(true);
+    setNoteError(null);
+    try {
+      await createServiceOrderNote(publicId, noteText, csrfToken);
+      setNoteText("");
+      setEventsReload((value) => value + 1);
+    } catch (reason) {
+      setNoteError(errorMessage(reason, "events"));
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
+  async function removeNote(notePublicId: string) {
+    if (noteDeleting || !window.confirm("Excluir esta observação? Esta ação não pode ser desfeita.")) return;
+    setNoteDeleting(notePublicId);
+    setNoteError(null);
+    try {
+      await deleteServiceOrderNote(publicId, notePublicId, csrfToken);
+      setEventsReload((value) => value + 1);
+    } catch (reason) {
+      setNoteError(errorMessage(reason, "events"));
+    } finally {
+      setNoteDeleting(null);
+    }
+  }
 
   const assignedIdsKey = order?.assignedUserPublicIds.join(",") ?? "";
   useEffect(() => {
@@ -382,27 +433,53 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, section, eventsPag
             </div>
           ) : (
             <section className="history-section">
-              <div className="section-heading"><div><h2>Histórico da OS</h2><p>Eventos registrados pelo sistema, do mais recente para o mais antigo.</p></div></div>
-              <AsyncState loading={eventsLoading} error={eventsError} empty={!eventsLoading && !eventsError && !events?.data.length} emptyMessage="Esta OS ainda não possui eventos para exibir." onRetry={() => setEventsReload((value) => value + 1)} />
-              {events?.data.length ? (
+              <div className="section-heading"><div><h2>Histórico da OS</h2><p>Eventos do sistema e observações manuais, do mais recente para o mais antigo.</p></div></div>
+              {canCreateNote && (
+                <form className="note-form" onSubmit={(event) => void addNote(event)}>
+                  <label htmlFor="service-order-note">Nova observação</label>
+                  <div className="note-form__controls">
+                    <input id="service-order-note" type="text" value={noteText} maxLength={255} disabled={noteSaving}
+                      onChange={(event) => setNoteText(event.target.value)} />
+                    <button className="button button--primary" type="submit" disabled={noteSaving || !noteText.trim()}>
+                      {noteSaving ? "Adicionando…" : "Adicionar"}
+                    </button>
+                  </div>
+                </form>
+              )}
+              {noteError && <p className="form-message form-message--error" role="alert">{noteError}</p>}
+              <AsyncState loading={eventsLoading} error={eventsError} empty={!eventsLoading && !eventsError && !history?.data.length} emptyMessage="Esta OS ainda não possui itens de histórico para exibir." onRetry={() => setEventsReload((value) => value + 1)} />
+              {history?.data.length ? (
                 <>
                   <ol className="timeline">
-                    {events.data.map((event, index) => (
-                      <li className="timeline-item" key={`${event.eventType}-${event.occurredAt}-${index}`}>
+                    {history.data.map((item, index) => (
+                      <li className="timeline-item" key={item.kind === "MANUAL_NOTE" ? item.publicId : `${item.eventType}-${item.occurredAt}-${index}`}>
                         <span className="timeline-dot" aria-hidden="true" />
                         <article className="event-card">
-                          <div className="event-heading"><div><h3>{event.eventType.replaceAll("_", " ")}</h3><p>{dateLabel(event.occurredAt)}</p></div><span className="event-number">{event.visibleNumber}</span></div>
-                          {event.actor && <p className="event-actor">Responsável: <strong>{event.actor.username}</strong></p>}
-                          {event.payload && Object.keys(event.payload).length > 0 && (
-                            <dl className="event-payload">
-                              {Object.entries(event.payload).map(([key, value]) => <div key={key}><dt>{eventLabel(key)}</dt><dd>{eventValue(value)}</dd></div>)}
-                            </dl>
+                          {item.kind === "SYSTEM_EVENT" ? (
+                            <>
+                              <div className="event-heading"><div><h3>Evento do sistema: {item.eventType.replaceAll("_", " ")}</h3><p>{dateLabel(item.occurredAt)}</p></div><span className="event-number">{item.serviceOrderNumber}</span></div>
+                              <p className="event-actor">Responsável: <strong>{item.actor.username}</strong></p>
+                              {item.payload && Object.keys(item.payload).length > 0 && (
+                                <dl className="event-payload">
+                                  {Object.entries(item.payload).map(([key, value]) => <div key={key}><dt>{eventLabel(key)}</dt><dd>{eventValue(value)}</dd></div>)}
+                                </dl>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <div className="event-heading"><div><h3>Observação manual</h3><p>{dateLabel(item.occurredAt)}</p></div></div>
+                              <p className="event-actor">Autor: <strong>{item.actor.username}</strong></p>
+                              <p className="note-text">{item.text}</p>
+                              {item.canDelete && <button className="button button--secondary" type="button" disabled={noteDeleting === item.publicId}
+                                onClick={() => void removeNote(item.publicId)}>{noteDeleting === item.publicId ? "Excluindo…" : "Excluir"}</button>}
+                            </>
                           )}
                         </article>
                       </li>
                     ))}
                   </ol>
-                  <PaginationControls page={events.pagination.page} totalPages={events.pagination.totalPages} total={events.pagination.total} onPageChange={onEventsPageChange} />
+                  {history.hasMore && <button className="button button--secondary" type="button" disabled={moreLoading}
+                    onClick={() => void loadMoreHistory()}>{moreLoading ? "Carregando…" : "Carregar mais"}</button>}
                 </>
               ) : null}
             </section>
