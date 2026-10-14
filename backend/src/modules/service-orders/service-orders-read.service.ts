@@ -3,8 +3,6 @@ import type { Prisma, ServiceOrderMacroStatus, ServiceOrderOperationalSituation 
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { ListServiceOrdersQuery } from "./dto/list-service-orders-query.dto.js";
 import { formatServiceOrderNumber } from "./domain/service-order-number-format.js";
-import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { signBudgetSnapshot } from "./service-order-budget-snapshot.js";
 
 const confirmedWhere = {
   opening: { is: { status: "CONFIRMED" } },
@@ -31,7 +29,6 @@ const summarySelect = {
 
 export const serviceOrderDetailSelect = {
   ...summarySelect,
-  id: true,
   complaint: true,
   intakeObservations: true,
   newEquipmentSerialIdentificationStatus: true,
@@ -120,16 +117,12 @@ export class ServiceOrdersReadService {
     };
   }
 
-  async getByPublicId(publicId: string, actor?: AuthenticatedUser) {
+  async getByPublicId(publicId: string) {
     const order = await this.prisma.serviceOrder.findFirst({
       where: { ...confirmedWhere, publicId },
       select: serviceOrderDetailSelect,
     });
     if (!order) throw new NotFoundException({ code: "SERVICE_ORDER_NOT_FOUND", message: "Ordem de Serviço não encontrada." });
-    if (!actor) return { data: toServiceOrderDetailView(order) };
-    const session = await this.prisma.userSession.findUnique({ where: { id: actor.sessionId }, select: { tokenHash: true } });
-    if (!session) return { data: toServiceOrderDetailView(order) };
-    return { data: { ...toServiceOrderDetailView(order), editSnapshotToken: signBudgetSnapshot({ kind: "order", orderId: order.id, sessionId: actor.sessionId,
-      operationalSituation: order.operationalSituation, assignedUserPublicIds: order.assignments.map(({ user }) => user.publicId) }, session.tokenHash) } };
+    return { data: toServiceOrderDetailView(order) };
   }
 }

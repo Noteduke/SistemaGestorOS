@@ -108,7 +108,7 @@ export function assertServiceOrderRevision(currentUpdatedAt: Date, expectedRevis
     throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_REVISION", message: "A revisão informada da OS é inválida." });
   }
   if (revision.getTime() !== currentUpdatedAt.getTime()) {
-    throw new ConflictException({ code: "SERVICE_ORDER_DATA_CONFLICT", message: "Os dados desta OS mudaram enquanto você estava sem controle. Revise os dados atuais antes de salvar.", details: { currentUpdatedAt: currentUpdatedAt.toISOString() } });
+    throw new ConflictException({ code: "SERVICE_ORDER_DATA_CONFLICT", message: "Os dados desta OS foram modificados depois da revisão lida. Consulte os dados atuais e reaplique manualmente as alterações antes de salvar.", details: { currentUpdatedAt: currentUpdatedAt.toISOString() } });
   }
 }
 

@@ -39,7 +39,7 @@ try {
     }
     return created;
   }
-  const writer = await user("writer", ["service_orders.opening.create", "service_orders.create", "service_orders.read", "service_orders.situation.update"]);
+  const writer = await user("writer", ["service_orders.opening.create", "service_orders.create", "service_orders.situation.update"]);
   const reader = await user("reader", ["service_orders.read"]);
   const outsider = await user("outsider", []);
   const customer = await db.person.create({ data: { personType: "PF", name: `CLIENTE ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
@@ -120,9 +120,6 @@ try {
   assert.equal(missing.body.code, "SERVICE_ORDER_NOT_FOUND");
 
   const before = await db.serviceOrder.findUniqueOrThrow({ where: { publicId: confirmed.publicId } });
-  const originalRead = await request("GET", orderPath, writerSession);
-  status(originalRead, 200, "signed original situation");
-  const originalSituationToken = originalRead.body.data.editSnapshotToken;
   const eventCount = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id } });
   const updated = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } });
   status(updated, 200, "update operational situation");
@@ -153,13 +150,6 @@ try {
   assert.equal(noOp.body.data.operationalSituation, "AUTORIZADO REPARO");
   assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id } }), eventCountAfterChange);
   assert.equal(eventCountAfterChange, eventCount + 1);
-  const forgedOriginal = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "AWAITING_PART_PURCHASE", originalOperationalSituation: "REPAIR_AUTHORIZED", editSnapshotToken: originalSituationToken } });
-  status(forgedOriginal, 400, "forged situation baseline is rejected");
-  assert.equal(forgedOriginal.body.code, "INVALID_EDIT_SNAPSHOT");
-  const fieldConflict = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "AWAITING_PART_PURCHASE", originalOperationalSituation: "TRIAGE", editSnapshotToken: originalSituationToken } });
-  status(fieldConflict, 409, "same situation field requires explicit resolution");
-  assert.equal(fieldConflict.body.code, "SERVICE_ORDER_FIELD_CONFLICT");
-  assert.equal(fieldConflict.body.details.current, "REPAIR_AUTHORIZED");
 
   const read = await request("GET", `/service-orders/${confirmed.publicId}`, readerSession);
   status(read, 200, "GET reflects the updated situation");

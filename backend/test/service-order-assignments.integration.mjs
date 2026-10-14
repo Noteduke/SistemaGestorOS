@@ -39,7 +39,7 @@ try {
     }
     return created;
   }
-  const manager = await user("manager", ["service_orders.opening.create", "service_orders.create", "service_orders.read", "service_orders.assignment.manage"]);
+  const manager = await user("manager", ["service_orders.opening.create", "service_orders.create", "service_orders.assignment.manage"]);
   const reader = await user("reader", ["service_orders.read"]);
   const outsider = await user("outsider");
   const firstAssignee = await user("first_assignee");
@@ -132,9 +132,6 @@ try {
   status(await request("PATCH", assignmentsPath, { ...adminSession, body: { userPublicIds: [] } }), 404, "PATCH alias not implemented");
 
   const before = await db.serviceOrder.findUniqueOrThrow({ where: { publicId: confirmed.publicId } });
-  const originalRead = await request("GET", orderPath, managerSession);
-  status(originalRead, 200, "signed original assignments");
-  const originalAssignmentsToken = originalRead.body.data.editSnapshotToken;
   const initialAssignmentEvents = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } });
   assert.deepEqual(confirmed.assignedUserPublicIds, []);
   const one = await request("PUT", assignmentsPath, { ...managerEditSession, body: { userPublicIds: [firstAssignee.publicId] } });
@@ -147,15 +144,6 @@ try {
   assert.deepEqual(oneEvent.payload.newUserPublicIds, [firstAssignee.publicId]);
   assert.deepEqual(oneEvent.payload.addedUserPublicIds, [firstAssignee.publicId]);
   assert.deepEqual(oneEvent.payload.removedUserPublicIds, []);
-  const forgedOriginal = await request("PUT", assignmentsPath, { ...managerEditSession,
-    body: { userPublicIds: [secondAssignee.publicId], originalUserPublicIds: [firstAssignee.publicId], editSnapshotToken: originalAssignmentsToken } });
-  status(forgedOriginal, 400, "forged assignment baseline is rejected");
-  assert.equal(forgedOriginal.body.code, "INVALID_EDIT_SNAPSHOT");
-  const assignmentConflict = await request("PUT", assignmentsPath, { ...managerEditSession,
-    body: { userPublicIds: [secondAssignee.publicId], originalUserPublicIds: [], editSnapshotToken: originalAssignmentsToken } });
-  status(assignmentConflict, 409, "same assignment field requires explicit resolution");
-  assert.equal(assignmentConflict.body.code, "SERVICE_ORDER_FIELD_CONFLICT");
-  assert.deepEqual(assignmentConflict.body.details.current, [firstAssignee.publicId]);
 
   const two = await request("PUT", assignmentsPath, { ...managerEditSession,
     body: { userPublicIds: [secondAssignee.publicId, firstAssignee.publicId] } });

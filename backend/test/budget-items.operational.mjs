@@ -51,7 +51,7 @@ async function responseJson(response) {
   return response.status === 204 ? null : response.json().catch(() => null);
 }
 
-async function api(pathname, { method = "GET", body, auth = true, csrf = true, revision } = {}) {
+async function api(pathname, { method = "GET", body, auth = true, csrf = true, expectedRevision } = {}) {
   const headers = { Accept: "application/json", Origin: "http://127.0.0.1:5173" };
   if (auth) {
     headers.Cookie = cookie;
@@ -61,7 +61,7 @@ async function api(pathname, { method = "GET", body, auth = true, csrf = true, r
   const revisionTarget = pathname.match(/^\/service-orders\/([0-9a-f-]+)\/(?:assignments|operational-situation|budget-items(?:\/|$))/iu);
   if (revisionTarget && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     const current = await prisma.serviceOrder.findUnique({ where: { publicId: revisionTarget[1] }, select: { updatedAt: true } });
-    if (current) headers["X-Service-Order-Revision"] = revision ?? current.updatedAt.toISOString();
+    if (current) headers["X-Service-Order-Revision"] = expectedRevision ?? current.updatedAt.toISOString();
   }
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(`http://127.0.0.1:3137/api/v1${pathname}`, {
@@ -225,79 +225,47 @@ try {
   assert.deepEqual(changedEvent.payload.changes.map(({ field }) => field).sort(), ["description", "quantity", "unitCost", "unitPrice"]);
   results.push("Edição consolidada em um evento, com valores antes/depois e total calculado no Backend");
 
+  const staleRevision = (await prisma.serviceOrder.findUnique({ where: { id: order.id }, select: { updatedAt: true } })).updatedAt.toISOString();
+  const concurrentDraft = await api(`/service-orders/${order.publicId}/budget-items/manual-labor`, {
+    method: "POST", body: { description: `Rascunho concorrente ${nonce}`, unitPrice: "2.00" },
+  });
+  assert.equal(concurrentDraft.status, 201, JSON.stringify(concurrentDraft.body));
+  createdItemIds.push(concurrentDraft.body.data.publicId);
+  normalizedNames.push(`Rascunho concorrente ${nonce}`.normalize("NFD").replace(/\p{M}/gu, "").toLocaleUpperCase("pt-BR"));
+  const beforeStaleSave = await prisma.serviceOrderBudgetItem.findUnique({ where: { publicId: part.body.data.publicId } });
+  const eventsBeforeStaleSave = await prisma.serviceOrderEvent.count({ where: { serviceOrderId: order.id, actorUserId: userId } });
+  const staleSave = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
+    method: "PATCH", expectedRevision: staleRevision, body: { expectedVersion: beforeStaleSave.version, quantity: 4 },
+  });
+  assert.equal(staleSave.status, 409, JSON.stringify(staleSave.body));
+  assert.equal(errorCode(staleSave), "SERVICE_ORDER_DATA_CONFLICT");
+  const afterStaleSave = await prisma.serviceOrderBudgetItem.findUnique({ where: { publicId: part.body.data.publicId } });
+  assert.equal(afterStaleSave.quantity, beforeStaleSave.quantity, "A gravação desatualizada não pode modificar o item.");
+  assert.equal(afterStaleSave.version, beforeStaleSave.version);
+  assert.equal(await prisma.serviceOrderEvent.count({ where: { serviceOrderId: order.id, actorUserId: userId } }), eventsBeforeStaleSave, "A recusa não deve criar evento.");
+
+  const currentBudget = await api(`/service-orders/${order.publicId}/budget-items`);
+  assert.equal(currentBudget.status, 200);
+  assert.ok(currentBudget.body.data.some((item) => item.publicId === concurrentDraft.body.data.publicId));
+  const currentRevision = (await prisma.serviceOrder.findUnique({ where: { id: order.id }, select: { updatedAt: true } })).updatedAt.toISOString();
+  const manuallyReapplied = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
+    method: "PATCH", expectedRevision: currentRevision,
+    body: { expectedVersion: afterStaleSave.version, quantity: 4 },
+  });
+  assert.equal(manuallyReapplied.status, 200, JSON.stringify(manuallyReapplied.body));
+  assert.equal(manuallyReapplied.body.data.quantity, 4);
+  results.push("Revisão global recusa salvamento antigo sem gravar item/evento; consulta atual e reaplicação manual com revisão e versão atuais funcionam");
+
   const costReadPermission = permissionRows.find(({ code }) => code === "service_orders.budget.costs.read");
   await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: costReadPermission.id } } });
   const hidden = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(hidden.status, 200);
   assert.equal(Object.hasOwn(hidden.body.data.find((item) => item.publicId === part.body.data.publicId), "unitCost"), false);
-  await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", { expectedVersion: 2, unitCost: "9.00" }, 403, "PERMISSION_DENIED");
-  const quantityOnly = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, { method: "PATCH", body: { expectedVersion: 2, quantity: 3 } });
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", { expectedVersion: 3, unitCost: "9.00" }, 403, "PERMISSION_DENIED");
+  const quantityOnly = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, { method: "PATCH", body: { expectedVersion: 3, quantity: 3 } });
   assert.equal(quantityOnly.status, 200);
   const stored = await prisma.serviceOrderBudgetItem.findUnique({ where: { publicId: part.body.data.publicId } });
   assert.equal(stored.unitCost.toFixed(2), "5.50", "Edição sem leitura de custo preserva o valor interno.");
-  const baselineBudget = await api(`/service-orders/${order.publicId}/budget-items`);
-  const baseToken = baselineBudget.body.data.find((entry) => entry.publicId === part.body.data.publicId).snapshotToken;
-  const staleRevision = order.updatedAt.toISOString();
-  await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
-    expectedVersion: 3, snapshotToken: baseToken, original: { unitPrice: "99.00" }, unitPrice: "12.00",
-  }, 400, "INVALID_BUDGET_SNAPSHOT");
-  const priceFirst = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", revision: staleRevision, body: { expectedVersion: 3, snapshotToken: baseToken, original: { unitPrice: "11.25" }, unitPrice: "12.00" },
-  });
-  assert.equal(priceFirst.status, 200, JSON.stringify(priceFirst.body));
-  const quantityAfterPrice = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", revision: staleRevision, body: { expectedVersion: 3, snapshotToken: baseToken, original: { quantity: 3 }, quantity: 4 },
-  });
-  assert.equal(quantityAfterPrice.status, 200, JSON.stringify(quantityAfterPrice.body));
-  assert.equal(quantityAfterPrice.body.data.unitPrice, "12.00", "Quantidade não pode apagar preço concorrente.");
-  assert.equal(quantityAfterPrice.body.data.total, "48.00");
-  const eventCountBeforeNoop = await prisma.serviceOrderEvent.count({ where: { serviceOrderId: order.id, eventType: "ITEM_ORCAMENTO_ALTERADO" } });
-  const satisfied = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", revision: staleRevision, body: { expectedVersion: 3, snapshotToken: baseToken, original: { unitPrice: "11.25" }, unitPrice: "12.00" },
-  });
-  assert.equal(satisfied.status, 200);
-  assert.equal(await prisma.serviceOrderEvent.count({ where: { serviceOrderId: order.id, eventType: "ITEM_ORCAMENTO_ALTERADO" } }), eventCountBeforeNoop);
-  const currentToken = (await api(`/service-orders/${order.publicId}/budget-items`)).body.data.find((entry) => entry.publicId === part.body.data.publicId).snapshotToken;
-  const priceSecond = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", body: { expectedVersion: 5, snapshotToken: currentToken, original: { unitPrice: "12.00" }, unitPrice: "14.00" },
-  });
-  assert.equal(priceSecond.status, 200);
-  const conflict = await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
-    expectedVersion: 5, snapshotToken: currentToken, original: { unitPrice: "12.00" }, unitPrice: "13.00",
-  }, 409, "BUDGET_FIELD_CONFLICT", { revision: staleRevision });
-  assert.equal(conflict.body.details.conflicts[0].field, "unitPrice");
-  assert.equal(conflict.body.details.conflicts[0].current, "14.00");
-  assert.equal(JSON.stringify(conflict.body).includes("unitCost"), false, "Conflitos não revelam custo sem permissão.");
-  const priceThird = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", body: { expectedVersion: 6, snapshotToken: (await api(`/service-orders/${order.publicId}/budget-items`)).body.data.find((entry) => entry.publicId === part.body.data.publicId).snapshotToken, original: { unitPrice: "14.00" }, unitPrice: "15.00" },
-  });
-  assert.equal(priceThird.status, 200);
-  const staleDecision = await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
-    expectedVersion: 5, snapshotToken: currentToken, original: { unitPrice: "12.00" }, unitPrice: "13.00", useMine: ["unitPrice"], resolvedCurrent: { unitPrice: "14.00" },
-  }, 409, "BUDGET_FIELD_CONFLICT");
-  assert.equal(staleDecision.body.details.conflicts[0].current, "15.00");
-  const finalDecision = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", body: { expectedVersion: 5, snapshotToken: currentToken, original: { unitPrice: "12.00" }, unitPrice: "13.00", useMine: ["unitPrice"], resolvedCurrent: { unitPrice: "15.00" } },
-  });
-  assert.equal(finalDecision.status, 200, JSON.stringify(finalDecision.body));
-  assert.equal(finalDecision.body.data.total, "52.00");
-  assert.equal((await prisma.serviceOrderBudgetItem.findUnique({ where: { publicId: part.body.data.publicId } })).unitCost.toFixed(2), "5.50");
-  const bothToken = (await api(`/service-orders/${order.publicId}/budget-items`)).body.data.find((entry) => entry.publicId === part.body.data.publicId).snapshotToken;
-  const bothChanged = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", body: { expectedVersion: 8, snapshotToken: bothToken, original: { quantity: 4, unitPrice: "13.00" }, quantity: 5, unitPrice: "16.00" },
-  });
-  assert.equal(bothChanged.status, 200);
-  const twoConflicts = await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
-    expectedVersion: 8, snapshotToken: bothToken, original: { quantity: 4, unitPrice: "13.00" }, quantity: 6, unitPrice: "17.00",
-  }, 409, "BUDGET_FIELD_CONFLICT");
-  assert.deepEqual(twoConflicts.body.details.conflicts.map(({ field }) => field).sort(), ["quantity", "unitPrice"]);
-  const chosenOne = await api(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, {
-    method: "PATCH", body: { expectedVersion: 8, snapshotToken: bothToken, original: { unitPrice: "13.00" }, unitPrice: "17.00", useMine: ["unitPrice"], resolvedCurrent: { unitPrice: "16.00" } },
-  });
-  assert.equal(chosenOne.status, 200);
-  assert.equal(chosenOne.body.data.quantity, 5, "A escolha de manter quantidade atual não é revertida.");
-  assert.equal(chosenOne.body.data.total, "85.00");
-  results.push("Merge por campo, mesmo valor sem evento, conflito real, nova concorrência na resolução e custo oculto preservado");
   const historyHidden = await api(`/service-orders/${order.publicId}/history?pageSize=100`);
   assert.equal(historyHidden.status, 200);
   const budgetHistory = historyHidden.body.data.filter((entry) => entry.kind === "SYSTEM_EVENT" && entry.eventType.startsWith("ITEM_ORCAMENTO_"));
@@ -312,7 +280,6 @@ try {
   assert.equal(nullCost.status, 201, JSON.stringify(nullCost.body));
   createdItemIds.push(nullCost.body.data.publicId);
   assert.equal(nullCost.body.data.unitCost, null);
-  const laborToken = (await api(`/service-orders/${order.publicId}/budget-items`)).body.data.find((entry) => entry.publicId === labor.body.data.publicId).snapshotToken;
   const removed = await api(`/service-orders/${order.publicId}/budget-items/${labor.body.data.publicId}`, { method: "DELETE" });
   assert.equal(removed.status, 200, JSON.stringify(removed.body));
   const relaunch = await api(`/service-orders/${order.publicId}/budget-items/manual-labor`, { method: "POST", body: { description: `Diagnóstico ${nonce}`, unitPrice: "1.00" } });
@@ -320,9 +287,6 @@ try {
   createdItemIds.push(relaunch.body.data.publicId);
   const removedRow = await prisma.serviceOrderBudgetItem.findUnique({ where: { publicId: labor.body.data.publicId } });
   assert.ok(removedRow.removedAt && removedRow.removedByUserId === userId);
-  await expectFailure(`/service-orders/${order.publicId}/budget-items/${labor.body.data.publicId}`, "PATCH", {
-    expectedVersion: 1, snapshotToken: laborToken, original: { quantity: 1 }, quantity: 2,
-  }, 409, "BUDGET_ITEM_REMOVED");
   results.push("Custo NULL preservado como desconhecido, remoção lógica e relançamento com novo item");
 
   const concurrentCreate = await api("/services", { method: "POST", body: { name: `Concorrente ${nonce}`, defaultPrice: "2.00" } });
@@ -337,10 +301,6 @@ try {
   createdItemIds.push(successAdd.body.data.publicId);
   results.push("Inclusões concorrentes do mesmo serviço são serializadas e deixam uma única linha ativa");
 
-  const beforeWithdrawBudget = await api(`/service-orders/${order.publicId}/budget-items`);
-  const beforeWithdrawPartToken = beforeWithdrawBudget.body.data.find((entry) => entry.publicId === part.body.data.publicId).snapshotToken;
-  const beforeWithdrawCompositionToken = beforeWithdrawBudget.body.compositionToken;
-
   const targetSituation = previousSituation === "NOT_AUTHORIZED_READY_DELIVERY" ? "NOT_AUTHORIZED_REASSEMBLE" : "NOT_AUTHORIZED_READY_DELIVERY";
   const withdrawal = await api(`/service-orders/${order.publicId}/operational-situation`, { method: "PATCH", body: { operationalSituation: targetSituation, withdrawBudget: true } });
   assert.equal(withdrawal.status, 200, JSON.stringify(withdrawal.body));
@@ -350,25 +310,6 @@ try {
   assert.equal(afterWithdrawal.body.total, "0.00");
   const withdrawnEvent = await prisma.serviceOrderEvent.findFirst({ where: { serviceOrderId: order.id, actorUserId: userId, eventType: "ORCAMENTO_RETIRADO" }, orderBy: { id: "desc" } });
   assert.ok(withdrawnEvent);
-  await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
-    expectedVersion: 10, snapshotToken: beforeWithdrawPartToken, original: { quantity: 5 }, quantity: 6,
-  }, 409, "BUDGET_COMPOSITION_CONFLICT", { revision: staleRevision });
-  const compositionConflict = await expectFailure(`/service-orders/${order.publicId}/budget-items/manual-part`, "POST", {
-    description: `Novo após retirada ${nonce}`, unitPrice: "1.00", compositionToken: beforeWithdrawCompositionToken,
-  }, 409, "BUDGET_COMPOSITION_CONFLICT", { revision: "2099-01-01T00:00:00.000Z" });
-  assert.equal(compositionConflict.body.details.compositionEventId, withdrawnEvent.id);
-  const newAfterDecision = await api(`/service-orders/${order.publicId}/budget-items/manual-part`, {
-    method: "POST", revision: staleRevision, body: { description: `Novo após retirada ${nonce}`, unitPrice: "1.00", compositionToken: beforeWithdrawCompositionToken, compositionConfirmed: withdrawnEvent.id },
-  });
-  assert.equal(newAfterDecision.status, 201, JSON.stringify(newAfterDecision.body));
-  assert.equal(newAfterDecision.body.data.publicId === part.body.data.publicId, false, "A recriação usa um novo identificador.");
-  createdItemIds.push(newAfterDecision.body.data.publicId);
-  const postWithdrawalToken = (await api(`/service-orders/${order.publicId}/budget-items`)).body.data.find((entry) => entry.publicId === newAfterDecision.body.data.publicId).snapshotToken;
-  await api(`/service-orders/${order.publicId}/budget-items/${newAfterDecision.body.data.publicId}`, { method: "DELETE" }).then((r) => assert.equal(r.status, 200));
-  await expectFailure(`/service-orders/${order.publicId}/budget-items/${newAfterDecision.body.data.publicId}`, "PATCH", {
-    expectedVersion: 1, snapshotToken: postWithdrawalToken, original: { quantity: 1 }, quantity: 2,
-  }, 409, "BUDGET_ITEM_REMOVED");
-  normalizedNames.push(`NOVO APOS RETIRADA ${nonce}`);
   await expectFailure(`/services/${service.publicId}?expectedVersion=4`, "DELETE", undefined, 409, "SERVICE_ALREADY_USED");
   results.push("Retirada integral somente junto da situação NÃO AUTORIZADO, com snapshot e total histórico");
 

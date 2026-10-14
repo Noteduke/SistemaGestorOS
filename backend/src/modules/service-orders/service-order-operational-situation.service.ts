@@ -6,7 +6,6 @@ import type { OperationalSituationPatchInput } from "./dto/operational-situation
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
-import { verifyBudgetSnapshot } from "./service-order-budget-snapshot.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -38,13 +37,7 @@ export class ServiceOrderOperationalSituationService {
         });
         if (!current) throw serviceOrderNotFound();
         await assertEditControlInTransaction(tx, locked.id, actor, editToken);
-        if (input.originalOperationalSituation === undefined) assertServiceOrderRevision(current.updatedAt, expectedRevision);
-        else {
-          if (!expectedRevision || !Number.isFinite(new Date(expectedRevision).getTime())) assertServiceOrderRevision(current.updatedAt, expectedRevision);
-          const session = await tx.userSession.findUniqueOrThrow({ where: { id: actor.sessionId }, select: { tokenHash: true } });
-          const snapshot = verifyBudgetSnapshot(input.editSnapshotToken, session.tokenHash, "order", locked.id, actor.sessionId);
-          if (snapshot.operationalSituation !== input.originalOperationalSituation) throw new BadRequestException({ code: "INVALID_EDIT_SNAPSHOT", message: "Situação original não corresponde à fotografia lida." });
-        }
+        assertServiceOrderRevision(current.updatedAt, expectedRevision);
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }
@@ -53,9 +46,6 @@ export class ServiceOrderOperationalSituationService {
         }
 
         await assertSituationPermission(tx, actor, input.withdrawBudget === true);
-        if (input.originalOperationalSituation !== undefined && current.operationalSituation !== input.originalOperationalSituation && current.operationalSituation !== input.operationalSituation && current.operationalSituation !== input.resolvedCurrentSituation) {
-          throw new ConflictException({ code: "SERVICE_ORDER_FIELD_CONFLICT", message: "A situação operacional foi alterada. Escolha o valor que deve prevalecer.", details: { field: "operationalSituation", current: current.operationalSituation, wanted: input.operationalSituation } });
-        }
         if (current.operationalSituation === input.operationalSituation) {
           return { data: toServiceOrderDetailView(current) };
         }

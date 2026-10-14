@@ -33,7 +33,6 @@ export interface ServiceOrderSummary {
 }
 
 export interface ServiceOrderDetail extends ServiceOrderSummary {
-  editSnapshotToken?: string;
   complaint: string | null;
   intakeObservations: string | null;
   newEquipmentSerialIdentificationStatus: string | null;
@@ -57,12 +56,11 @@ export interface ServiceOrderBudgetItem {
   unitCost?: string | null;
   totalCost?: string | null;
   version: number;
-  snapshotToken?: string;
   createdAt: string;
 }
 
 export interface AvailableCatalogService { publicId: string; name: string; defaultPrice: string }
-export interface ServiceOrderBudget { data: ServiceOrderBudgetItem[]; total: string; canReadCosts: boolean; compositionToken?: string }
+export interface ServiceOrderBudget { data: ServiceOrderBudgetItem[]; total: string; canReadCosts: boolean }
 
 export interface ServiceOrderOpeningConfirmation {
   publicId: string;
@@ -218,9 +216,6 @@ export async function updateServiceOrderOperationalSituation(
   withdrawBudget = false,
   editToken?: string,
   expectedRevision?: string,
-  originalOperationalSituation?: OperationalSituation,
-  resolvedCurrentSituation?: OperationalSituation,
-  editSnapshotToken?: string,
 ): Promise<{ data: ServiceOrderDetail }> {
   const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/operational-situation`, {
     method: "PATCH",
@@ -232,7 +227,7 @@ export async function updateServiceOrderOperationalSituation(
       ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}),
       ...(expectedRevision ? { "X-Service-Order-Revision": expectedRevision } : {}),
     },
-    body: JSON.stringify({ operationalSituation, ...(withdrawBudget ? { withdrawBudget: true } : {}), ...(originalOperationalSituation ? { originalOperationalSituation } : {}), ...(resolvedCurrentSituation ? { resolvedCurrentSituation } : {}), ...(editSnapshotToken ? { editSnapshotToken } : {}) }),
+    body: JSON.stringify({ operationalSituation, ...(withdrawBudget ? { withdrawBudget: true } : {}) }),
   });
 
   const body: unknown = await response.json().catch(() => null);
@@ -243,7 +238,6 @@ export async function updateServiceOrderOperationalSituation(
       response.status,
       typeof errorBody?.code === "string" ? errorBody.code : undefined,
       typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível alterar a situação operacional.",
-      errorBody && isRecord(errorBody.details) ? errorBody.details : undefined,
     );
   }
 
@@ -275,13 +269,13 @@ async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE"
   return payload as T;
 }
 
-export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string; compositionToken?: string; compositionConfirmed?: number }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/service`, "POST", csrfToken, body, editToken, expectedRevision);
 }
-export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; compositionToken?: string; compositionConfirmed?: number }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-labor`, "POST", csrfToken, body, editToken, expectedRevision);
 }
-export function addManualPartBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; unitCost?: string | null; compositionToken?: string; compositionConfirmed?: number }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+export function addManualPartBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; unitCost?: string | null }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-part`, "POST", csrfToken, body, editToken, expectedRevision);
 }
 export function updateBudgetItem(publicId: string, itemPublicId: string, body: Record<string, unknown>, csrfToken: string, editToken?: string, expectedRevision?: string) {
@@ -329,9 +323,6 @@ export async function replaceServiceOrderAssignments(
   csrfToken: string,
   editToken?: string,
   expectedRevision?: string,
-  originalUserPublicIds?: string[],
-  resolvedCurrentUserPublicIds?: string[],
-  editSnapshotToken?: string,
 ): Promise<{ data: ServiceOrderDetail }> {
   const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/assignments`, {
     method: "PUT",
@@ -343,7 +334,7 @@ export async function replaceServiceOrderAssignments(
       ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}),
       ...(expectedRevision ? { "X-Service-Order-Revision": expectedRevision } : {}),
     },
-    body: JSON.stringify({ userPublicIds, ...(originalUserPublicIds ? { originalUserPublicIds } : {}), ...(resolvedCurrentUserPublicIds ? { resolvedCurrentUserPublicIds } : {}), ...(editSnapshotToken ? { editSnapshotToken } : {}) }),
+    body: JSON.stringify({ userPublicIds }),
   });
 
   const body: unknown = await response.json().catch(() => null);
@@ -354,7 +345,6 @@ export async function replaceServiceOrderAssignments(
       response.status,
       typeof errorBody?.code === "string" ? errorBody.code : undefined,
       typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível alterar os responsáveis da OS.",
-      errorBody && isRecord(errorBody.details) ? errorBody.details : undefined,
     );
   }
 

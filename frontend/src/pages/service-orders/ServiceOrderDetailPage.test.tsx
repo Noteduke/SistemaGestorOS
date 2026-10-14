@@ -214,10 +214,12 @@ describe("ServiceOrderDetailPage", () => {
     await openAssignmentsEditor();
     fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
-    expect(await screen.findByText(/Valores locais não foram enviados/)).toBeInTheDocument();
+    expect(await screen.findByText(/nenhum valor local foi enviado/i)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "ana.tech" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Salvar responsáveis" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Carregar dados atuais e descartar valores locais" }));
+    expect(screen.getByRole("region", { name: "Dados atuais da OS" })).toHaveTextContent("bruno.tech");
+    expect(screen.getByRole("region", { name: "Rascunho local não salvo" })).toHaveTextContent("ana.tech");
+    fireEvent.click(screen.getByRole("button", { name: "Descartar rascunho explicitamente e começar pelos dados atuais" }));
     await screen.findByRole("button", { name: "Editar responsáveis" });
     fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
     expect(await screen.findByRole("checkbox", { name: "bruno.tech" })).toBeChecked();
@@ -526,7 +528,6 @@ describe("ServiceOrderDetailPage", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(assignableResponse())
-      .mockResolvedValueOnce(response({ data: updated }))
       .mockResolvedValueOnce(response({ data: updated }))
       .mockResolvedValueOnce(response({
         data: [{ kind: "SYSTEM_EVENT", eventType: "ATRIBUICOES_ALTERADAS", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { newUserPublicIds: [assignableUsers[0].publicId] } }],
