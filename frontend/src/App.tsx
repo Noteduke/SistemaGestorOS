@@ -6,11 +6,13 @@ import { ServiceOrderDetailPage } from "./pages/service-orders/ServiceOrderDetai
 import { ServiceOrderListPage } from "./pages/service-orders/ServiceOrderListPage";
 import { ServiceOrderOpeningPage } from "./pages/service-orders/ServiceOrderOpeningPage";
 import { ServiceCatalogPage } from "./pages/services/ServiceCatalogPage";
+import { ProductCatalogPage } from "./pages/products/ProductCatalogPage";
 
 type Route =
   | { view: "list"; page: number }
   | { view: "opening" }
   | { view: "services" }
+  | { view: "products" }
   | { view: "detail"; publicId: string; section: "details" | "events" };
 
 function positivePage(value: string | null): number {
@@ -27,6 +29,7 @@ function readRoute(): Route {
   const segments = path.split("/").filter(Boolean);
   const query = new URLSearchParams(queryString);
   if (segments.length === 1 && segments[0] === "services") return { view: "services" };
+  if (segments.length === 1 && segments[0] === "products") return { view: "products" };
   if (segments.length === 2 && segments[0] === "service-orders" && segments[1] === "opening") {
     return { view: "opening" };
   }
@@ -166,6 +169,7 @@ export function App() {
   }
 
   const canManageServices = session.identity.isAdmin || session.identity.permissions.includes("services.manage");
+  const canManageProducts = session.identity.isAdmin || session.identity.permissions.includes("products.manage");
 
   return (
     <div className="app-shell">
@@ -176,6 +180,7 @@ export function App() {
         </a>
         <div className="topbar-meta">
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
+          {canManageProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
           {logoutMessage && <span role="status">{logoutMessage}</span>}
@@ -183,7 +188,9 @@ export function App() {
         </div>
       </header>
       <main className="content">
-        {route.view === "services" ? (
+        {route.view === "products" ? (
+          canManageProducts ? <ProductCatalogPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Você não tem permissão para administrar Produtos.</section>
+        ) : route.view === "services" ? (
           canManageServices ? <ServiceCatalogPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Você não tem permissão para administrar Serviços.</section>
         ) : route.view === "list" ? (
           <ServiceOrderListPage

@@ -371,3 +371,26 @@ erDiagram
 `ServiceOrderNote` não é subtipo de `ServiceOrderEvent`: os eventos são imutáveis, enquanto notas podem ser excluídas mediante snapshot integral em `AdminAuditLog`. A linha do tempo unificada é uma projeção de leitura e não uma tabela adicional.
 
 `ServiceOrderEditControl` mantém relação 1:1 com `ServiceOrder` e relação opcional com `User` detentor. É entidade técnica persistida para coordenar contextos/abas, com hash do token e versão de lease; não se relaciona com itens de orçamento individualmente. Uma OS sem controle ativo pode continuar tendo uma linha técnica com `holder_user_id` nulo.
+
+## Cadastro básico de Produtos — migration isolada
+
+```mermaid
+erDiagram
+    User ||--o{ Product : cria
+    User ||--o{ Product : atualiza
+    Product {
+        int id PK
+        char36 public_id UK
+        varchar64 internal_code UK "opcional"
+        varchar255 description
+        enum category "PART ou RESALE_GOOD"
+        boolean is_active
+        int version
+        datetime3 created_at
+        datetime3 updated_at
+        int created_by_user_id FK
+        int updated_by_user_id FK
+    }
+```
+
+O cadastro não se relaciona ainda com orçamento ou estoque. A migration `20261015130000_product_catalog` foi aplicada somente no banco isolado `gestor_os_opening_test`; permanece pendente no principal.

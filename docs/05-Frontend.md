@@ -127,7 +127,7 @@ Na página de detalhe da OS, a seção de orçamento exibe itens ativos, quantid
 
 OS ABERTA permite edição após autorização por quem edita orçamento, sem justificativa, nova aprovação ou mudança automática de situação; FECHADA/CANCELADA é somente consulta. AGUARDANDO APROVAÇÃO DO ORÇAMENTO pode ser selecionada com lista vazia. Retirar item o exclui do total atual, preserva histórico e não oferece restauração. Cadastro de Serviços exibe nome único mesmo entre desabilitados: para voltar a usar, reabilitar o mesmo cadastro e, se necessário, ajustar preço. Exclusão só quando nunca associado, com auditoria; após exclusão real, o nome pode ser usado novamente. A administração do cadastro usa uma única categoria de permissão.
 
-A interface deve sinalizar pendências para peças UTILIZADAS que não foram usadas, foram removidas ou cuja OS/serviço foi cancelado, desfeito ou recusado. Usuário operacional pode reportar a não utilização; somente Administrador ou usuário autorizado pela permissão futura `stock.pending_review.resolve` pode resolver, escolhendo DISPONÍVEL, manter UTILIZADA ou BAIXADA por motivo administrativo. Não deve haver liberação automática. O encerramento da OS deve baixar as peças UTILIZADAS e ficar bloqueado enquanto houver pendência aberta. Uma tela/painel de conferência e o fluxo visual ainda não estão implementados.
+Na futura integração de Produtos com OS, a tela deverá refletir a aplicação e retirada confirmadas: inclusão no orçamento não muda saldo; aplicação torna indisponível a quantidade aplicada; remoção confirmada reverte a aplicação; cancelamento com peças aplicadas exige confirmação da retirada física; encerramento com reparo baixa as quantidades aplicadas após regularização explícita das diferenças. Não implementar a antiga fila de pendências administrativas para devolução de cada peça. As telas desses fluxos ainda não estão implementadas.
 
 ### 10.8 Situação operacional da OS — atualização básica implementada; demais ações futuras
 
@@ -184,6 +184,10 @@ Ao corrigir equipamento, se o titular atual for diferente do cliente da OS, most
 O número da OS não muda; os dados principais da tela e da impressão passam a refletir o vínculo atual. Relatórios ou filtros de auditoria para localizar essas correções são possibilidade futura, sem alerta automático obrigatório no painel.
 
 O retrato não substitui checklist de recebimento. Estado físico, acessórios, senha informada, avarias, itens ausentes e demais dados de recebimento não aparecem nele; um checklist/registro de recebimento é fluxo futuro independente.
+
+# 10.13 Cadastro básico de Produtos — interface implementada
+
+A navegação inclui `#/products` e mostra o módulo a Administrador ou a usuário com `products.manage`. A tela consulta `/api/v1/products`, pesquisa por código/descrição, filtra categoria Peça/Mercadoria para revenda e situação ativo/inativo/todos, e permite criar e editar/inativar. Campos enviados seguem os DTOs da API; edições enviam `expectedVersion` e mutações usam sessão e CSRF. O formulário não apresenta custo, saldo, serial, lote, compra, aplicação, orçamento ou baixa. Não existe exclusão física. O Frontend apenas consome a API; a permissão é revalidada no Backend.
 
 # 11. Evolução
 

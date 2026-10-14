@@ -22,6 +22,25 @@ it("restringe a tela de Serviços a Administrador ou services.manage", async () 
   expect(fetchMock).toHaveBeenCalledWith("/api/v1/auth/me", expect.any(Object));
 });
 
+it("restringe o Cadastro de Produtos a Administrador ou products.manage", async () => {
+  window.location.hash = "#/products";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "usuario.teste",
+    isAdmin: false,
+    permissions: [],
+    csrfToken: "csrf-session",
+    session: { expiresAt: "2026-10-20T20:00:00.000Z" },
+  };
+  const fetchMock = vi.fn().mockResolvedValue(response({ data: identity }));
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
+  render(<App />);
+  expect(await screen.findByText("Você não tem permissão para administrar Produtos.")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Produtos" })).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/auth/me", expect.any(Object));
+});
+
 const order = {
   publicId: "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910",
   openingPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435",

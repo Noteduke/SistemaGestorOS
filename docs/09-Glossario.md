@@ -215,7 +215,7 @@ Peça parada no estoque, sem previsão de uso.
 Peça cuja baixa definitiva ocorre automaticamente quando a OS é encerrada; não está mais na empresa e representa consumo/venda na OS. Peças ORÇADAS não são baixadas no encerramento.
 
 ## Pendência de conferência de estoque
-Registro criado quando peça UTILIZADA não foi usada, foi removida da OS ou quando o serviço/OS foi cancelado, desfeito ou recusado. Não libera a peça automaticamente. Administrador ou usuário com permissão futura `stock.pending_review.resolve` pode resolver, confirmando DISPONÍVEL, mantendo UTILIZADA ou marcando BAIXADA por motivo administrativo. Usuário operacional pode informar a não utilização, mas não resolver sozinho. Pendência aberta bloqueia o encerramento da OS.
+Decisão administrativa de conferência de uma peça aplicada. A regra anterior de abrir uma pendência por devolução foi substituída: remoção confirmada de peça aplicada reverte a aplicação e restaura disponibilidade atomicamente; cancelamento exige confirmação da retirada física. Diferenças entre quantidades orçadas e aplicadas devem ser regularizadas explicitamente no encerramento com reparo.
 
 ## Serviço
 Atividade executada pela empresa, não representando item de estoque.

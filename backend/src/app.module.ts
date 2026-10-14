@@ -7,8 +7,9 @@ import { ServiceOrdersModule } from "./modules/service-orders/service-orders.mod
 import { UsersModule } from "./modules/users/users.module.js";
 import { EquipmentModule } from "./modules/equipment/equipment.module.js";
 import { ServicesModule } from "./modules/services/services.module.js";
+import { ProductsModule } from "./modules/products/products.module.js";
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule, ProductsModule],
 })
 export class AppModule {}

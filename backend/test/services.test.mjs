@@ -6,6 +6,9 @@ import { parseCreateServiceDto, parseDeleteServiceQuery, parseServiceListQuery, 
 import { ServicesService } from "../dist/modules/services/services.service.js";
 import { parseBudgetMoney, parseBudgetQuantity, parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseUpdateBudgetItem } from "../dist/modules/service-orders/dto/budget-item.dto.js";
 import { sanitizeServiceOrderEventPayload } from "../dist/modules/service-orders/service-order-events-read.service.js";
+import { cleanProductCode, cleanProductDescription } from "../dist/modules/products/domain/product-input.js";
+import { parseCreateProduct, parseProductListQuery, parseUpdateProduct } from "../dist/modules/products/dto/product.dto.js";
+import { ProductsService } from "../dist/modules/products/products.service.js";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
@@ -176,4 +179,99 @@ test("log é criado na mesma transação das mutações", async () => {
   await service.create(parseCreateServiceDto({ name: "Serviço", defaultPrice: "2" }), 9);
   assert.equal(prisma.audits[0].actorUserId, 9);
   assert.equal(prisma.rows.values().next().value.defaultPrice instanceof Prisma.Decimal, true);
+});
+
+test("produto limpa os campos aprovados e mantém código interno opcional", () => {
+  assert.equal(cleanProductCode("  pç   10 "), "PÇ 10");
+  assert.equal(cleanProductCode("   "), null);
+  assert.equal(cleanProductCode(null), null);
+  assert.equal(cleanProductDescription("  Placa   Mãe "), "PLACA MÃE");
+  rejectsCode(() => cleanProductDescription("  "), "PRODUCT_DESCRIPTION_REQUIRED");
+  rejectsCode(() => cleanProductCode("A".repeat(65)), "PRODUCT_CODE_TOO_LONG");
+  rejectsCode(() => cleanProductDescription("A".repeat(256)), "PRODUCT_DESCRIPTION_TOO_LONG");
+});
+
+test("DTO de produto valida categoria, paginação, filtros e allowlist", () => {
+  assert.deepEqual(parseCreateProduct({ internalCode: " pç  10 ", description: " Placa   Mãe ", category: "PART" }), {
+    internalCode: "PÇ 10", description: "PLACA MÃE", category: "PART",
+  });
+  assert.deepEqual(parseCreateProduct({ description: "Memória", category: "RESALE_GOOD" }), {
+    internalCode: null, description: "MEMÓRIA", category: "RESALE_GOOD",
+  });
+  assert.deepEqual(parseProductListQuery({ page: "1", pageSize: "20", search: "  placa   mãe ", category: "PART" }), {
+    page: 1, pageSize: 20, status: "active", search: "PLACA MÃE", category: "PART",
+  });
+  assert.deepEqual(parseUpdateProduct({ expectedVersion: 2, internalCode: null, isActive: false }), {
+    expectedVersion: 2, internalCode: null, isActive: false,
+  });
+  rejectsCode(() => parseCreateProduct({ description: "X", category: "OTHER" }), "INVALID_PRODUCT_CATEGORY");
+  rejectsCode(() => parseCreateProduct({ description: "X", category: "PART", unitCost: "1.00" }), "UNSUPPORTED_FIELD");
+  rejectsCode(() => parseProductListQuery({ page: "1", pageSize: "20", status: "deleted" }), "INVALID_FILTER");
+  rejectsCode(() => parseUpdateProduct({ expectedVersion: 1 }), "EMPTY_PRODUCT_UPDATE");
+});
+
+function fakeProductsPrisma() {
+  const rows = new Map();
+  const audits = [];
+  let nextId = 1;
+  const product = {
+    async create({ data }) {
+      if (data.internalCode && [...rows.values()].some((row) => row.internalCode === data.internalCode)) throw { code: "P2002" };
+      const now = new Date();
+      const row = { id: nextId++, publicId: `123e4567-e89b-42d3-a456-42661417400${nextId}`, version: 1, isActive: true, createdAt: now, updatedAt: now, ...data };
+      rows.set(row.id, row);
+      return row;
+    },
+    async findUnique({ where }) { return [...rows.values()].find((row) => row.id === where.id || row.publicId === where.publicId) ?? null; },
+    async update({ where, data }) {
+      const current = rows.get(where.id);
+      if (data.internalCode?.set && [...rows.values()].some((row) => row.id !== where.id && row.internalCode === data.internalCode.set)) throw { code: "P2002" };
+      const updated = { ...current, ...data, version: current.version + 1, updatedAt: new Date() };
+      rows.set(where.id, updated);
+      return updated;
+    },
+    async findMany({ where, orderBy, skip, take }) {
+      assert.deepEqual(orderBy, [{ description: "asc" }, { id: "asc" }]);
+      return [...rows.values()].filter((row) => matchProduct(row, where)).sort((a, b) => a.description.localeCompare(b.description) || a.id - b.id).slice(skip, skip + take);
+    },
+    async count({ where }) { return [...rows.values()].filter((row) => matchProduct(row, where)).length; },
+  };
+  const tx = {
+    product,
+    adminAuditLog: { async create({ data }) { audits.push(data); } },
+    async $queryRaw(_parts, publicId) { const row = [...rows.values()].find((item) => item.publicId === publicId); return row ? [{ id: row.id }] : []; },
+  };
+  return { rows, audits, product, async $transaction(input) { return typeof input === "function" ? input(tx) : Promise.all(input); } };
+}
+
+function matchProduct(row, where) {
+  const search = !where.OR || where.OR.some((condition) => Object.entries(condition).some(([field, filter]) => row[field]?.includes(filter.contains)));
+  return (where.isActive === undefined || row.isActive === where.isActive)
+    && (where.category === undefined || row.category === where.category)
+    && search;
+}
+
+test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão", async () => {
+  const prisma = fakeProductsPrisma();
+  const service = new ProductsService(prisma);
+  const created = (await service.create(parseCreateProduct({ internalCode: "P-1", description: "Placa", category: "PART" }), 7)).data;
+  assert.equal(created.description, "PLACA");
+  assert.equal(prisma.audits[0].eventCode, "PRODUCT_CREATED");
+  const found = await service.list(parseProductListQuery({ page: "1", pageSize: "20", search: "p-1" }));
+  assert.equal(found.pagination.total, 1);
+  const updated = (await service.update(created.publicId, parseUpdateProduct({ expectedVersion: 1, description: "Placa mãe", category: "RESALE_GOOD" }), 7)).data;
+  assert.equal(updated.description, "PLACA MÃE");
+  assert.equal(updated.category, "RESALE_GOOD");
+  assert.deepEqual(prisma.audits[1].detailsJson, {
+    productPublicId: created.publicId,
+    before: { description: "PLACA", category: "PART" },
+    after: { description: "PLACA MÃE", category: "RESALE_GOOD" },
+  });
+  const inactive = (await service.update(created.publicId, { expectedVersion: 2, isActive: false }, 7)).data;
+  assert.equal(inactive.isActive, false);
+  assert.equal((await service.list({ page: 1, pageSize: 20, status: "active" })).pagination.total, 0);
+  assert.equal((await service.list({ page: 1, pageSize: 20, status: "inactive" })).pagination.total, 1);
+  await assert.rejects(() => service.update(created.publicId, { expectedVersion: 1, isActive: true }, 7), (error) => codeOf(error) === "PRODUCT_VERSION_CONFLICT");
+  await assert.rejects(() => service.create(parseCreateProduct({ internalCode: "P-1", description: "Duplicado", category: "PART" }), 7), (error) => codeOf(error) === "DUPLICATE_PRODUCT_CODE");
+  assert.deepEqual(prisma.audits.map((entry) => entry.eventCode), ["PRODUCT_CREATED", "PRODUCT_UPDATED", "PRODUCT_UPDATED"]);
 });

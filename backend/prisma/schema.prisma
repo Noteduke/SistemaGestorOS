@@ -27,6 +27,11 @@ enum PersonContactEventType {
   EMAIL_PRIMARY_CHANGED
 }
 
+enum ProductCategory {
+  PART
+  RESALE_GOOD
+}
+
 model Person {
   id                           Int                    @id @default(autoincrement())
   publicId                     String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
@@ -149,6 +154,8 @@ model User {
   equipmentOwnershipChanges     EquipmentOwnership[]      @relation("EquipmentOwnershipActor")
   createdCatalogServices        ServiceCatalog[]          @relation("ServiceCatalogCreator")
   updatedCatalogServices        ServiceCatalog[]          @relation("ServiceCatalogUpdater")
+  createdProducts               Product[]                 @relation("ProductCreator")
+  updatedProducts               Product[]                 @relation("ProductUpdater")
   createdBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemCreator")
   updatedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemUpdater")
   removedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemRemover")
@@ -260,6 +267,28 @@ model ServiceCatalog {
   @@index([createdByUserId])
   @@index([updatedByUserId])
   @@map("service_catalog")
+}
+
+model Product {
+  id              Int             @id @default(autoincrement())
+  publicId        String          @unique @default(uuid()) @map("public_id") @db.Char(36)
+  internalCode    String?         @unique @map("internal_code") @db.VarChar(64)
+  description     String          @db.VarChar(255)
+  category        ProductCategory
+  isActive        Boolean         @default(true) @map("is_active")
+  version         Int             @default(1)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId Int             @map("created_by_user_id")
+  updatedByUserId Int             @map("updated_by_user_id")
+  createdBy       User            @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy       User            @relation("ProductUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([isActive, category, description, id])
+  @@index([description, id])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+  @@map("products")
 }
 
 // Technical mutex rows serialize cross-table name checks through the surrounding transaction.

@@ -204,11 +204,11 @@ A OS já distingue situação operacional, status macro e resultado de encerrame
 Definir as permissões e os efeitos de mudanças de situação/status macro e das duas modalidades de reabertura, preservando o mesmo atendimento e rastreabilidade.
 
 ## Decisão adotada
-- Depois da abertura em TRIAGEM, usuários autorizados podem mudar livremente para qualquer situação ativa; não existe sequência rígida. Mudanças geram histórico e não removem bloqueios específicos, como pendência aberta de conferência de estoque.
+- Depois da abertura em TRIAGEM, usuários autorizados podem mudar livremente para qualquer situação ativa; não existe sequência rígida. Mudanças geram histórico. Encerramento com reparo deve exigir regularização explícita das diferenças entre quantidades orçadas e aplicadas; devoluções após remoção confirmada ou cancelamento seguem as regras atuais de aplicação e retirada, sem pendência administrativa por unidade.
 - Somente Administrador ou usuário com permissão específica altera o status macro para FECHADA ou CANCELADA. FECHADA↔CANCELADA não é transição direta; é necessário reabrir completamente para ABERTA antes da outra mudança.
 - Reabertura simples permite correção textual, sem alterar situação, status macro, faturamento ou pagamentos, e gera histórico.
 - Reabertura completa mantém a mesma OS/número, retorna a ABERTA e AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento e pagamentos no financeiro ativo sem apagar o rastro, retorna peças vinculadas a ORÇADA, registra histórico e avisa o dashboard do Administrador. Também é permitida para OS CANCELADA, exceto à OS externa encerrada como Equipamento comprado/Doado após a criação da interna, que admite somente reabertura simples textual.
-- Permissões futuras sugeridas: `os.close`, `os.cancel`, `os.reopen_text`, `os.reopen_full` e `stock.pending_review.resolve`.
+- Permissões futuras sugeridas: `os.close`, `os.cancel`, `os.reopen_text` e `os.reopen_full`.
 - Reconciliação de peças anteriormente BAIXADAS, títulos liquidados/documentos fiscais e o mapeamento dos demais resultados de encerramento permanecem pendentes. Equipamento comprado/Doado fecha a OS externa como FECHADA e dispara o fluxo interno aprovado na DA-020. Esta decisão não aprova tabelas, contratos de API ou uma nova arquitetura de persistência.
 
 ## Justificativa

@@ -296,7 +296,7 @@ O orçamento não cria financeiro. Peça do estoque futura, apenas ORÇADA, não
 
 ### Alteração de situação, status macro e reabertura
 
-Depois de abrir em TRIAGEM, usuários autorizados na OS podem mudar livremente sua situação operacional para qualquer outra situação ativa disponível. Não há sequência rígida entre situações; toda mudança efetiva gera histórico. Reenviar a situação já vigente é uma operação sem alteração e não gera evento duplicado. Essa liberdade não remove validações específicas: o encerramento continua bloqueado enquanto houver pendência aberta de conferência de estoque.
+Depois de abrir em TRIAGEM, usuários autorizados na OS podem mudar livremente sua situação operacional para qualquer outra situação ativa disponível. Não há sequência rígida entre situações; toda mudança efetiva gera histórico. Reenviar a situação já vigente é uma operação sem alteração e não gera evento duplicado. O encerramento com reparo deverá validar e exigir regularização explícita das diferenças entre quantidades orçadas e aplicadas; não presumir pendência administrativa para devolução de peças.
 
 Somente Administrador ou usuário com permissão específica pode alterar o status macro para FECHADA ou CANCELADA. São permissões futuras sugeridas `os.close` e `os.cancel`. Mudanças de situação operacional continuam sujeitas às permissões de acesso à OS, sem exigir que o usuário tenha uma dessas permissões de status macro.
 
@@ -338,15 +338,23 @@ Não copiar como itens ativos para a OS interna: cobrança, pagamentos, serviço
 - **UTILIZADA:** peça retirada do estoque, instalada ou em processo de instalação. Fica imediatamente indisponível para outra OS ou venda, mas ainda não é baixa definitiva.
 - **BAIXADA:** baixa definitiva quando a OS é encerrada; a peça não está mais na empresa e representa consumo/venda na OS.
 
-Todos os usuários autorizados na OS podem mudar uma peça de ORÇADA para UTILIZADA. A transição registra histórico com usuário, data/hora, OS, peça, status anterior e novo, além de motivo quando aplicável.
+Todos os usuários autorizados na OS podem mudar uma peça de ORÇADA para UTILIZADA, informando a quantidade aplicada. A aplicação pode ser parcial ou superar a quantidade orçada. Somente a quantidade aplicada fica indisponível. A simples inclusão da peça no orçamento não reserva nem altera o estoque. A aplicação não realiza baixa definitiva. Estoque negativo é permitido.
 
 Uma peça ORÇADA que permaneça nesse estado quando orçamento, item ou OS for recusado/cancelado não gera movimentação nem impacto no estoque. O sistema altera o status do lançamento da peça na OS e preserva seu histórico; não há retorno a DISPONÍVEL porque a peça não deixou a disponibilidade real.
 
-Peça UTILIZADA não volta automaticamente a DISPONÍVEL. Se não for usada, se for removida da OS ou se serviço/OS for cancelado, desfeito ou recusado, deve ser criada uma pendência de conferência de estoque. O técnico ou usuário operacional pode informar que a peça não foi usada, mas não pode resolver a pendência sozinho. Somente Administrador ou usuário com permissão específica de conferência pode resolvê-la. Após conferência, a peça pode voltar a DISPONÍVEL, permanecer UTILIZADA ou ser BAIXADA por motivo administrativo. A permissão futura sugerida é `stock.pending_review.resolve`.
+Enquanto a OS estiver ABERTA, a aplicação pode ser desfeita total ou parcialmente, com histórico. Ao remover uma peça aplicada do orçamento, depois da confirmação normal de remoção, o sistema desfaz a quantidade aplicada, devolve a disponibilidade e remove logicamente o item na mesma transação. A decisão mais recente substitui a regra anterior que exigia pendência administrativa para devolver cada peça utilizada; não criar essa pendência para essas reversões.
 
-Ao encerrar uma OS, todas as peças de estoque vinculadas que estiverem UTILIZADAS passam automaticamente para BAIXADA; peças ORÇADAS não são baixadas. Peças avulsas não geram baixa. O encerramento fica bloqueado enquanto houver qualquer pendência de conferência de estoque aberta vinculada à OS.
+No encerramento com reparo, comparar quantidades orçadas e aplicadas e exigir regularização explícita de diferenças, sem ajuste automático. A inclusão de peças além do orçamento não exige nova autorização do cliente por si só. Ao concluir o encerramento, a quantidade aplicada é baixada definitivamente. No encerramento sem reparo, desfazer aplicações e devolver disponibilidade, sem cobrança. No cancelamento com peças aplicadas, confirmar que foram fisicamente retiradas; então desfazer aplicações e devolver disponibilidade. As operações relevantes preservam histórico operacional e Log Administrativo conforme sua natureza; o encerramento/cancelamento e seus efeitos de estoque e histórico devem ser atômicos. Se qualquer operação falhar, nada daquela operação será efetivado. Peças avulsas não geram baixa.
 
 Essas regras funcionais não aprovam ainda tabelas, histórico físico, movimentações, endpoints, telas ou implementação de estoque; permanecem futuros.
+
+### Cadastro básico de Produtos — primeira etapa
+
+O cadastro inicial de Produtos identifica o produto por `publicId` próprio e admite código interno, descrição, categoria e situação Ativo/Inativo. As categorias iniciais desta etapa são Peça e Mercadoria para revenda; ambas compartilham o mesmo estoque futuro. Código interno não é obrigatório e, quando informado, não pode duplicar outro produto. A descrição e a categoria são necessárias para cadastrar o produto. Novos campos obrigatórios não podem ser introduzidos sem aprovação. Produtos podem ser consultados, pesquisados, incluídos e alterados; inativar é a forma de impedir seleção futura. Não haverá exclusão física nesta etapa.
+
+Alterações do cadastro registram ator, data/hora do servidor, operação e valores anterior/novo no Log Administrativo; esse log não substitui o Histórico Operacional de OS nem movimentações futuras do estoque. Nesta primeira versão, leitura e gestão são protegidas pela permissão `products.manage`; Administrador também pode acessar conforme o guard central. Número de série é possibilidade futura e não é obrigatório nem armazenado nesta etapa.
+
+Esta etapa não implementa custo, saldo, movimento, reserva, compra, inventário, aplicação ou baixa. A futura origem oficial do saldo será o conjunto de movimentações; o estoque inicial terá um único local e permitirá saldo negativo. A fórmula definitiva de saldo e detalhes de movimentos continuam fora desta etapa.
 
 ### Peça avulsa na OS
 
