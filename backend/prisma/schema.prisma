@@ -120,38 +120,39 @@ model PersonContactEvent {
 }
 
 model User {
-  id                            Int                      @id @default(autoincrement())
-  publicId                      String                   @unique @default(uuid()) @map("public_id") @db.Char(36)
-  username                      String                   @unique @db.VarChar(50)
-  passwordHash                  String                   @map("password_hash") @db.VarChar(255)
-  isAdmin                       Boolean                  @default(false) @map("is_admin")
-  isActive                      Boolean                  @default(true) @map("is_active")
-  consecutiveFailedLoginCount   Int                      @default(0) @map("consecutive_failed_login_count")
-  lastLoginAt                   DateTime?                @map("last_login_at") @db.DateTime(3)
-  inactivatedAt                 DateTime?                @map("inactivated_at") @db.DateTime(3)
-  createdAt                     DateTime                 @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt                     DateTime                 @updatedAt @map("updated_at") @db.DateTime(3)
-  permissions                   UserPermission[]         @relation("PermissionRecipient")
-  permissionsGranted            UserPermission[]         @relation("PermissionGrantor")
+  id                            Int                       @id @default(autoincrement())
+  publicId                      String                    @unique @default(uuid()) @map("public_id") @db.Char(36)
+  username                      String                    @unique @db.VarChar(50)
+  passwordHash                  String                    @map("password_hash") @db.VarChar(255)
+  isAdmin                       Boolean                   @default(false) @map("is_admin")
+  isActive                      Boolean                   @default(true) @map("is_active")
+  consecutiveFailedLoginCount   Int                       @default(0) @map("consecutive_failed_login_count")
+  lastLoginAt                   DateTime?                 @map("last_login_at") @db.DateTime(3)
+  inactivatedAt                 DateTime?                 @map("inactivated_at") @db.DateTime(3)
+  createdAt                     DateTime                  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                     DateTime                  @updatedAt @map("updated_at") @db.DateTime(3)
+  permissions                   UserPermission[]          @relation("PermissionRecipient")
+  permissionsGranted            UserPermission[]          @relation("PermissionGrantor")
   sessions                      UserSession[]
-  auditActions                  AdminAuditLog[]          @relation("AuditActor")
-  auditTargets                  AdminAuditLog[]          @relation("AuditTarget")
+  auditActions                  AdminAuditLog[]           @relation("AuditActor")
+  auditTargets                  AdminAuditLog[]           @relation("AuditTarget")
   contactEvents                 PersonContactEvent[]
-  initiatedServiceOrderOpenings ServiceOrderOpening[]    @relation("OpeningInitiator")
-  activeServiceOrderOpening     ServiceOrderOpening?     @relation("OpeningActiveUser")
-  requestedOpeningTransfers     ServiceOrderOpening[]    @relation("OpeningTransferRequester")
-  createdServiceOrders          ServiceOrder[]           @relation("ServiceOrderCreator")
-  serviceOrderAssignments       ServiceOrderAssignment[] @relation("AssignmentUser")
-  serviceOrderAssignmentsMade   ServiceOrderAssignment[] @relation("AssignmentActor")
-  serviceOrderEvents            ServiceOrderEvent[]      @relation("ServiceOrderEventActor")
-  serviceOrderNotes             ServiceOrderNote[]       @relation("ServiceOrderNoteAuthor")
-  initiatedServiceOrderEvents   ServiceOrderEvent[]      @relation("ServiceOrderEventInitiator")
-  equipmentOwnershipChanges     EquipmentOwnership[]     @relation("EquipmentOwnershipActor")
-  createdCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogCreator")
-  updatedCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogUpdater")
-  createdBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemCreator")
-  updatedBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemUpdater")
-  removedBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemRemover")
+  initiatedServiceOrderOpenings ServiceOrderOpening[]     @relation("OpeningInitiator")
+  activeServiceOrderOpening     ServiceOrderOpening?      @relation("OpeningActiveUser")
+  requestedOpeningTransfers     ServiceOrderOpening[]     @relation("OpeningTransferRequester")
+  createdServiceOrders          ServiceOrder[]            @relation("ServiceOrderCreator")
+  serviceOrderAssignments       ServiceOrderAssignment[]  @relation("AssignmentUser")
+  serviceOrderAssignmentsMade   ServiceOrderAssignment[]  @relation("AssignmentActor")
+  serviceOrderEvents            ServiceOrderEvent[]       @relation("ServiceOrderEventActor")
+  serviceOrderNotes             ServiceOrderNote[]        @relation("ServiceOrderNoteAuthor")
+  initiatedServiceOrderEvents   ServiceOrderEvent[]       @relation("ServiceOrderEventInitiator")
+  equipmentOwnershipChanges     EquipmentOwnership[]      @relation("EquipmentOwnershipActor")
+  createdCatalogServices        ServiceCatalog[]          @relation("ServiceCatalogCreator")
+  updatedCatalogServices        ServiceCatalog[]          @relation("ServiceCatalogUpdater")
+  createdBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemCreator")
+  updatedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemUpdater")
+  removedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemRemover")
+  heldServiceOrderEditControls  ServiceOrderEditControl[]
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -501,6 +502,7 @@ model ServiceOrder {
   notes            ServiceOrderNote[]
   ownershipEvents  EquipmentOwnership[]
   budgetItems      ServiceOrderBudgetItem[]
+  editControl      ServiceOrderEditControl?
 
   @@index([macroStatus, operationalSituation, openedAt])
   @@index([customerId, openedAt])
@@ -595,4 +597,22 @@ model ServiceOrderBudgetItem {
   @@index([updatedByUserId])
   @@index([removedByUserId])
   @@map("service_order_budget_items")
+}
+
+model ServiceOrderEditControl {
+  id               Int          @id @default(autoincrement())
+  serviceOrderId   Int          @unique @map("service_order_id")
+  holderUserId     Int?         @map("holder_user_id")
+  contextTokenHash String?      @map("context_token_hash") @db.Char(64)
+  leaseVersion     Int          @default(0) @map("lease_version")
+  lastHeartbeatAt  DateTime     @map("last_heartbeat_at") @db.DateTime(3)
+  expiresAt        DateTime     @map("expires_at") @db.DateTime(3)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+  serviceOrder     ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  holder           User?        @relation(fields: [holderUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([holderUserId, expiresAt])
+  @@index([expiresAt])
+  @@map("service_order_edit_controls")
 }

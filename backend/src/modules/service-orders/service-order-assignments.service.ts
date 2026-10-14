@@ -4,6 +4,7 @@ import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { AssignmentsPutInput } from "./dto/assignments-put.dto.js";
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
+import { assertEditControlInTransaction } from "./service-order-edit-control.service.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -14,7 +15,7 @@ type UserLock = { id: number; public_id: string; is_active: number };
 export class ServiceOrderAssignmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async replace(publicId: string, input: AssignmentsPutInput, actor: AuthenticatedUser) {
+  async replace(publicId: string, input: AssignmentsPutInput, actor: AuthenticatedUser, editToken?: string) {
     if (!PUBLIC_ID.test(publicId)) {
       throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." });
     }
@@ -35,6 +36,7 @@ export class ServiceOrderAssignmentsService {
           select: serviceOrderDetailSelect,
         });
         if (!current) throw serviceOrderNotFound();
+        await assertEditControlInTransaction(tx, locked.id, actor, editToken);
         await assertAssignmentPermission(tx, actor);
 
         const requestedIds = [...input.userPublicIds].sort((left, right) => left.localeCompare(right));

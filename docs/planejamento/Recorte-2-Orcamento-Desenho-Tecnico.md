@@ -224,7 +224,7 @@ Sem custo.read não montar campos, colunas ou tooltips de custo; com leitura mas
 
 As migrations do catálogo e dos itens foram aplicadas no banco isolado `gestor_os_opening_test`, MySQL 8.0.46, e `prisma migrate status` confirmou o histórico atualizado nesse banco. A inspeção física confirmou as tabelas e os três índices funcionais únicos.
 
-- Backend: `prisma validate`, `prisma generate`, teste unitário direto (9/9) e `npx tsc --noEmit` passaram. `npm run build` passou durante a implementação; a repetição final encontrou `EPERM` ao tentar limpar `backend/dist` enquanto processos Node locais estavam ativos. Não foram encerrados processos nem apagados artefatos manualmente.
+- Backend: `prisma validate`, `prisma generate`, testes unitários e integração HTTP/MySQL em `gestor_os_opening_test` e `npm run build` passaram. Uma tentativa anterior de gerar/compilar encontrou `EPERM`; em nova tentativa, sem encerrar processos ou apagar artefatos manualmente, geração e build concluíram com sucesso.
 - Frontend: 109 testes passaram em seis arquivos; typecheck e build de produção passaram.
 - HTTP autenticado no banco isolado: leitura vazia, inclusão cadastrada e cópia do preço, serviço desabilitado, edição, mão de obra e peças, normalização/duplicidade, CSRF, custo nulo/zero/oculto/preservado, remoção e relançamento, concorrência de inclusão, bloqueio de exclusão de serviço vinculado, retirada integral com NÃO AUTORIZADO e snapshots de histórico. O script remove os registros descartáveis ao terminar.
 - Nenhuma chamada usou o banco principal `gestor_os`; não houve estoque nem lançamento financeiro.
@@ -240,3 +240,6 @@ As migrations do catálogo e dos itens foram aplicadas no banco isolado `gestor_
 7. PDF/impressão, envio, validade e aprovação parcial continuam sem desenho aprovado. Não impor novo aceite automático. Estoque, fiscal, faturamento e desconto no fechamento seguem posteriores.
 
 Próxima tarefa recomendada: auditoria técnica final e versionamento local. Aplicar as migrations no banco principal exige etapa separada e autorização explícita. A ausência temporal do catálogo de peças deve continuar visível no escopo e nos critérios da entrega.
+# Controle de edição compartilhado
+
+Todas as mutações de orçamento usam o controle exclusivo da OS confirmada, sem lock próprio do orçamento. As transações continuam usando os locks existentes para atomicidade, unicidade, totais e evento. A capacidade **Alterar orçamento** (`service_orders.budget.update`) e as permissões de custo continuam independentes do controle; ser detentor não concede autorização. Consulta e valores permanecem disponíveis em somente leitura conforme permissões atuais. A criação de observação manual continua fora do controle.

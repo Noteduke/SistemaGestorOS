@@ -314,3 +314,6 @@ A correspondência entre `ServiceOrder.newEquipmentSerialIdentificationStatus` e
 - O seed/catálogo de Marca deverá garantir idempotentemente a opção controlada `Não informada`. `Não informado` é uma opção controlada do campo textual de Modelo, sem criar catálogo de modelos. Confirmar como identificar esses valores sem depender do ID numérico do seed.
 - Concluído: testar em banco MySQL isolado e em cópia restaurada antes da aplicação autorizada no principal.
 - Fechamento, cancelamento oficial, orçamento, inventário, financeiro e OS interna automática ficam fora do comportamento do Recorte 1.
+# Controle técnico de edição da OS
+
+O schema Prisma contém `ServiceOrderEditControl` como relação 1:1 com `ServiceOrder` e detentor opcional `User`. A migration `20261014120000_service_order_edit_control` cria `service_order_edit_controls` com token de contexto armazenado como hash SHA-256, `lease_version`, `last_heartbeat_at` e `expires_at`. O registro persiste após a liberação, com detentor/hash nulos, para permitir que contextos antigos detectem takeover seguido de liberação. A migration foi aplicada e validada estruturalmente em `gestor_os_opening_test`; permanece proibido aplicá-la ao banco principal sem autorização própria.

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { operationalSituationOptions } from "../../api/serviceOrders";
 import { ServiceOrderDetailPage } from "./ServiceOrderDetailPage";
@@ -40,10 +40,23 @@ function response(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
+function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>, state = { held: true, holder: { publicId: "current-user", username: "marina.admin" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 }) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
+    ? Promise.resolve(response({ data: state }))
+    : fetchMock(input, init));
+}
+
+async function openAssignmentsEditor() {
+  const button = screen.getByRole("button", { name: "Editar responsáveis" });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  await screen.findByRole("textbox", { name: "Buscar usuário por username" });
+}
+
 describe("ServiceOrderDetailPage", () => {
   it("exibe detalhes e snapshots históricos sem recalculá-los", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
@@ -62,7 +75,7 @@ describe("ServiceOrderDetailPage", () => {
         data: [{ kind: "SYSTEM_EVENT", eventType: "ABERTURA_CONFIRMADA", occurredAt: "2026-10-10T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { macroStatus: "ABERTA" } }],
         nextCursor: null, hasMore: false,
       }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
     const onSectionChange = vi.fn();
     const props = { publicId, csrfToken: "csrf-in-memory", onSectionChange, onBack: vi.fn() };
     const view = render(<ServiceOrderDetailPage {...props} section="details" />);
@@ -86,7 +99,7 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(response({ data: [], nextCursor: null, hasMore: false }))
       .mockResolvedValueOnce(response({ data: note }))
       .mockResolvedValueOnce(response({ data: [note], nextCursor: null, hasMore: false }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canCreateNote section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     const input = await screen.findByRole("textbox", { name: "Nova observação" });
     expect(input).toHaveAttribute("maxlength", "255");
@@ -106,7 +119,7 @@ describe("ServiceOrderDetailPage", () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ data: [note], nextCursor: "opaque_cursor", hasMore: true }))
       .mockResolvedValueOnce(response({ data: [event], nextCursor: null, hasMore: false }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Nota segura")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Nova observação" })).not.toBeInTheDocument();
@@ -124,7 +137,7 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(response({ data: [note], nextCursor: null, hasMore: false }))
       .mockResolvedValueOnce(response({ data: { deleted: true } }))
       .mockResolvedValueOnce(response({ data: [], nextCursor: null, hasMore: false }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Excluir depois")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
@@ -141,13 +154,39 @@ describe("ServiceOrderDetailPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Ordem de Serviço não encontrada");
   });
 
+  it("mantém a OS visível em modo de somente leitura e não mostra takeover sem autorização específica", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canManageAssignments canTakeoverEdit={false} section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
+    expect(await screen.findByText("OS em edição por outro.usuario.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editar responsáveis" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Assumir edição" })).not.toBeInTheDocument();
+  });
+
+  it("permite assumir edição com autorização e envia CSRF e contexto da aba", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 8, heartbeatIntervalSeconds: 60 } }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canTakeoverEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    fireEvent.click(await screen.findByRole("button", { name: "Assumir edição" }));
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control/takeover`, expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory", "X-Service-Order-Edit-Token": expect.stringMatching(/^[0-9a-f-]{36}$/iu) }),
+    }));
+  });
+
   it("lista as dez situações e envia enum oficial com CSRF ao endpoint operacional", async () => {
     const updated = { ...detail, operationalSituation: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO", updatedAt: "2026-10-11T13:00:00.000Z" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ data: updated }));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canUpdateSituation section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
     const select = screen.getByRole("combobox", { name: "Nova situação" });
@@ -176,8 +215,8 @@ describe("ServiceOrderDetailPage", () => {
 
   it("não chama o PATCH quando a situação escolhida já é a atual", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canUpdateSituation section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
     expect(screen.getByRole("button", { name: "Salvar situação" })).toBeDisabled();
@@ -194,8 +233,8 @@ describe("ServiceOrderDetailPage", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ error: { code: "REQUEST_FAILED", message: "Request failed" } }, status));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canUpdateSituation section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
     fireEvent.change(screen.getByRole("combobox", { name: "Nova situação" }), { target: { value: "REPAIR_AUTHORIZED" } });
@@ -209,12 +248,12 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(response({ data: existing }))
       .mockResolvedValueOnce(assignableResponse())
       .mockResolvedValueOnce(assignableResponse());
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
     expect(await screen.findByRole("list", { name: "Responsáveis nominais atuais" })).toHaveTextContent("ana.tech");
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     const ana = await screen.findByRole("checkbox", { name: "ana.tech" });
     const bruno = screen.getByRole("checkbox", { name: "bruno.tech" });
     expect(ana).toBeChecked();
@@ -234,11 +273,11 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(assignableResponse([assignableUsers[0]], 1, 2, 2))
       .mockResolvedValueOnce(assignableResponse([assignableUsers[1]], 2, 2, 2))
       .mockResolvedValueOnce(assignableResponse([assignableUsers[0]], 1, 1, 1));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
     fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
     expect(await screen.findByRole("checkbox", { name: "bruno.tech" })).toBeInTheDocument();
@@ -263,12 +302,12 @@ describe("ServiceOrderDetailPage", () => {
         data: [{ kind: "SYSTEM_EVENT", eventType: "ATRIBUICOES_ALTERADAS", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor: { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" }, payload: { newUserPublicIds: [assignableUsers[0].publicId] } }],
         nextCursor: null, hasMore: false,
       }));
-    vi.stubGlobal("fetch", fetchMock);
-    const props = { publicId, csrfToken: "csrf-in-memory", onSectionChange: vi.fn(), onBack: vi.fn() };
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    const props = { publicId, csrfToken: "csrf-in-memory", canManageAssignments: true, onSectionChange: vi.fn(), onBack: vi.fn() };
     const view = render(<ServiceOrderDetailPage {...props} section="details" />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
 
@@ -300,11 +339,11 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(assignableResponse([assignableUsers[0]]))
       .mockResolvedValueOnce(assignableResponse([assignableUsers[0]]))
       .mockResolvedValueOnce(response({ data: updated }));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     await screen.findByRole("checkbox", { name: "ana.tech" });
     fireEvent.click(screen.getByRole("button", { name: "Remover ana.tech" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
@@ -324,10 +363,10 @@ describe("ServiceOrderDetailPage", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ message: "blocked" }, status));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
@@ -343,10 +382,10 @@ describe("ServiceOrderDetailPage", () => {
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(assignableResponse())
       .mockResolvedValueOnce(response({ message: "failed" }, status));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageAssignments section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.click(screen.getByRole("button", { name: "Editar responsáveis" }));
+    await openAssignmentsEditor();
     fireEvent.click(await screen.findByRole("checkbox", { name: "ana.tech" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar responsáveis" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
 const configured = new URL(process.env.DATABASE_URL ?? "");
@@ -25,7 +25,7 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 32);
+  assert.equal(await db.permission.count(), 39);
 
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
@@ -54,6 +54,7 @@ try {
     const headers = {};
     if (options.cookie) headers.cookie = options.cookie;
     if (options.csrf) headers["x-csrf-token"] = options.csrf;
+    if (options.editToken) headers["x-service-order-edit-token"] = options.editToken;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + path, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     const body = await response.text();
@@ -94,15 +95,18 @@ try {
   const confirmed = confirmation.body.data;
   const openingOnly = await opening();
   const path = `/service-orders/${confirmed.publicId}/operational-situation`;
+  const orderPath = `/service-orders/${confirmed.publicId}`;
+  const writerEditSession = { ...writerSession, editToken: randomUUID() };
+  status(await request("POST", `${orderPath}/edit-control`, writerEditSession), 201, "writer acquires edit control");
 
   status(await request("PATCH", path, { body: { operationalSituation: "REPAIR_AUTHORIZED" } }), 401, "anonymous update");
   status(await request("PATCH", path, { cookie: writerSession.cookie, body: { operationalSituation: "REPAIR_AUTHORIZED" } }), 403, "missing csrf");
   status(await request("PATCH", path, { ...outsiderSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } }), 403, "missing permission");
-  const invalid = await request("PATCH", path, { ...writerSession, body: { operationalSituation: "TRIAGEM" } });
+  const invalid = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "TRIAGEM" } });
   status(invalid, 400, "invalid situation label");
   assert.equal(invalid.body.code, "INVALID_SITUATION");
   status(await request("PATCH", `/service-orders/${openingOnly.publicId}/operational-situation`, {
-    ...writerSession, body: { operationalSituation: "REPAIR_AUTHORIZED" },
+    ...writerEditSession, body: { operationalSituation: "REPAIR_AUTHORIZED" },
   }), 404, "opening public id is not an order");
   const missing = await request("PATCH", "/service-orders/00000000-0000-4000-8000-000000000000/operational-situation", {
     ...writerSession, body: { operationalSituation: "REPAIR_AUTHORIZED" },
@@ -112,7 +116,7 @@ try {
 
   const before = await db.serviceOrder.findUniqueOrThrow({ where: { publicId: confirmed.publicId } });
   const eventCount = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id } });
-  const updated = await request("PATCH", path, { ...writerSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } });
+  const updated = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } });
   status(updated, 200, "update operational situation");
   assert.equal(updated.body.data.operationalSituation, "AUTORIZADO REPARO");
   assert.equal(updated.body.data.macroStatus, "ABERTA");
@@ -136,7 +140,7 @@ try {
   assert.ok(events[0].occurredAt instanceof Date);
 
   const eventCountAfterChange = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id } });
-  const noOp = await request("PATCH", path, { ...writerSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } });
+  const noOp = await request("PATCH", path, { ...writerEditSession, body: { operationalSituation: "REPAIR_AUTHORIZED" } });
   status(noOp, 200, "same situation is a no-op");
   assert.equal(noOp.body.data.operationalSituation, "AUTORIZADO REPARO");
   assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id } }), eventCountAfterChange);
@@ -148,7 +152,9 @@ try {
   status(await request("PATCH", `/service-orders/${confirmed.publicId}/situation`, {
     ...adminSession, body: { operationalSituation: "TRIAGE" },
   }), 404, "old alias is not implemented");
-  const adminUpdate = await request("PATCH", path, { ...adminSession, body: { operationalSituation: "AWAITING_PART_PURCHASE" } });
+  const adminEditSession = { ...adminSession, editToken: randomUUID() };
+  status(await request("POST", `${orderPath}/edit-control/takeover`, adminEditSession), 201, "Admin takes over control");
+  const adminUpdate = await request("PATCH", path, { ...adminEditSession, body: { operationalSituation: "AWAITING_PART_PURCHASE" } });
   status(adminUpdate, 200, "admin has global access");
   assert.equal(adminUpdate.body.data.operationalSituation, "AGUARDANDO COMPRA DE PEÇA");
   const adminEvent = await db.serviceOrderEvent.findFirst({ where: { serviceOrderId: before.id, eventType: "SITUACAO_OPERACIONAL_ALTERADA" }, orderBy: { occurredAt: "desc" } });

@@ -369,3 +369,5 @@ erDiagram
 ```
 
 `ServiceOrderNote` não é subtipo de `ServiceOrderEvent`: os eventos são imutáveis, enquanto notas podem ser excluídas mediante snapshot integral em `AdminAuditLog`. A linha do tempo unificada é uma projeção de leitura e não uma tabela adicional.
+
+`ServiceOrderEditControl` mantém relação 1:1 com `ServiceOrder` e relação opcional com `User` detentor. É entidade técnica persistida para coordenar contextos/abas, com hash do token e versão de lease; não se relaciona com itens de orçamento individualmente. Uma OS sem controle ativo pode continuar tendo uma linha técnica com `holder_user_id` nulo.

@@ -6,7 +6,7 @@ import {
   ApiError, type AvailableCatalogService, type ServiceOrderBudget, type ServiceOrderBudgetItem,
 } from "../../api/serviceOrders";
 
-type Props = { publicId: string; csrfToken: string; canEdit: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void };
+type Props = { publicId: string; csrfToken: string; editToken: string; canEdit: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void };
 type Mode = "service" | "labor" | "part";
 
 function errorText(error: unknown): string {
@@ -23,7 +23,7 @@ function errorText(error: unknown): string {
   return "Não foi possível concluir a operação do orçamento.";
 }
 
-export function ServiceOrderBudgetPanel({ publicId, csrfToken, canEdit, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange }: Props) {
+export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, canEdit, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost }: Props) {
   const [budget, setBudget] = useState<ServiceOrderBudget | null>(null);
   const [services, setServices] = useState<AvailableCatalogService[]>([]);
   const [mode, setMode] = useState<Mode>("service");
@@ -60,6 +60,13 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, canEdit, canReadC
     return () => controller.abort();
   }, [canEdit, publicId]);
 
+  useEffect(() => { if (!canEdit || !isOpen) setEditing(null); }, [canEdit, isOpen]);
+
+  function reportFailure(reason: unknown) {
+    if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") onEditControlLost?.();
+    setError(errorText(reason));
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canEdit || !isOpen || busy) return;
@@ -68,15 +75,15 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, canEdit, canReadC
       if (mode === "service") {
         const service = services.find((entry) => entry.publicId === selectedService);
         if (!service) throw new Error("Selecione um serviço ativo.");
-        await addRegisteredBudgetService(publicId, { servicePublicId: service.publicId, quantity: Number(quantity), ...(unitPrice.trim() ? { unitPrice } : {}) }, csrfToken);
+        await addRegisteredBudgetService(publicId, { servicePublicId: service.publicId, quantity: Number(quantity), ...(unitPrice.trim() ? { unitPrice } : {}) }, csrfToken, editToken);
       } else if (mode === "labor") {
-        await addManualLaborBudgetItem(publicId, { description, quantity: Number(quantity), unitPrice }, csrfToken);
+        await addManualLaborBudgetItem(publicId, { description, quantity: Number(quantity), unitPrice }, csrfToken, editToken);
       } else {
-        await addManualPartBudgetItem(publicId, { description, quantity: Number(quantity), unitPrice, ...(canUpdateCosts ? { unitCost: unitCost.trim() || null } : {}) }, csrfToken);
+        await addManualPartBudgetItem(publicId, { description, quantity: Number(quantity), unitPrice, ...(canUpdateCosts ? { unitCost: unitCost.trim() || null } : {}) }, csrfToken, editToken);
       }
       setDescription(""); setQuantity("1"); setUnitPrice(""); setUnitCost(""); setMessage("Item adicionado ao orçamento.");
       await reload();
-    } catch (reason) { setError(errorText(reason)); }
+    } catch (reason) { reportFailure(reason); }
     finally { setBusy(false); }
   }
 
@@ -92,17 +99,17 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, canEdit, canReadC
       const body: Record<string, unknown> = { expectedVersion: item.version, quantity: Number(editQuantity), unitPrice: editPrice };
       if (item.origin === "MANUAL") body.description = editDescription;
       if (canUpdateCosts && item.itemType === "MANUAL_PART") body.unitCost = editCost.trim() || null;
-      await updateBudgetItem(publicId, item.publicId, body, csrfToken);
+      await updateBudgetItem(publicId, item.publicId, body, csrfToken, editToken);
       setEditing(null); setMessage("Item atualizado."); await reload();
-    } catch (reason) { setError(errorText(reason)); }
+    } catch (reason) { reportFailure(reason); }
     finally { setBusy(false); }
   }
 
   async function remove(item: ServiceOrderBudgetItem) {
     if (!window.confirm("Deseja remover este item do orçamento?")) return;
     setBusy(true); setError(null); setMessage(null);
-    try { await removeBudgetItem(publicId, item.publicId, csrfToken); setMessage("Item removido do orçamento."); await reload(); }
-    catch (reason) { setError(errorText(reason)); }
+    try { await removeBudgetItem(publicId, item.publicId, csrfToken, editToken); setMessage("Item removido do orçamento."); await reload(); }
+    catch (reason) { reportFailure(reason); }
     finally { setBusy(false); }
   }
 

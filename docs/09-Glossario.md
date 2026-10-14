@@ -328,3 +328,7 @@ Nota de texto simples, em uma linha e com até 255 caracteres, escrita por usuá
 ## Linha do tempo unificada da OS
 
 Projeção cronológica de eventos automáticos imutáveis e observações manuais ativas no endpoint `/history`. O endpoint `/events` continua exclusivamente de eventos automáticos; o Log Administrativo não integra a linha do tempo operacional.
+
+## Controle de edição da OS
+
+Concessão técnica temporária, associada a uma única OS confirmada e a um contexto de navegador, que permite executar mutações protegidas enquanto não expirar nem for transferida. Não substitui as permissões da operação.

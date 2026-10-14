@@ -163,6 +163,15 @@ export const operationalSituationOptions = [
 
 export type OperationalSituation = (typeof operationalSituationOptions)[number]["value"];
 
+export interface ServiceOrderEditControlState {
+  held: boolean;
+  holder: { publicId: string; username: string } | null;
+  expiresAt: string | null;
+  isCurrentContext: boolean;
+  generation: number;
+  heartbeatIntervalSeconds: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -202,6 +211,7 @@ export async function updateServiceOrderOperationalSituation(
   operationalSituation: OperationalSituation,
   csrfToken: string,
   withdrawBudget = false,
+  editToken?: string,
 ): Promise<{ data: ServiceOrderDetail }> {
   const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/operational-situation`, {
     method: "PATCH",
@@ -210,6 +220,7 @@ export async function updateServiceOrderOperationalSituation(
       Accept: "application/json",
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
+      ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}),
     },
     body: JSON.stringify({ operationalSituation, ...(withdrawBudget ? { withdrawBudget: true } : {}) }),
   });
@@ -236,10 +247,10 @@ export function getServiceOrderBudget(publicId: string, signal?: AbortSignal) {
   return get<ServiceOrderBudget>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items`, signal);
 }
 
-async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE", csrfToken: string, body?: unknown): Promise<T> {
+async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE", csrfToken: string, body?: unknown, editToken?: string): Promise<T> {
   const response = await fetch(path, {
     method, credentials: "include",
-    headers: { Accept: "application/json", "X-CSRF-Token": csrfToken, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { Accept: "application/json", "X-CSRF-Token": csrfToken, ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const payload: unknown = await response.json().catch(() => null);
@@ -253,21 +264,47 @@ async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE"
   return payload as T;
 }
 
-export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string }, csrfToken: string) {
-  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/service`, "POST", csrfToken, body);
+export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string }, csrfToken: string, editToken?: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/service`, "POST", csrfToken, body, editToken);
 }
-export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string }, csrfToken: string) {
-  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-labor`, "POST", csrfToken, body);
+export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string }, csrfToken: string, editToken?: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-labor`, "POST", csrfToken, body, editToken);
 }
-export function addManualPartBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; unitCost?: string | null }, csrfToken: string) {
-  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-part`, "POST", csrfToken, body);
+export function addManualPartBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; unitCost?: string | null }, csrfToken: string, editToken?: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-part`, "POST", csrfToken, body, editToken);
 }
-export function updateBudgetItem(publicId: string, itemPublicId: string, body: Record<string, unknown>, csrfToken: string) {
-  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "PATCH", csrfToken, body);
+export function updateBudgetItem(publicId: string, itemPublicId: string, body: Record<string, unknown>, csrfToken: string, editToken?: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "PATCH", csrfToken, body, editToken);
 }
-export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string) {
-  return mutateBudget<{ data: { removed: boolean; publicId: string; total: string } }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken);
+export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string, editToken?: string) {
+  return mutateBudget<{ data: { removed: boolean; publicId: string; total: string } }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken, undefined, editToken);
 }
+
+async function mutateEditControl<T>(publicId: string, action: "acquire" | "heartbeat" | "release" | "takeover", csrfToken: string, editToken: string): Promise<T> {
+  const base = `/api/v1/service-orders/${encodeURIComponent(publicId)}/edit-control`;
+  const path = action === "heartbeat" ? `${base}/heartbeat` : action === "takeover" ? `${base}/takeover` : base;
+  const response = await fetch(path, { method: action === "release" ? "DELETE" : "POST", credentials: "include", keepalive: action === "release", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken, "X-Service-Order-Edit-Token": editToken } });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const root = isRecord(payload) ? payload : undefined;
+    const error = root && isRecord(root.error) ? root.error : root;
+    throw new ApiError(response.status, typeof error?.code === "string" ? error.code : undefined, typeof error?.message === "string" ? error.message : "Não foi possível atualizar o controle de edição.", error && isRecord(error.details) ? error.details : undefined);
+  }
+  return payload as T;
+}
+
+export function getServiceOrderEditControl(publicId: string, editToken: string, signal?: AbortSignal) {
+  return fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/edit-control`, { method: "GET", credentials: "include", headers: { Accept: "application/json", "X-Service-Order-Edit-Token": editToken }, signal })
+    .then(async (response) => {
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new ApiError(response.status, undefined, "Não foi possível consultar o controle de edição.");
+      return payload as { data: ServiceOrderEditControlState };
+    });
+}
+export function acquireServiceOrderEditControl(publicId: string, csrfToken: string, editToken: string) { return mutateEditControl<{ data: { acquired: boolean; expiresAt: string; generation: number; heartbeatIntervalSeconds: number } }>(publicId, "acquire", csrfToken, editToken); }
+export function heartbeatServiceOrderEditControl(publicId: string, csrfToken: string, editToken: string) { return mutateEditControl<{ data: { renewed: boolean; expiresAt: string } }>(publicId, "heartbeat", csrfToken, editToken); }
+export function releaseServiceOrderEditControl(publicId: string, csrfToken: string, editToken: string) { return mutateEditControl<{ data: { released: boolean } }>(publicId, "release", csrfToken, editToken); }
+export function takeoverServiceOrderEditControl(publicId: string, csrfToken: string, editToken: string) { return mutateEditControl<{ data: { acquired: boolean; expiresAt: string; generation: number; heartbeatIntervalSeconds: number } }>(publicId, "takeover", csrfToken, editToken); }
 
 export function listAssignableUsers(page: number, pageSize: number, search = "", signal?: AbortSignal) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
@@ -279,6 +316,7 @@ export async function replaceServiceOrderAssignments(
   publicId: string,
   userPublicIds: string[],
   csrfToken: string,
+  editToken?: string,
 ): Promise<{ data: ServiceOrderDetail }> {
   const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/assignments`, {
     method: "PUT",
@@ -287,6 +325,7 @@ export async function replaceServiceOrderAssignments(
       Accept: "application/json",
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
+      ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}),
     },
     body: JSON.stringify({ userPublicIds }),
   });

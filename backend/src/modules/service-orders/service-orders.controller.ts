@@ -15,6 +15,7 @@ import { ServiceOrderNotesService } from "./service-order-notes.service.js";
 import { ServiceOrderHistoryService } from "./service-order-history.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 import { parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseUpdateBudgetItem } from "./dto/budget-item.dto.js";
+import { ServiceOrderEditControlService } from "./service-order-edit-control.service.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
@@ -26,6 +27,7 @@ export class ServiceOrdersController {
     private readonly notes: ServiceOrderNotesService,
     private readonly history: ServiceOrderHistoryService,
     private readonly budgetItems: ServiceOrderBudgetItemsService,
+    private readonly editControl: ServiceOrderEditControlService,
   ) {}
 
   @Get()
@@ -38,6 +40,36 @@ export class ServiceOrdersController {
   @RequirePermissions("service_orders.read")
   getByPublicId(@Param("publicId") publicId: string) {
     return this.orders.getByPublicId(publicId);
+  }
+
+  @Get(":publicId/edit-control")
+  @RequirePermissions("service_orders.read")
+  editControlState(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.editControl.state(publicId, request.auth!, editToken(request));
+  }
+
+  @Post(":publicId/edit-control")
+  @RequireAuthenticated()
+  acquireEditControl(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.editControl.acquire(publicId, editToken(request), request.auth!);
+  }
+
+  @Post(":publicId/edit-control/heartbeat")
+  @RequireAuthenticated()
+  heartbeatEditControl(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.editControl.heartbeat(publicId, editToken(request), request.auth!);
+  }
+
+  @Delete(":publicId/edit-control")
+  @RequireAuthenticated()
+  releaseEditControl(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.editControl.release(publicId, editToken(request), request.auth!);
+  }
+
+  @Post(":publicId/edit-control/takeover")
+  @RequireAuthenticated()
+  takeoverEditControl(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.editControl.takeover(publicId, editToken(request), request.auth!);
   }
 
   @Get(":publicId/events")
@@ -61,31 +93,31 @@ export class ServiceOrdersController {
   @Post(":publicId/budget-items/service")
   @RequirePermissions("service_orders.budget.update")
   addRegisteredService(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.budgetItems.createRegistered(publicId, parseCreateRegisteredLabor(body), request.auth!);
+    return this.budgetItems.createRegistered(publicId, parseCreateRegisteredLabor(body), request.auth!, editToken(request));
   }
 
   @Post(":publicId/budget-items/manual-labor")
   @RequirePermissions("service_orders.budget.update")
   addManualLabor(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.budgetItems.createManualLabor(publicId, parseCreateManualLabor(body), request.auth!);
+    return this.budgetItems.createManualLabor(publicId, parseCreateManualLabor(body), request.auth!, editToken(request));
   }
 
   @Post(":publicId/budget-items/manual-part")
   @RequirePermissions("service_orders.budget.update")
   addManualPart(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.budgetItems.createManualPart(publicId, parseCreateManualPart(body), request.auth!);
+    return this.budgetItems.createManualPart(publicId, parseCreateManualPart(body), request.auth!, editToken(request));
   }
 
   @Patch(":publicId/budget-items/:itemPublicId")
   @RequirePermissions("service_orders.budget.update")
   updateBudgetItem(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.budgetItems.update(publicId, itemPublicId, parseUpdateBudgetItem(body), request.auth!);
+    return this.budgetItems.update(publicId, itemPublicId, parseUpdateBudgetItem(body), request.auth!, editToken(request));
   }
 
   @Delete(":publicId/budget-items/:itemPublicId")
   @RequirePermissions("service_orders.budget.update")
   removeBudgetItem(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Req() request: AuthRequest) {
-    return this.budgetItems.remove(publicId, itemPublicId, request.auth!);
+    return this.budgetItems.remove(publicId, itemPublicId, request.auth!, editToken(request));
   }
 
   @Post(":publicId/notes")
@@ -103,12 +135,17 @@ export class ServiceOrdersController {
   @Patch(":publicId/operational-situation")
   @RequirePermissions("service_orders.situation.update")
   updateOperationalSituation(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.situations.update(publicId, parseOperationalSituationPatch(body), request.auth!);
+    return this.situations.update(publicId, parseOperationalSituationPatch(body), request.auth!, editToken(request));
   }
 
   @Put(":publicId/assignments")
   @RequirePermissions("service_orders.assignment.manage")
   replaceAssignments(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.assignments.replace(publicId, parseAssignmentsPut(body), request.auth!);
+    return this.assignments.replace(publicId, parseAssignmentsPut(body), request.auth!, editToken(request));
   }
+}
+
+function editToken(request: AuthRequest): string | undefined {
+  const value = request.headers["x-service-order-edit-token"];
+  return typeof value === "string" ? value : undefined;
 }

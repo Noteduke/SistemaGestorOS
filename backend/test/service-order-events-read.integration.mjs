@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
 // Resolve the configured project URL only to a disposable database before app boot.
@@ -26,7 +26,7 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 32);
+  assert.equal(await db.permission.count(), 39);
 
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
@@ -60,6 +60,7 @@ try {
     const headers = {};
     if (options.cookie) headers.cookie = options.cookie;
     if (options.csrf) headers["x-csrf-token"] = options.csrf;
+    if (options.editToken) headers["x-service-order-edit-token"] = options.editToken;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + path, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     const body = await response.text();
@@ -114,6 +115,8 @@ try {
   const { draft, order } = await confirmTransferOrder();
   const newEquipmentOrder = await confirmNewEquipmentOrder();
   const path = `/service-orders/${order.publicId}/events`;
+  const editSession = { ...writerSession, editToken: randomUUID() };
+  status(await request("POST", `/service-orders/${order.publicId}/edit-control`, editSession), 201, "writer acquires edit control");
 
   status(await request("GET", path), 401, "anonymous read");
   status(await request("GET", path, outsiderSession), 403, "missing permission");
@@ -131,9 +134,9 @@ try {
   const eventCountBefore = await db.serviceOrderEvent.count({ where: { OR: [
     { serviceOrderId: orderBefore.id }, { openingId: orderBefore.openingId },
   ] } });
-  status(await request("PATCH", `/service-orders/${order.publicId}/operational-situation`, { ...writerSession,
+  status(await request("PATCH", `/service-orders/${order.publicId}/operational-situation`, { ...editSession,
     body: { operationalSituation: "REPAIR_AUTHORIZED" } }), 200, "change situation for event history");
-  status(await request("PUT", `/service-orders/${order.publicId}/assignments`, { ...writerSession,
+  status(await request("PUT", `/service-orders/${order.publicId}/assignments`, { ...editSession,
     body: { userPublicIds: [assignee.publicId] } }), 200, "change assignments for event history");
 
   const preReadOrder = await db.serviceOrder.findUniqueOrThrow({ where: { publicId: order.publicId } });

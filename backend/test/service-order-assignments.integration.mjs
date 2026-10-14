@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
 const configured = new URL(process.env.DATABASE_URL ?? "");
@@ -25,7 +25,7 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 32);
+  assert.equal(await db.permission.count(), 39);
 
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
@@ -57,6 +57,7 @@ try {
     const headers = {};
     if (options.cookie) headers.cookie = options.cookie;
     if (options.csrf) headers["x-csrf-token"] = options.csrf;
+    if (options.editToken) headers["x-service-order-edit-token"] = options.editToken;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(base + path, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     const body = await response.text();
@@ -97,36 +98,38 @@ try {
   const confirmed = confirmation.body.data;
   const orderPath = `/service-orders/${confirmed.publicId}`;
   const assignmentsPath = `${orderPath}/assignments`;
+  const managerEditSession = { ...managerSession, editToken: randomUUID() };
+  status(await request("POST", `${orderPath}/edit-control`, managerEditSession), 201, "manager acquires edit control");
 
   status(await request("PUT", assignmentsPath, { body: { userPublicIds: [] } }), 401, "anonymous assignment");
   status(await request("PUT", assignmentsPath, { cookie: managerSession.cookie, body: { userPublicIds: [] } }), 403, "missing csrf");
   status(await request("PUT", assignmentsPath, { ...outsiderSession, body: { userPublicIds: [] } }), 403, "missing permission");
-  const duplicate = await request("PUT", assignmentsPath, { ...managerSession,
+  const duplicate = await request("PUT", assignmentsPath, { ...managerEditSession,
     body: { userPublicIds: [firstAssignee.publicId, firstAssignee.publicId.toUpperCase()] } });
   status(duplicate, 400, "duplicate publicIds");
-  const malformed = await request("PUT", assignmentsPath, { ...managerSession, body: { userPublicIds: [], note: "not in contract" } });
+  const malformed = await request("PUT", assignmentsPath, { ...managerEditSession, body: { userPublicIds: [], note: "not in contract" } });
   status(malformed, 400, "unexpected request field");
-  const unknown = await request("PUT", assignmentsPath, { ...managerSession,
+  const unknown = await request("PUT", assignmentsPath, { ...managerEditSession,
     body: { userPublicIds: ["00000000-0000-4000-8000-000000000001"] } });
   status(unknown, 409, "unknown user");
   assert.equal(unknown.body.code, "USER_NOT_ELIGIBLE");
-  const inactive = await request("PUT", assignmentsPath, { ...managerSession, body: { userPublicIds: [inactiveAssignee.publicId] } });
+  const inactive = await request("PUT", assignmentsPath, { ...managerEditSession, body: { userPublicIds: [inactiveAssignee.publicId] } });
   status(inactive, 409, "inactive user");
   assert.equal(inactive.body.code, "USER_NOT_ELIGIBLE");
   const missing = await request("PUT", "/service-orders/00000000-0000-4000-8000-000000000000/assignments", {
-    ...managerSession, body: { userPublicIds: [] },
+    ...managerEditSession, body: { userPublicIds: [] },
   });
   status(missing, 404, "missing order");
   assert.equal(missing.body.code, "SERVICE_ORDER_NOT_FOUND");
 
   const openingOnly = await opening();
-  status(await request("PUT", `/service-orders/${openingOnly.publicId}/assignments`, { ...managerSession, body: { userPublicIds: [] } }), 404, "opening is not an order");
+  status(await request("PUT", `/service-orders/${openingOnly.publicId}/assignments`, { ...managerEditSession, body: { userPublicIds: [] } }), 404, "opening is not an order");
   status(await request("PATCH", assignmentsPath, { ...adminSession, body: { userPublicIds: [] } }), 404, "PATCH alias not implemented");
 
   const before = await db.serviceOrder.findUniqueOrThrow({ where: { publicId: confirmed.publicId } });
   const initialAssignmentEvents = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } });
   assert.deepEqual(confirmed.assignedUserPublicIds, []);
-  const one = await request("PUT", assignmentsPath, { ...managerSession, body: { userPublicIds: [firstAssignee.publicId] } });
+  const one = await request("PUT", assignmentsPath, { ...managerEditSession, body: { userPublicIds: [firstAssignee.publicId] } });
   status(one, 200, "assign one user");
   assert.deepEqual(one.body.data.assignedUserPublicIds, [firstAssignee.publicId]);
   const oneEvent = await db.serviceOrderEvent.findFirst({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } });
@@ -137,19 +140,19 @@ try {
   assert.deepEqual(oneEvent.payload.addedUserPublicIds, [firstAssignee.publicId]);
   assert.deepEqual(oneEvent.payload.removedUserPublicIds, []);
 
-  const two = await request("PUT", assignmentsPath, { ...managerSession,
+  const two = await request("PUT", assignmentsPath, { ...managerEditSession,
     body: { userPublicIds: [secondAssignee.publicId, firstAssignee.publicId] } });
   status(two, 200, "replace with two users");
   assert.deepEqual(new Set(two.body.data.assignedUserPublicIds), new Set([firstAssignee.publicId, secondAssignee.publicId]));
   const beforeNoOp = await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } });
   const assignmentRowsBeforeNoOp = await db.serviceOrderAssignment.findMany({ where: { serviceOrderId: before.id }, orderBy: { userId: "asc" } });
-  const reordered = await request("PUT", assignmentsPath, { ...managerSession,
+  const reordered = await request("PUT", assignmentsPath, { ...managerEditSession,
     body: { userPublicIds: [firstAssignee.publicId, secondAssignee.publicId] } });
   status(reordered, 200, "same set in different order is a no-op");
   assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } }), beforeNoOp);
   assert.deepEqual(await db.serviceOrderAssignment.findMany({ where: { serviceOrderId: before.id }, orderBy: { userId: "asc" } }), assignmentRowsBeforeNoOp);
 
-  const empty = await request("PUT", assignmentsPath, { ...managerSession, body: { userPublicIds: [] } });
+  const empty = await request("PUT", assignmentsPath, { ...managerEditSession, body: { userPublicIds: [] } });
   status(empty, 200, "empty list removes all assignments");
   assert.deepEqual(empty.body.data.assignedUserPublicIds, []);
   assert.equal(await db.serviceOrderAssignment.count({ where: { serviceOrderId: before.id } }), 0);
@@ -158,7 +161,9 @@ try {
   assert.deepEqual(emptyEvent.payload.newUserPublicIds, []);
   assert.deepEqual(new Set(emptyEvent.payload.removedUserPublicIds), new Set([firstAssignee.publicId, secondAssignee.publicId]));
 
-  const adminAssignment = await request("PUT", assignmentsPath, { ...adminSession, body: { userPublicIds: [secondAssignee.publicId] } });
+  const adminEditSession = { ...adminSession, editToken: randomUUID() };
+  status(await request("POST", `${orderPath}/edit-control/takeover`, adminEditSession), 201, "Admin takes over control");
+  const adminAssignment = await request("PUT", assignmentsPath, { ...adminEditSession, body: { userPublicIds: [secondAssignee.publicId] } });
   status(adminAssignment, 200, "admin global assignment permission");
   assert.deepEqual(adminAssignment.body.data.assignedUserPublicIds, [secondAssignee.publicId]);
   assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrderId: before.id, eventType: "ATRIBUICOES_ALTERADAS" } }), initialAssignmentEvents + 4);

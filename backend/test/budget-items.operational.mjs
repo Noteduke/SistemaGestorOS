@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,6 +36,7 @@ let previousSituation;
 let server;
 let cookie;
 let csrfToken;
+let editToken;
 const createdServiceIds = [];
 const createdItemIds = [];
 const results = [];
@@ -56,6 +57,7 @@ async function api(pathname, { method = "GET", body, auth = true, csrf = true } 
     headers.Cookie = cookie;
     if (csrf) headers["X-CSRF-Token"] = csrfToken;
   }
+  if (editToken) headers["X-Service-Order-Edit-Token"] = editToken;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(`http://127.0.0.1:3137/api/v1${pathname}`, {
     method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -133,6 +135,10 @@ try {
   cookie = cookiePair(login, "gos_session");
   csrfToken = loginBody.data.csrfToken;
   assert.ok(cookie && csrfToken);
+
+  editToken = randomUUID();
+  const acquiredControl = await api(`/service-orders/${order.publicId}/edit-control`, { method: "POST" });
+  assert.equal(acquiredControl.status, 201, JSON.stringify(acquiredControl.body));
 
   const initial = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(initial.status, 200);
@@ -276,6 +282,9 @@ try {
   const clean = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(clean.body.data.length, 0);
 } finally {
+  if (server && server.exitCode === null && editToken && cookie && order) {
+    await api(`/service-orders/${order.publicId}/edit-control`, { method: "DELETE" }).catch(() => undefined);
+  }
   if (server && server.exitCode === null) {
     const stopped = new Promise((resolve) => server.once("exit", resolve));
     server.kill();

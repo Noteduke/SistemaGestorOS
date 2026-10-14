@@ -3,14 +3,21 @@ import type { FormEvent } from "react";
 import {
   assignmentsErrorMessage,
   createServiceOrderNote,
+  acquireServiceOrderEditControl,
   deleteServiceOrderNote,
   errorMessage,
   getServiceOrder,
+  getServiceOrderEditControl,
+  heartbeatServiceOrderEditControl,
   listAssignableUsers,
   listServiceOrderHistory,
   operationalSituationErrorMessage,
   operationalSituationOptions,
   replaceServiceOrderAssignments,
+  releaseServiceOrderEditControl,
+  takeoverServiceOrderEditControl,
+  ApiError,
+  type ServiceOrderEditControlState,
   updateServiceOrderOperationalSituation,
   type AssignableUser,
   type OperationalSituation,
@@ -25,6 +32,14 @@ import { ServiceOrderBudgetPanel } from "./ServiceOrderBudgetPanel";
 const PAGE_SIZE = 20;
 const ASSIGNABLE_PAGE_SIZE = 100;
 
+function createEditToken(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 interface ServiceOrderDetailPageProps {
   publicId: string;
   csrfToken: string;
@@ -33,6 +48,11 @@ interface ServiceOrderDetailPageProps {
   canEditBudget?: boolean;
   canReadBudgetCosts?: boolean;
   canUpdateBudgetCosts?: boolean;
+  canManageEdit?: boolean;
+  canTakeoverEdit?: boolean;
+  canUpdateSituation?: boolean;
+  canManageAssignments?: boolean;
+  currentUsername?: string;
   section: "details" | "events";
   onSectionChange: (section: "details" | "events") => void;
   onBack: () => void;
@@ -54,7 +74,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +107,96 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [budgetItemCount, setBudgetItemCount] = useState(0);
+  const [editToken] = useState(() => createEditToken());
+  const [editControl, setEditControl] = useState<ServiceOrderEditControlState | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editControlMessage, setEditControlMessage] = useState<string | null>(null);
+  const [editControlError, setEditControlError] = useState<string | null>(null);
+  const [takingOver, setTakingOver] = useState(false);
+  const isEditingRef = useRef(false);
+  const editTokenRef = useRef(editToken);
+  const generationRef = useRef<number | null>(null);
+  const everOwnedRef = useRef(false);
+  const invalidatedRef = useRef(false);
+  const orderLoaded = Boolean(order);
+
+  function markEditControlLost() {
+    invalidatedRef.current = true;
+    isEditingRef.current = false;
+    setIsEditing(false);
+    setEditControlMessage("Esta OS passou a ser editada por outro usuário. A tela foi alterada para somente leitura.");
+    void getServiceOrderEditControl(publicId, editToken).then((result) => setEditControl(result.data)).catch(() => undefined);
+  }
+
+  useEffect(() => {
+    if (!orderLoaded) return;
+    let active = true;
+    const refreshControl = async () => {
+      try {
+        const result = await getServiceOrderEditControl(publicId, editToken);
+        if (!active) return;
+        if (generationRef.current === null) generationRef.current = result.data.generation;
+        else if (everOwnedRef.current && result.data.generation !== generationRef.current) {
+          generationRef.current = result.data.generation;
+          markEditControlLost();
+        }
+        if (invalidatedRef.current) { setEditControl(result.data); return; }
+        if (result.data.isCurrentContext) {
+          everOwnedRef.current = true;
+          setEditControl(result.data); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
+        }
+        if (!result.data.held && canManageEdit) {
+          try {
+            const acquired = await acquireServiceOrderEditControl(publicId, csrfToken, editToken);
+            if (!active) {
+              await releaseServiceOrderEditControl(publicId, csrfToken, editToken).catch(() => undefined);
+              return;
+            }
+            generationRef.current = acquired.data.generation; everOwnedRef.current = true;
+            const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, expiresAt: acquired.data.expiresAt, isCurrentContext: true, generation: acquired.data.generation, heartbeatIntervalSeconds: acquired.data.heartbeatIntervalSeconds };
+            setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
+          } catch (reason) {
+            if (reason instanceof ApiError && reason.code !== "SERVICE_ORDER_EDIT_CONTROL_HELD") throw reason;
+            const latest = await getServiceOrderEditControl(publicId, editToken);
+            if (active) { setEditControl(latest.data); setIsEditing(false); isEditingRef.current = false; }
+            return;
+          }
+        }
+        setEditControl(result.data); setIsEditing(false); isEditingRef.current = false;
+      } catch (reason) {
+        if (active) { setEditControlError(reason instanceof Error ? reason.message : "Não foi possível consultar o controle de edição."); setIsEditing(false); isEditingRef.current = false; }
+      }
+    };
+    void refreshControl();
+    const poll = window.setInterval(() => void refreshControl(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(poll);
+      if (isEditingRef.current) void releaseServiceOrderEditControl(publicId, csrfToken, editTokenRef.current).catch(() => undefined);
+    };
+  }, [publicId, csrfToken, editToken, canManageEdit, currentUsername, orderLoaded]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const interval = window.setInterval(() => {
+      void heartbeatServiceOrderEditControl(publicId, csrfToken, editToken).catch(() => markEditControlLost());
+    }, (editControl?.heartbeatIntervalSeconds ?? 60) * 1000);
+    return () => window.clearInterval(interval);
+  }, [publicId, csrfToken, editToken, isEditing, editControl?.heartbeatIntervalSeconds]);
+
+  useEffect(() => { if (!isEditing) setEditingAssignments(false); }, [isEditing]);
+
+  async function takeOverEditing() {
+    if (!canTakeoverEdit || takingOver) return;
+    setTakingOver(true); setEditControlError(null);
+    try {
+      const response = await takeoverServiceOrderEditControl(publicId, csrfToken, editToken);
+      generationRef.current = response.data.generation; everOwnedRef.current = true; invalidatedRef.current = false;
+      const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, expiresAt: response.data.expiresAt, isCurrentContext: true, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
+      setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlMessage(null);
+    } catch (reason) { setEditControlError(reason instanceof Error ? reason.message : "Não foi possível assumir a edição."); }
+    finally { setTakingOver(false); }
+  }
 
   function mergeAssignmentLabels(labels: Record<string, string>) {
     assignmentLabelsRef.current = { ...assignmentLabelsRef.current, ...labels };
@@ -244,13 +354,14 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     try {
       const notAuthorized = selectedSituation === "NOT_AUTHORIZED_REASSEMBLE" || selectedSituation === "NOT_AUTHORIZED_READY_DELIVERY";
       const withdrawBudget = notAuthorized && budgetItemCount > 0 && window.confirm("Deseja retirar todos os itens atuais do orçamento? Esta ação será registrada no histórico e não poderá ser desfeita.");
-      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget);
+      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget, editToken);
       setOrder(response.data);
       const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
       setSelectedSituation(current ?? "");
       setSituationMessage("Situação operacional atualizada.");
       if (section === "events") setEventsReload((value) => value + 1);
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") markEditControlLost();
       setSituationError(operationalSituationErrorMessage(reason));
     } finally {
       setUpdatingSituation(false);
@@ -296,7 +407,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setAssignmentMessage(null);
     setAssignmentError(null);
     try {
-      const response = await replaceServiceOrderAssignments(publicId, selectedUserPublicIds, csrfToken);
+      const response = await replaceServiceOrderAssignments(publicId, selectedUserPublicIds, csrfToken, editToken);
       setOrder(response.data);
       setSelectedUserPublicIds(response.data.assignedUserPublicIds);
       mergeAssignmentLabels(Object.fromEntries(assignableUsers.map((user) => [user.publicId, user.username])));
@@ -304,6 +415,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       setEditingAssignments(false);
       setEventsReload((value) => value + 1);
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") markEditControlLost();
       setAssignmentError(assignmentsErrorMessage(reason, "update"));
     } finally {
       setSavingAssignments(false);
@@ -316,6 +428,14 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       <AsyncState loading={loading} error={error} onRetry={() => setReload((value) => value + 1)} />
       {!loading && !error && order && (
         <>
+          <section className="info-card edit-control-banner" aria-live="polite">
+            {isEditing ? <p><strong>Você está editando esta OS.</strong> O controle é renovado automaticamente enquanto esta tela permanecer aberta.</p>
+              : editControl?.held ? <p><strong>OS em edição por {editControl.holder?.username ?? "outro usuário"}.</strong> Somente visualização.</p>
+                : <p><strong>Somente visualização.</strong> {canManageEdit ? "O controle de edição está sendo verificado." : "Você não possui autorização para editar esta OS."}</p>}
+            {editControlMessage && <p className="form-message form-message--error" role="alert">{editControlMessage}</p>}
+            {editControlError && <p className="form-message form-message--error" role="alert">{editControlError}</p>}
+            {!isEditing && editControl?.held && canTakeoverEdit && canManageEdit && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Assumindo…" : "Assumir edição"}</button>}
+          </section>
           <div className="page-heading detail-heading">
             <div>
               <p className="eyebrow">Ordem de Serviço confirmada</p>
@@ -357,11 +477,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                     id="operational-situation"
                     value={selectedSituation}
                     onChange={(event) => { setSelectedSituation(event.target.value as OperationalSituation); setSituationMessage(null); setSituationError(null); }}
-                    disabled={!currentSituation || updatingSituation}
+                    disabled={!isEditing || !canUpdateSituation || !currentSituation || updatingSituation}
                   >
                     {operationalSituationOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                   </select>
-                  <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
+                  <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
                     {updatingSituation ? "Salvando…" : "Salvar situação"}
                   </button>
                 </div>
@@ -381,7 +501,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 ) : <p className="muted">Nenhum responsável nominal atribuído.</p>}
                 {assignmentMessage && <p className="form-message form-message--success" role="status">{assignmentMessage}</p>}
                 {!editingAssignments ? (
-                  <button className="button button--secondary" type="button" onClick={openAssignmentsEditor}>Editar responsáveis</button>
+                  <button className="button button--secondary" type="button" onClick={openAssignmentsEditor} disabled={!isEditing || !canManageAssignments}>Editar responsáveis</button>
                 ) : (
                   <div className="assignment-form">
                     <form className="assignment-search" onSubmit={submitAssignableSearch}>
@@ -425,7 +545,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                       </>
                     )}
                     <div className="assignment-actions">
-                      <button className="button button--primary" type="button" onClick={() => void saveAssignments()} disabled={assignableLoading || savingAssignments || Boolean(assignableError) || sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)}>
+                      <button className="button button--primary" type="button" onClick={() => void saveAssignments()} disabled={!isEditing || assignableLoading || savingAssignments || Boolean(assignableError) || sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds)}>
                         {savingAssignments ? "Salvando…" : "Salvar responsáveis"}
                       </button>
                       <button className="button button--secondary" type="button" onClick={() => { setEditingAssignments(false); setAssignmentError(null); }} disabled={savingAssignments}>Cancelar</button>
@@ -437,9 +557,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
               {canReadBudget && <ServiceOrderBudgetPanel
                 publicId={publicId}
                 csrfToken={csrfToken}
-                canEdit={canEditBudget}
+                editToken={editToken}
+                canEdit={canEditBudget && isEditing}
                 canReadCosts={canReadBudgetCosts}
                 canUpdateCosts={canUpdateBudgetCosts}
+                onEditControlLost={markEditControlLost}
                 isOpen={order.macroStatus === "ABERTA"}
                 onActiveCountChange={setBudgetItemCount}
               />}

@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { OperationalSituationPatchInput } from "./dto/operational-situation-patch.dto.js";
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
+import { assertEditControlInTransaction } from "./service-order-edit-control.service.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -14,7 +15,7 @@ type Tx = Prisma.TransactionClient;
 export class ServiceOrderOperationalSituationService {
   constructor(private readonly prisma: PrismaService, private readonly budgetItems: ServiceOrderBudgetItemsService) {}
 
-  async update(publicId: string, input: OperationalSituationPatchInput, actor: AuthenticatedUser) {
+  async update(publicId: string, input: OperationalSituationPatchInput, actor: AuthenticatedUser, editToken?: string) {
     if (!PUBLIC_ID.test(publicId)) {
       throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." });
     }
@@ -35,6 +36,7 @@ export class ServiceOrderOperationalSituationService {
           select: serviceOrderDetailSelect,
         });
         if (!current) throw serviceOrderNotFound();
+        await assertEditControlInTransaction(tx, locked.id, actor, editToken);
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }

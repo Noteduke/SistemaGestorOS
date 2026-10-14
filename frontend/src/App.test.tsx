@@ -14,7 +14,7 @@ it("restringe a tela de Serviços a Administrador ou services.manage", async () 
     session: { expiresAt: "2026-10-20T20:00:00.000Z" },
   };
   const fetchMock = vi.fn().mockResolvedValue(response({ data: identity }));
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
   expect(await screen.findByText("Você não tem permissão para administrar Serviços.")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Serviços" })).not.toBeInTheDocument();
@@ -54,6 +54,12 @@ function unauthorized() {
   return { ok: false, status: 401, json: async () => ({ error: { message: "Sessão inválida." } }) };
 }
 
+function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
+    ? Promise.resolve(response({ data: { held: true, holder: { publicId: "current-user", username: "usuario.teste" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 } }))
+    : fetchMock(input, init));
+}
+
 it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () => {
   window.location.hash = "#/service-orders";
   const identity = {
@@ -70,7 +76,7 @@ it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () 
     .mockResolvedValueOnce(response({ data: order }))
     .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))
     .mockResolvedValueOnce(response({ data: [] }));
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   expect(await screen.findByText("OS-000128")).toBeInTheDocument();
@@ -112,7 +118,7 @@ it("inicia a abertura a partir da lista e reserva o número com CSRF", async () 
     .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }))
     .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: { code: "OPENING_NOT_FOUND", message: "Abertura não encontrada." } }) })
     .mockResolvedValueOnce(response({ data: opening }));
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   fireEvent.click(await screen.findByRole("button", { name: "Nova OS" }));
@@ -175,20 +181,20 @@ it("confirma a abertura e navega ao detalhe, que busca a OS novamente por public
     .mockResolvedValueOnce(response({ data: confirmedOrder }))
     .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))
     .mockResolvedValueOnce(response({ data: [] }));
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Confirmar OS" }));
   await userEvent.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
   expect(await screen.findByRole("heading", { name: "OS-000133" })).toBeInTheDocument();
-  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+  await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
     "/api/v1/auth/me",
     "/api/v1/service-orders/openings/current",
     `/api/v1/service-orders/openings/${openingPublicId}/confirm`,
     `/api/v1/service-orders/${confirmedOrder.publicId}`,
     `/api/v1/service-orders/${confirmedOrder.publicId}/budget-items`,
     "/api/v1/services/available-for-order",
-  ]);
+  ]));
   expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
     method: "POST",
     credentials: "include",
@@ -214,7 +220,7 @@ it("autentica com CSRF, consulta a sessão e libera a leitura de OS", async () =
     .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }));
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   await userEvent.type(await screen.findByLabelText("Usuário"), "validacao.frontend");
@@ -241,7 +247,7 @@ it("mostra erro genérico de credenciais e limpa a senha após falha", async () 
     .mockResolvedValueOnce(unauthorized())
     .mockResolvedValueOnce(response({ data: { csrfToken: "csrf-prelogin" } }))
     .mockResolvedValueOnce(invalidCredentials);
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   await userEvent.type(await screen.findByLabelText("Usuário"), "usuario.teste");
@@ -268,7 +274,7 @@ it("encerra somente a sessão atual usando o token CSRF da sessão", async () =>
     .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }))
     .mockResolvedValueOnce(noContent);
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Sair" }));

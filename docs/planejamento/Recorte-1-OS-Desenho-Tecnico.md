@@ -394,3 +394,7 @@ Os caminhos de código de aplicação acima são previsões, não arquivos criad
 - [Prisma ORM 7 — raw queries parametrizadas dentro de transação](https://www.prisma.io/docs/orm/v7/prisma-client/using-raw-sql/raw-queries)
 
 **Atualização operacional (13/10/2026):** a decisão de titularidade divergente pela interface foi validada nos três caminhos (`CANCEL_SELECTION`, `USE_CURRENT_OWNER`, `TRANSFER_TO_CUSTOMER`) exclusivamente em `gestor_os_opening_test`. O PATCH persiste intenção; a transferência ocorre somente na confirmação transacional. Ver `docs/05-Frontend.md`, seção 10.11. Edição geral da abertura permanece pendente.
+
+### Controle exclusivo de edição da OS confirmada
+
+O controle é por OS, identifica usuário e contexto/aba, aceita leitores simultâneos e permite takeover imediato a quem tem a autorização **Assumir edição de OS** e permissão normal de edição. Heartbeat ocorre a cada 60 segundos e o lease expira após 10 minutos sem comunicação válida. Aberturas provisórias ficam fora do escopo; mutações confirmadas de situação, atribuições e orçamento compartilham o controle; observações manuais ficam fora. A migration e os testes HTTP/Backend foram validados somente em `gestor_os_opening_test`; a permissão técnica foi upsertada nesse banco pelo roteiro de integração. A aplicação da migration e o seed oficial no banco principal permanecem pendentes.
