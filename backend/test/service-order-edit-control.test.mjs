@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { ServiceOrderEditControlService, EDIT_CONTROL_TTL_MS } from "../dist/modules/service-orders/service-order-edit-control.service.js";
 
@@ -14,7 +15,7 @@ function fixture() {
     [3, { publicId: "30000000-0000-4000-8000-000000000003", username: "sem.permissao" }],
   ]);
   const permissions = new Map([[1, ["service_orders.update"]], [2, ["service_orders.update", "service_orders.edit.takeover"]], [3, ["service_orders.update"]]]);
-  const state = { control: null };
+  const state = { control: null, audits: [] };
   const tx = {
     $queryRaw: async (strings) => {
       const sql = strings.join("");
@@ -37,6 +38,7 @@ function fixture() {
       findMany: async ({ where }) => permissions.get(where.userId).filter((code) => where.permission.code.in.includes(code)).map((code) => ({ permission: { code } })),
       findFirst: async ({ where }) => permissions.get(where.userId).includes(where.permission.code) ? { userId: where.userId } : null,
     },
+    adminAuditLog: { create: async ({ data }) => { state.audits.push(data); return data; } },
     serviceOrderEditControl: {
       findUnique: async () => state.control ? { ...state.control, holder: state.control.holderUserId === null ? null : users.get(state.control.holderUserId) } : null,
       create: async ({ data }) => { state.control = { id: 1, ...data }; return { ...state.control }; },
@@ -67,13 +69,27 @@ test("controle distingue usuário e contexto por aba, takeover invalida a origem
   assert.equal(sameUserOtherTab.data.held, true);
   assert.equal(sameUserOtherTab.data.isCurrentContext, false);
   assert.equal(sameUserOtherTab.data.holder.username, "editor.a");
+  assert.equal(sameUserOtherTab.data.isSameUser, true);
   await assert.rejects(service.acquire(orderPublicId, tokenA2, a), (error) => error.getStatus() === 409 && error.getResponse().code === "SERVICE_ORDER_EDIT_CONTROL_HELD");
+
+  const transferred = await service.takeover(orderPublicId, tokenA2, a);
+  assert.equal(transferred.data.acquired, true, "same user transfers control without special permission");
+  assert.equal(state.control.holderUserId, a.id);
+  assert.equal(state.control.contextTokenHash, createHash("sha256").update(tokenA2).digest("hex"));
+  assert.equal(state.control.leaseVersion, 2);
+  assert.equal(state.audits.length, 0, "same-user tab transfer does not create administrative noise");
+  await assert.rejects(service.heartbeat(orderPublicId, tokenA1, a), (error) => error.getStatus() === 409 && error.getResponse().code === "SERVICE_ORDER_EDIT_CONTROL_LOST");
 
   await assert.rejects(service.takeover(orderPublicId, tokenB, { ...b, id: 3, username: "sem.permissao" }), (error) => error.getStatus() === 403);
   const before = Date.now();
   await service.takeover(orderPublicId, tokenB, b);
   assert.equal(state.control.holderUserId, b.id);
-  assert.equal(state.control.leaseVersion, 2);
+  assert.equal(state.control.leaseVersion, 3);
+  assert.equal(state.audits.length, 1);
+  assert.equal(state.audits[0].eventCode, "SERVICE_ORDER_EDIT_TAKEOVER");
+  assert.equal(state.audits[0].targetUserId, a.id);
+  assert.equal(state.audits[0].detailsJson.previousEditor.contextGeneration, 2);
+  assert.equal(state.audits[0].detailsJson.newEditor.contextGeneration, 3);
   assert.equal(state.control.expiresAt.getTime() - state.control.lastHeartbeatAt.getTime(), EDIT_CONTROL_TTL_MS);
   assert.equal(state.control.lastHeartbeatAt.getTime() >= before, true);
   assert.equal((await service.state(orderPublicId, a, tokenA1)).data.isCurrentContext, false);
@@ -87,7 +103,16 @@ test("controle distingue usuário e contexto por aba, takeover invalida a origem
   assert.equal((await service.release(orderPublicId, tokenB, b)).data.released, true);
   assert.equal(state.control.holderUserId, null);
   assert.equal(state.control.contextTokenHash, null);
-  assert.equal(state.control.leaseVersion, 3);
+  assert.equal(state.control.leaseVersion, 4);
+});
+
+test("takeover não transfere controle expirado nem a própria aba", async () => {
+  const { service, state, a } = fixture();
+  await service.acquire(orderPublicId, tokenA1, a);
+  await assert.rejects(service.takeover(orderPublicId, tokenA1, a), (error) => error.getStatus() === 409 && error.getResponse().code === "SERVICE_ORDER_EDIT_CONTROL_ALREADY_OWNED");
+  state.control.expiresAt = new Date(Date.now() - 1);
+  await assert.rejects(service.takeover(orderPublicId, tokenA2, a), (error) => error.getStatus() === 409 && error.getResponse().code === "SERVICE_ORDER_EDIT_CONTROL_NOT_HELD");
+  assert.equal(state.control.contextTokenHash, createHash("sha256").update(tokenA1).digest("hex"));
 });
 
 test("controle expirado é tratado como livre e pode ser adquirido sem job de limpeza", async () => {

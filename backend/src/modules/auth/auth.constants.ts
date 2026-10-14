@@ -35,7 +35,7 @@ export const PERMISSION_CATALOG = [
   ["service_orders.budget.costs.update", "Alterar custos internos dos itens do orçamento."],
   ["service_orders.situation.update", "Alterar a situação operacional da OS."],
   ["service_orders.assignment.manage", "Gerenciar atribuições nominais da OS."],
-  ["service_orders.edit.takeover", "Assumir a edição exclusiva de uma Ordem de Serviço em uso."],
+  ["service_orders.edit.takeover", "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário."],
   ["service_orders.events.read", "Consultar histórico operacional da OS, incluindo eventos e observações ativas."],
   ["service_orders.notes.delete_any", "Excluir observações manuais de qualquer autor na OS."],
   ["users.read", "Consultar usuários."],

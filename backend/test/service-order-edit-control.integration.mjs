@@ -33,8 +33,8 @@ try {
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   const permission = await db.permission.upsert({
     where: { code: "service_orders.edit.takeover" },
-    create: { code: "service_orders.edit.takeover", description: "Assumir a edição exclusiva de uma Ordem de Serviço em uso." },
-    update: {},
+    create: { code: "service_orders.edit.takeover", description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
+    update: { description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
   });
   assert.equal(await db.permission.count(), 39, "catálogo local com a permissão específica de takeover");
   const admin = await db.user.create({ data: { username: `edit_control_admin_${suffix}`, passwordHash, isActive: true, isAdmin: true } });
@@ -53,6 +53,7 @@ try {
   const dana = await user("dana", [...basePermissions, permission.code]);
   const budgetEditor = await user("budget_editor", [...basePermissions, permission.code]);
   const specialOnly = await user("special_only", [permission.code]);
+  const readOnly = await user("reader", ["service_orders.read"]);
   const assignee = await user("assignee");
   const customer = await db.person.create({ data: { personType: "PF", name: `EDIT CONTROL ${suffix}`, roles: { create: { role: "CUSTOMER" } } } });
   const type = await db.equipmentType.create({ data: { name: `TIPO EDIT ${suffix}` } });
@@ -91,6 +92,7 @@ try {
   const danaSession = await login(dana);
   const budgetEditorSession = await login(budgetEditor);
   const specialOnlySession = await login(specialOnly);
+  const readOnlySession = await login(readOnly);
   const aliceTab1 = randomUUID();
   const aliceTab2 = randomUUID();
   const bobTab = randomUUID();
@@ -104,6 +106,21 @@ try {
   status(confirmed, 201, "confirm order");
   const orderId = confirmed.body.data.publicId;
   const path = `/service-orders/${orderId}/edit-control`;
+  const normalControlAuditStart = await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } });
+  const operationalEventsStart = await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } });
+  assert.equal((await request("GET", path, { ...readOnlySession, editToken: randomUUID() })).body.data.held, false, "user without edit permission can inspect a free control");
+  status(await request("POST", path, { ...readOnlySession, editToken: randomUUID() }), 403, "user without edit permission cannot acquire a free OS");
+  const simultaneousTokens = [randomUUID(), randomUUID()];
+  const simultaneous = await Promise.all([
+    request("POST", path, { ...aliceSession, editToken: simultaneousTokens[0] }),
+    request("POST", path, { ...bobSession, editToken: simultaneousTokens[1] }),
+  ]);
+  assert.equal(simultaneous.filter((result) => result.status === 201).length, 1, "only one simultaneous opener acquires a free OS");
+  assert.equal(simultaneous.filter((result) => result.status === 409).length, 1, "the other simultaneous opener remains read-only");
+  const winnerIndex = simultaneous.findIndex((result) => result.status === 201);
+  await request("DELETE", path, { ...(winnerIndex === 0 ? aliceSession : bobSession), editToken: simultaneousTokens[winnerIndex] });
+  assert.equal(await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } }), normalControlAuditStart, "normal acquisition and release do not create administrative entries");
+  assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } }), operationalEventsStart, "normal acquisition and release do not create OS history events");
 
   status(await request("POST", path, { cookie: aliceSession.cookie, editToken: aliceTab1 }), 403, "CSRF protects acquisition");
   status(await request("POST", `${path}/takeover`, { cookie: carolSession.cookie, editToken: randomUUID() }), 403, "CSRF protects takeover");
@@ -119,8 +136,18 @@ try {
   assert.equal(visibleToBob.body.data.isCurrentContext, false);
   const secondTab = await request("GET", path, { ...aliceSession, editToken: aliceTab2 });
   assert.equal(secondTab.body.data.isCurrentContext, false, "same user in a second tab is a different context");
+  assert.equal(secondTab.body.data.isSameUser, true, "API identifies another context owned by the same user");
   const secondTabAcquire = await request("POST", path, { ...aliceSession, editToken: aliceTab2 });
   status(secondTabAcquire, 409, "same-user second tab cannot silently replace editor");
+  const eventsBeforeTransfer = await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } });
+  const auditBeforeTransfer = await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } });
+  status(await request("POST", `${path}/takeover`, { ...aliceSession, editToken: aliceTab2 }), 201, "same user transfers control without takeover permission");
+  status(await request("POST", `${path}/heartbeat`, { ...aliceSession, editToken: aliceTab1 }), 409, "old tab heartbeat cannot regain transferred control");
+  assert.equal((await request("GET", path, { ...aliceSession, editToken: aliceTab1 })).body.data.isCurrentContext, false, "old tab detects lost control");
+  assert.equal(await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } }), auditBeforeTransfer, "same-user tab transfer is not an administrative takeover");
+  assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } }), eventsBeforeTransfer, "control transfer does not pollute OS history");
+  status(await request("POST", `${path}/takeover`, { ...aliceSession, editToken: aliceTab1 }), 201, "same user can transfer control back to the original tab");
+  status(await request("POST", `${path}/heartbeat`, { ...aliceSession, editToken: aliceTab2 }), 409, "previous context loses control immediately after transfer back");
 
   const orderPath = `/service-orders/${orderId}`;
   const bobMutation = await request("PUT", `${orderPath}/assignments`, { ...bobSession, editToken: bobTab, body: { userPublicIds: [] } });
@@ -131,6 +158,12 @@ try {
 
   const takeover = await request("POST", `${path}/takeover`, { ...carolSession, editToken: carolTab });
   status(takeover, 201, "authorized takeover is immediate");
+  const takeoverAudit = await db.adminAuditLog.findFirst({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER", actorUserId: carol.id, targetUserId: alice.id }, orderBy: { id: "desc" } });
+  assert.ok(takeoverAudit, "takeover of another user is written to AdminAuditLog");
+  assert.equal(takeoverAudit.detailsJson.serviceOrderPublicId, orderId);
+  assert.equal(takeoverAudit.detailsJson.previousEditor.username, alice.username);
+  assert.equal(takeoverAudit.detailsJson.newEditor.username, carol.username);
+  assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } }), eventsBeforeTransfer, "takeover remains outside operational OS history");
   status(await request("POST", `${path}/heartbeat`, { ...aliceSession, editToken: aliceTab1 }), 409, "old heartbeat cannot recover after takeover");
   const staleSave = await request("PUT", `${orderPath}/assignments`, { ...aliceSession, editToken: aliceTab1, body: { userPublicIds: [] } });
   status(staleSave, 409, "previous editor is rejected by backend");
@@ -187,11 +220,15 @@ try {
 
   const control = await db.serviceOrderEditControl.findUniqueOrThrow({ where: { serviceOrderId: (await db.serviceOrder.findUniqueOrThrow({ where: { publicId: orderId }, select: { id: true } })).id } });
   assert.equal(control.holderUserId, budgetEditor.id);
+  const auditBeforeExpiry = await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } });
+  const eventsBeforeExpiry = await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } });
   await db.serviceOrderEditControl.update({ where: { id: control.id }, data: { expiresAt: new Date(Date.now() - 1) } });
   assert.equal((await request("GET", path, { ...bobSession, editToken: bobTab })).body.data.held, false, "lease expires after ten minutes without valid heartbeat");
   const afterExpiry = await request("POST", path, { ...bobSession, editToken: bobTab });
   status(afterExpiry, 201, "expired control can be acquired");
   status(await request("DELETE", path, { ...bobSession, editToken: bobTab }), 200, "normal exit releases current context");
+  assert.equal(await db.adminAuditLog.count({ where: { eventCode: "SERVICE_ORDER_EDIT_TAKEOVER" } }), auditBeforeExpiry, "expiry, acquisition and release do not create administrative entries");
+  assert.equal(await db.serviceOrderEvent.count({ where: { serviceOrder: { publicId: orderId } } }), eventsBeforeExpiry, "expiry, acquisition and release do not create OS history events");
 
   const controls = await db.serviceOrderEditControl.count({ where: { serviceOrderId: control.serviceOrderId } });
   assert.equal(controls, 1, "only one control row exists for the OS");

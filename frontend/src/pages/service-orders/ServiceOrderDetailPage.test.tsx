@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
-import { operationalSituationOptions } from "../../api/serviceOrders";
+import { operationalSituationOptions, type ServiceOrderEditControlState } from "../../api/serviceOrders";
 import { ServiceOrderDetailPage } from "./ServiceOrderDetailPage";
 
 const publicId = "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
@@ -40,7 +40,7 @@ function response(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>, state = { held: true, holder: { publicId: "current-user", username: "marina.admin" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 }) {
+function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>, state: ServiceOrderEditControlState = { held: true, holder: { publicId: "current-user", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 }) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
     ? Promise.resolve(response({ data: state }))
     : fetchMock(input, init));
@@ -54,6 +54,84 @@ async function openAssignmentsEditor() {
 }
 
 describe("ServiceOrderDetailPage", () => {
+  it("adquire automaticamente uma OS livre quando o usuário pode editar", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 1, heartbeatIntervalSeconds: 60 } }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, generation: 0, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit currentUsername="marina.admin" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control`, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("mantém somente leitura em OS livre quando o usuário não pode editar", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, generation: 0, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    expect(await screen.findByText("Você não possui autorização para editar esta OS.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("transfere para outra aba do mesmo usuário sem permissão especial e pede confirmação própria", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: detail }))
+      .mockResolvedValueOnce(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 2, heartbeatIntervalSeconds: 60 } }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "current-user", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 1, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canTakeoverEdit={false} section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Transferir edição para esta aba" }));
+    expect(confirm).toHaveBeenCalledWith("Transferir edição para esta aba? A outra aba perderá o controle e ficará somente para leitura.");
+    expect(await screen.findByText("Você está editando esta OS.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control/takeover`, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("permite escolher somente visualização em outra aba do mesmo usuário", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "current-user", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 1, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Somente visualização" }));
+    expect(await screen.findByText("Você já está editando esta OS em outra aba.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Transferir edição para esta aba" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/edit-control") && init?.method === "POST")).toBe(false);
+  });
+
+  it("cancelar o takeover de outra pessoa não chama a operação", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "other-user", username: "joao.silva" }, isSameUser: false, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canTakeoverEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assumir edição" }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("joao.silva está editando esta OS"));
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/takeover") && (init?.method ?? "GET") === "POST")).toBe(false);
+  });
+
+  it("libera o controle ao sair normalmente da tela da OS", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    const view = render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    view.unmount();
+
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control`, expect.objectContaining({ method: "DELETE", keepalive: true }));
+  });
+
+  it("libera a OS anterior ao navegar para outra OS na mesma tela", async () => {
+    const nextPublicId = "7b6dd2d2-2f8b-4f63-9f3e-76d50768bf11";
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    const props = { publicId, csrfToken: "csrf-in-memory", section: "details" as const, onSectionChange: vi.fn(), onBack: vi.fn() };
+    const view = render(<ServiceOrderDetailPage {...props} />);
+    await screen.findByRole("heading", { name: "OS-000128" });
+    view.rerender(<ServiceOrderDetailPage {...props} publicId={nextPublicId} />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control`, expect.objectContaining({ method: "DELETE", keepalive: true })));
+  });
+
   it("exibe detalhes e snapshots históricos sem recalculá-los", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
     vi.stubGlobal("fetch", withEditControl(fetchMock));
@@ -156,7 +234,7 @@ describe("ServiceOrderDetailPage", () => {
 
   it("mantém a OS visível em modo de somente leitura e não mostra takeover sem autorização específica", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: detail }));
-    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, isSameUser: false, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canManageAssignments canTakeoverEdit={false} section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
     expect(await screen.findByText("OS em edição por outro.usuario.")).toBeInTheDocument();
@@ -165,10 +243,11 @@ describe("ServiceOrderDetailPage", () => {
   });
 
   it("permite assumir edição com autorização e envia CSRF e contexto da aba", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ data: { acquired: true, expiresAt: "2026-10-14T16:10:00.000Z", generation: 8, heartbeatIntervalSeconds: 60 } }));
-    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock, { held: true, holder: { publicId: "20000000-0000-4000-8000-000000000002", username: "outro.usuario" }, isSameUser: false, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: false, generation: 7, heartbeatIntervalSeconds: 60 }));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageEdit canTakeoverEdit section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
     await screen.findByRole("heading", { name: "OS-000128" });
     fireEvent.click(await screen.findByRole("button", { name: "Assumir edição" }));

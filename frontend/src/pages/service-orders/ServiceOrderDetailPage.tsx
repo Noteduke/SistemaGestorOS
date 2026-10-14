@@ -113,6 +113,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [editControlMessage, setEditControlMessage] = useState<string | null>(null);
   const [editControlError, setEditControlError] = useState<string | null>(null);
   const [takingOver, setTakingOver] = useState(false);
+  const [stayReadOnly, setStayReadOnly] = useState(false);
   const isEditingRef = useRef(false);
   const editTokenRef = useRef(editToken);
   const generationRef = useRef<number | null>(null);
@@ -124,7 +125,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     invalidatedRef.current = true;
     isEditingRef.current = false;
     setIsEditing(false);
-    setEditControlMessage("Esta OS passou a ser editada por outro usuário. A tela foi alterada para somente leitura.");
+    setEditControlMessage("O controle desta OS foi transferido para outro contexto. A tela foi alterada para somente leitura.");
     void getServiceOrderEditControl(publicId, editToken).then((result) => setEditControl(result.data)).catch(() => undefined);
   }
 
@@ -145,7 +146,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
           everOwnedRef.current = true;
           setEditControl(result.data); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
         }
-        if (!result.data.held && canManageEdit) {
+        if (!result.data.held && canManageEdit && !stayReadOnly) {
           try {
             const acquired = await acquireServiceOrderEditControl(publicId, csrfToken, editToken);
             if (!active) {
@@ -153,7 +154,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
               return;
             }
             generationRef.current = acquired.data.generation; everOwnedRef.current = true;
-            const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, expiresAt: acquired.data.expiresAt, isCurrentContext: true, generation: acquired.data.generation, heartbeatIntervalSeconds: acquired.data.heartbeatIntervalSeconds };
+            const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: acquired.data.expiresAt, isCurrentContext: true, generation: acquired.data.generation, heartbeatIntervalSeconds: acquired.data.heartbeatIntervalSeconds };
             setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlError(null); return;
           } catch (reason) {
             if (reason instanceof ApiError && reason.code !== "SERVICE_ORDER_EDIT_CONTROL_HELD") throw reason;
@@ -174,7 +175,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       window.clearInterval(poll);
       if (isEditingRef.current) void releaseServiceOrderEditControl(publicId, csrfToken, editTokenRef.current).catch(() => undefined);
     };
-  }, [publicId, csrfToken, editToken, canManageEdit, currentUsername, orderLoaded]);
+  }, [publicId, csrfToken, editToken, canManageEdit, currentUsername, orderLoaded, stayReadOnly]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -187,12 +188,17 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   useEffect(() => { if (!isEditing) setEditingAssignments(false); }, [isEditing]);
 
   async function takeOverEditing() {
-    if (!canTakeoverEdit || takingOver) return;
+    const transferOwnTab = Boolean(editControl?.isSameUser);
+    if (takingOver || (!transferOwnTab && !canTakeoverEdit)) return;
+    const confirmed = transferOwnTab
+      ? window.confirm("Transferir edição para esta aba? A outra aba perderá o controle e ficará somente para leitura.")
+      : window.confirm(`Assumir edição desta OS?\n\n${editControl?.holder?.username ?? "Outro usuário"} está editando esta OS neste momento. Se você continuar, essa pessoa perderá imediatamente a possibilidade de fazer alterações.`);
+    if (!confirmed) return;
     setTakingOver(true); setEditControlError(null);
     try {
       const response = await takeoverServiceOrderEditControl(publicId, csrfToken, editToken);
       generationRef.current = response.data.generation; everOwnedRef.current = true; invalidatedRef.current = false;
-      const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, expiresAt: response.data.expiresAt, isCurrentContext: true, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
+      const next = { held: true, holder: currentUsername ? { publicId: "", username: currentUsername } : null, isSameUser: true, expiresAt: response.data.expiresAt, isCurrentContext: true, generation: response.data.generation, heartbeatIntervalSeconds: response.data.heartbeatIntervalSeconds };
       setEditControl(next); isEditingRef.current = true; setIsEditing(true); setEditControlMessage(null);
     } catch (reason) { setEditControlError(reason instanceof Error ? reason.message : "Não foi possível assumir a edição."); }
     finally { setTakingOver(false); }
@@ -430,11 +436,14 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
         <>
           <section className="info-card edit-control-banner" aria-live="polite">
             {isEditing ? <p><strong>Você está editando esta OS.</strong> O controle é renovado automaticamente enquanto esta tela permanecer aberta.</p>
-              : editControl?.held ? <p><strong>OS em edição por {editControl.holder?.username ?? "outro usuário"}.</strong> Somente visualização.</p>
-                : <p><strong>Somente visualização.</strong> {canManageEdit ? "O controle de edição está sendo verificado." : "Você não possui autorização para editar esta OS."}</p>}
+              : editControl?.held && editControl.isSameUser ? <p><strong>Você já está editando esta OS em outra aba.</strong> Esta aba está em somente leitura até a transferência.</p>
+                : editControl?.held ? <p><strong>OS em edição por {editControl.holder?.username ?? "outro usuário"}.</strong> Somente visualização.</p>
+                : <p><strong>Somente visualização.</strong> {stayReadOnly ? "Esta aba permanecerá sem o controle de edição." : canManageEdit ? "O controle de edição está sendo verificado." : "Você não possui autorização para editar esta OS."}</p>}
             {editControlMessage && <p className="form-message form-message--error" role="alert">{editControlMessage}</p>}
             {editControlError && <p className="form-message form-message--error" role="alert">{editControlError}</p>}
-            {!isEditing && editControl?.held && canTakeoverEdit && canManageEdit && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Assumindo…" : "Assumir edição"}</button>}
+            {!isEditing && editControl?.held && editControl.isSameUser && !stayReadOnly && <button className="button button--secondary" type="button" onClick={() => setStayReadOnly(true)}>Somente visualização</button>}
+            {!isEditing && editControl?.held && editControl.isSameUser && canManageEdit && !stayReadOnly && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Transferindo…" : "Transferir edição para esta aba"}</button>}
+            {!isEditing && editControl?.held && !editControl.isSameUser && canTakeoverEdit && canManageEdit && <button className="button button--primary" type="button" onClick={() => void takeOverEditing()} disabled={takingOver}>{takingOver ? "Assumindo…" : "Assumir edição"}</button>}
           </section>
           <div className="page-heading detail-heading">
             <div>

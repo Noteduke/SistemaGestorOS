@@ -166,6 +166,7 @@ export type OperationalSituation = (typeof operationalSituationOptions)[number][
 export interface ServiceOrderEditControlState {
   held: boolean;
   holder: { publicId: string; username: string } | null;
+  isSameUser: boolean;
   expiresAt: string | null;
   isCurrentContext: boolean;
   generation: number;

@@ -75,7 +75,7 @@ export async function assertEditControlInTransaction(tx: Tx, serviceOrderId: num
   const control = await lockRow(tx, serviceOrderId);
   const now = new Date();
   if (!control || control.expiresAt <= now || control.holderUserId !== actor.id || control.contextTokenHash !== hash) {
-    throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_LOST", message: "Esta OS passou a ser editada por outro usuário. A tela foi alterada para somente leitura.", details: control && control.expiresAt > now ? { holder: control.holder, expiresAt: control.expiresAt } : { holder: null, expiresAt: null } });
+    throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_LOST", message: "O controle desta OS foi transferido para outro contexto. A tela foi alterada para somente leitura.", details: control && control.expiresAt > now ? { holder: control.holder, expiresAt: control.expiresAt } : { holder: null, expiresAt: null } });
   }
 }
 
@@ -92,7 +92,7 @@ export class ServiceOrderEditControlService {
       const control = await tx.serviceOrderEditControl.findUnique({ where: { serviceOrderId: order.id }, include: { holder: { select: { publicId: true, username: true } } } });
       const active = control && control.holderUserId !== null && control.contextTokenHash !== null && control.expiresAt > new Date() ? control : null;
       const isHolder = Boolean(active && active.holderUserId === actor.id && hash && active.contextTokenHash === hash);
-      return { data: { held: Boolean(active), holder: active?.holder ?? null, expiresAt: active?.expiresAt.toISOString() ?? null, isCurrentContext: isHolder, generation: control?.leaseVersion ?? 0, heartbeatIntervalSeconds: EDIT_CONTROL_HEARTBEAT_SECONDS } };
+      return { data: { held: Boolean(active), holder: active?.holder ?? null, isSameUser: Boolean(active && active.holderUserId === actor.id), expiresAt: active?.expiresAt.toISOString() ?? null, isCurrentContext: isHolder, generation: control?.leaseVersion ?? 0, heartbeatIntervalSeconds: EDIT_CONTROL_HEARTBEAT_SECONDS } };
     }, TX_OPTIONS);
   }
 
@@ -125,7 +125,7 @@ export class ServiceOrderEditControlService {
       const control = await lockRow(tx, serviceOrderId);
       const now = new Date();
       if (!control || control.expiresAt <= now || control.holderUserId !== actor.id || control.contextTokenHash !== hash) {
-        throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_LOST", message: "O controle de edição desta OS foi perdido." });
+        throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_LOST", message: "O controle de edição desta OS foi perdido para outro contexto." });
       }
       const updated = await tx.serviceOrderEditControl.update({ where: { id: control.id }, data: { lastHeartbeatAt: now, expiresAt: new Date(now.getTime() + EDIT_CONTROL_TTL_MS) } });
       return { data: { renewed: true, expiresAt: updated.expiresAt.toISOString() } };
@@ -150,15 +150,38 @@ export class ServiceOrderEditControlService {
     return this.prisma.$transaction(async (tx) => {
       const serviceOrderId = await lockOrder(tx, publicId);
       await requireEditable(tx, actor);
-      if (!actor.isAdmin) {
+      const current = await lockRow(tx, serviceOrderId);
+      const now = new Date();
+      if (!current || current.holderUserId === null || current.contextTokenHash === null || current.expiresAt <= now) {
+        throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_NOT_HELD", message: "Não há outro contexto ativo para transferir. A OS pode ser adquirida normalmente." });
+      }
+      if (current.holderUserId === actor.id && current.contextTokenHash === hash) {
+        throw new ConflictException({ code: "SERVICE_ORDER_EDIT_CONTROL_ALREADY_OWNED", message: "Esta aba já possui o controle de edição da OS." });
+      }
+      const transferringOwnContext = current.holderUserId === actor.id;
+      if (!transferringOwnContext && !actor.isAdmin) {
         const grant = await tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.edit.takeover" } }, select: { userId: true } });
         if (!grant) throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Você não tem permissão para assumir a edição desta OS." });
       }
-      const current = await lockRow(tx, serviceOrderId);
-      const now = new Date();
       const next = current
         ? await tx.serviceOrderEditControl.update({ where: { id: current.id }, data: { holderUserId: actor.id, contextTokenHash: hash, leaseVersion: { increment: 1 }, lastHeartbeatAt: now, expiresAt: new Date(now.getTime() + EDIT_CONTROL_TTL_MS) } })
         : await tx.serviceOrderEditControl.create({ data: { serviceOrderId, holderUserId: actor.id, contextTokenHash: hash, leaseVersion: 1, lastHeartbeatAt: now, expiresAt: new Date(now.getTime() + EDIT_CONTROL_TTL_MS) } });
+      if (!transferringOwnContext) {
+        await tx.adminAuditLog.create({
+          data: {
+            eventCode: "SERVICE_ORDER_EDIT_TAKEOVER",
+            occurredAt: now,
+            actorUserId: actor.id,
+            targetUserId: current.holderUserId,
+            detailsJson: {
+              action: "TRANSFER_SERVICE_ORDER_EDIT_CONTROL",
+              serviceOrderPublicId: publicId,
+              previousEditor: { publicId: current.holderPublicId, username: current.holderUsername, contextGeneration: current.leaseVersion },
+              newEditor: { publicId: actor.publicId, username: actor.username, contextGeneration: next.leaseVersion },
+            },
+          },
+        });
+      }
       return { data: { acquired: true, expiresAt: next.expiresAt.toISOString(), generation: next.leaseVersion, heartbeatIntervalSeconds: EDIT_CONTROL_HEARTBEAT_SECONDS } };
     }, TX_OPTIONS);
   }
