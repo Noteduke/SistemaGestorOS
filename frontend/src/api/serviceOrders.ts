@@ -44,6 +44,24 @@ export interface ServiceOrderDetail extends ServiceOrderSummary {
   equipmentSnapshotJson: unknown;
 }
 
+export interface ServiceOrderBudgetItem {
+  publicId: string;
+  itemType: "SERVICE_LABOR" | "MANUAL_PART";
+  origin: "REGISTERED" | "MANUAL";
+  servicePublicId: string | null;
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  total: string;
+  unitCost?: string | null;
+  totalCost?: string | null;
+  version: number;
+  createdAt: string;
+}
+
+export interface AvailableCatalogService { publicId: string; name: string; defaultPrice: string }
+export interface ServiceOrderBudget { data: ServiceOrderBudgetItem[]; total: string; canReadCosts: boolean }
+
 export interface ServiceOrderOpeningConfirmation {
   publicId: string;
   visibleNumber: string;
@@ -150,6 +168,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string | undefined,
     message: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -182,6 +201,7 @@ export async function updateServiceOrderOperationalSituation(
   publicId: string,
   operationalSituation: OperationalSituation,
   csrfToken: string,
+  withdrawBudget = false,
 ): Promise<{ data: ServiceOrderDetail }> {
   const response = await fetch(`/api/v1/service-orders/${encodeURIComponent(publicId)}/operational-situation`, {
     method: "PATCH",
@@ -191,7 +211,7 @@ export async function updateServiceOrderOperationalSituation(
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
     },
-    body: JSON.stringify({ operationalSituation }),
+    body: JSON.stringify({ operationalSituation, ...(withdrawBudget ? { withdrawBudget: true } : {}) }),
   });
 
   const body: unknown = await response.json().catch(() => null);
@@ -206,6 +226,47 @@ export async function updateServiceOrderOperationalSituation(
   }
 
   return body as { data: ServiceOrderDetail };
+}
+
+export function listAvailableCatalogServices(signal?: AbortSignal) {
+  return get<{ data: AvailableCatalogService[] }>("/api/v1/services/available-for-order", signal);
+}
+
+export function getServiceOrderBudget(publicId: string, signal?: AbortSignal) {
+  return get<ServiceOrderBudget>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items`, signal);
+}
+
+async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE", csrfToken: string, body?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method, credentials: "include",
+    headers: { Accept: "application/json", "X-CSRF-Token": csrfToken, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const root = isRecord(payload) ? payload : undefined;
+    const error = root && isRecord(root.error) ? root.error : root;
+    throw new ApiError(response.status, typeof error?.code === "string" ? error.code : undefined,
+      typeof error?.message === "string" ? error.message : "Não foi possível alterar o orçamento.",
+      error && isRecord(error.details) ? error.details : undefined);
+  }
+  return payload as T;
+}
+
+export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string }, csrfToken: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/service`, "POST", csrfToken, body);
+}
+export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string }, csrfToken: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-labor`, "POST", csrfToken, body);
+}
+export function addManualPartBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string; unitCost?: string | null }, csrfToken: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-part`, "POST", csrfToken, body);
+}
+export function updateBudgetItem(publicId: string, itemPublicId: string, body: Record<string, unknown>, csrfToken: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "PATCH", csrfToken, body);
+}
+export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string) {
+  return mutateBudget<{ data: { removed: boolean; publicId: string; total: string } }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken);
 }
 
 export function listAssignableUsers(page: number, pageSize: number, search = "", signal?: AbortSignal) {

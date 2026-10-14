@@ -82,6 +82,13 @@ Este documento será ampliado com padrões específicos para React, NestJS, Pris
 - `PrismaModule` e `PrismaService` ficam em `backend/src/infrastructure/prisma/`. `PrismaModule` não é `@Global()`; os módulos consumidores deverão importá-lo explicitamente.
 - `PrismaService` é exclusivamente infraestrutura: constrói e configura o Prisma Client com o adapter aprovado, disponibiliza o Client e cuida da conexão, desconexão e ciclo de vida da aplicação.
 - Validações e regras de clientes, equipamentos, OS, orçamentos, estoque, financeiro, compras, autorização e demais entidades não pertencem ao `PrismaService`. Services de domínio coordenarão os fluxos de negócio.
+
+### Itens de orçamento da OS
+
+- Representar preço e custo monetários por `Prisma.Decimal`; a API recebe/devolve strings decimais. Calcular totais na camada de domínio e nunca aceitar total calculado pelo cliente.
+- Toda mutação de item bloqueia a OS e revalida macrostatus e permissões dentro da transação. Item é retirado logicamente; não apagar linhas históricas nem restaurá-las.
+- Persistir um único evento por operação de salvamento, com todos os campos alterados e seus pares anterior/novo. Construir projeções históricas por allowlist e remover campos de custo para quem não tem `service_orders.budget.costs.read`.
+- Usar índices únicos funcionais como defesa final das duplicidades ativas. Para impedir corrida entre cadastro de serviço e lançamento de mão de obra avulsa, adquirir a linha da chave normalizada na tabela técnica `service_order_budget_name_locks` dentro da mesma transação; não usar lock de sessão MySQL cuja liberação possa anteceder o commit.
 - Services de domínio poderão utilizar `PrismaService` diretamente. Repositories serão criados apenas quando consultas complexas ou reutilizadas, encapsulamento relevante, testabilidade ou uma fronteira específica de persistência trouxerem benefício concreto. Não criar repositories que apenas repitam `findUnique`, `findMany`, `create`, `update` ou `delete`.
 - Prisma Client é o acesso padrão ao banco. SQL raw por `$queryRaw` ou `$executeRaw` será excepcional, parametrizado com segurança, identificado e revisável dentro da fronteira de persistência. Módulos não deverão criar clientes MySQL paralelos nem espalhar SQL pela aplicação.
 - Services de negócio decidirão os limites das operações atômicas e usarão `$transaction` do Prisma. `PrismaService` não coordenará regras de negócio.

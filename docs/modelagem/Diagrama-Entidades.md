@@ -270,7 +270,7 @@ erDiagram
 - **Numeração e abertura — regras aprovadas:** número visível `OS-` + seis dígitos, sequência global, crescente, única e imutável, gerada antes da confirmação. A abertura em andamento fica persistida, sobrevive a reinício, não é atendimento ativo e não possui snapshot; cada usuário pode ter uma por vez. Usuário comum só retoma/cancela a própria; Administrador ou `service_orders.opening.manage` pode atuar em outra, com evento de auditoria. A confirmação com cliente/equipamento cria OS ABERTA/TRIAGEM. Edições temporárias não exigem histórico detalhado; eventos principais são registrados; não há expiração automática obrigatória no Recorte 1. Aberturas em andamento/canceladas não aparecem na listagem comum. Abandono libera número conforme a regra de sequência ou registra ABERTURA CANCELADA; etiqueta não consome o número. O schema Prisma já contém OS, abertura e sequenciador; a migration passou em banco restaurado e foi aplicada ao principal. O diagrama de OS mostra essa estrutura.
 - **OS, mudanças de status e reabertura — regras funcionais aprovadas:** situação operacional e status macro são distintos; após TRIAGEM, a situação pode mudar livremente por usuário autorizado. FECHADA/CANCELADA exigem Administrador ou permissão específica; transições diretas entre elas são proibidas. Reabertura simples é textual. Reabertura completa mantém o número e retorna a ABERTA/AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento/pagamentos do ativo com histórico, move peças vinculadas para ORÇADA e notifica o Administrador; pode reabrir OS CANCELADA. As situações, atribuições padrão, resultados e regra de orçamento em NÃO AUTORIZADO estão em `docs/02-Regras-de-Negocio.md`. O schema Prisma contém a base de OS e eventos do Recorte 1, ainda sem os fluxos e relações de reabertura, financeiro e estoque descritos aqui. O diagrama de OS mostra a base física aplicada.
 - **Equipamento comprado/Doado — fluxo aprovado para etapa posterior:** OS externa fica FECHADA; equipamento passa à Pessoa da própria empresa e gera OS interna ABERTA/TRIAGEM ligada reciprocamente. Informações da origem são herdadas em área histórica separada; cobranças, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS e pendências não se tornam itens ativos. Só Administrador configura a Pessoa, que deve ser elegível como titular; sem configuração, bloqueia o encerramento. A original não recebe movimentação técnica depois da nova OS e só admite reabertura simples. A interna não pode repetir esse resultado. O schema Prisma contém a base de OS, mas não a configuração da Pessoa da empresa, vínculos recíprocos entre OS ou histórico herdado; o diagrama de OS mostra somente a base física atual. Não se aprova modelo físico adicional para esse fluxo. Atomicidade, herança, efeitos fiscais/financeiros e reconciliações de estoque permanecem pendentes.
-- **Orçamento simplificado — catálogo isolado e relações futuras:** `ServiceCatalog`/`service_catalog` está no schema e na migration `20261014120000_service_catalog`, aplicada somente em `gestor_os_opening_test`; o diagrama principal acima ainda representa as cinco migrations de `gestor_os`. O catálogo tem FKs `created_by_user_id` e `updated_by_user_id` para `User`, chave normalizada única global, preço e atividade. O Log Administrativo registra mutações sem FK para o serviço, preservando snapshot de exclusão. A relação `ServiceCatalog ← ServiceOrderBudgetItem → ServiceOrder` permanece futura: ainda não há item, FK restritiva nem bloqueio físico de exclusão por vínculo histórico. Item retirado continuará histórico; novo lançamento terá outro id no fim. Serviço/Mão de obra e Peça avulsa serão a primeira fatia de itens; peça do estoque virá depois. Sem Budget/status próprio, desconto ou custo de serviço; custo opcional da peça avulsa exigirá filtragem também nos eventos. Campos e FKs de itens continuam propostas em docs/planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md.
+- **Orçamento simplificado — modelo implementado em migration pendente no principal:** `ServiceOrderBudgetItem` relaciona diretamente OS, serviço cadastrado opcional, usuários de autoria e retirada lógica; os tipos/origens implementados são Serviço/Mão de obra cadastrada ou avulsa e Peça avulsa. A migration `20261015120000_service_order_budget_items` foi validada somente em `gestor_os_opening_test`; o diagrama ER acima ainda não incorpora essas tabelas e continua representando a base anterior. Há FK `RESTRICT` para serviço cadastrado, preservando histórico, e unicidades funcionais separadas para as três categorias de item ativo. `ServiceOrderBudgetNameLock` é tabela técnica para serialização transacional de chaves normalizadas, sem relação de domínio. Não há entidade Budget, desconto, custo de serviço ou item de estoque nesta fatia. Ver [Modelo-Banco](Modelo-Banco.md) e [desenho técnico do Recorte 2](../planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md).
 
 ```mermaid
 erDiagram
@@ -287,6 +287,33 @@ erDiagram
     int version
     int created_by_user_id FK
     int updated_by_user_id FK
+  }
+```
+
+O diagrama físico da fatia de itens, criada pela migration `20261015120000_service_order_budget_items` e aplicada apenas no banco isolado de validação:
+
+```mermaid
+erDiagram
+  SERVICE_ORDER ||--o{ SERVICE_ORDER_BUDGET_ITEM : contains
+  SERVICE_CATALOG o|--o{ SERVICE_ORDER_BUDGET_ITEM : snapshots
+  USER ||--o{ SERVICE_ORDER_BUDGET_ITEM : creates
+  USER ||--o{ SERVICE_ORDER_BUDGET_ITEM : updates
+  USER o|--o{ SERVICE_ORDER_BUDGET_ITEM : removes
+  SERVICE_ORDER_BUDGET_ITEM {
+    int id PK
+    string public_id UK
+    int service_order_id FK
+    enum item_type
+    enum origin
+    int service_catalog_id FK
+    string description
+    string normalized_description
+    int quantity
+    decimal unit_price
+    decimal unit_cost
+    int version
+    datetime removed_at
+    int removed_by_user_id FK
   }
 ```
 - `equipment_ownership_events` existe para eventos de titularidade. Transferência altera titular atual, registra evento e não reescreve OS antigas; pode ocorrer fora ou durante OS, com associação opcional à OS. Usuários autorizados podem alterar cadastros e transferir mesmo com histórico, sem justificativa obrigatória; as mudanças devem gerar histórico automaticamente. O banco principal não registra tipos gerais de histórico ou justificativa; usuário executor e vínculo opcional com OS já existem no schema Prisma e no principal.

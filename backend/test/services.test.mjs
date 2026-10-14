@@ -4,6 +4,8 @@ import { Prisma } from "../dist/generated/prisma/client.js";
 import { cleanServiceName, normalizeServiceName } from "../dist/modules/services/domain/service-name.js";
 import { parseCreateServiceDto, parseDeleteServiceQuery, parseServiceListQuery, parseServicePrice, parseUpdateServiceDto } from "../dist/modules/services/dto/service.dto.js";
 import { ServicesService } from "../dist/modules/services/services.service.js";
+import { parseBudgetMoney, parseBudgetQuantity, parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseUpdateBudgetItem } from "../dist/modules/service-orders/dto/budget-item.dto.js";
+import { sanitizeServiceOrderEventPayload } from "../dist/modules/service-orders/service-order-events-read.service.js";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
@@ -82,6 +84,8 @@ function fakePrisma() {
   };
   const tx = {
     serviceCatalog: catalog,
+    serviceOrderBudgetNameLock: { async upsert() { return {}; } },
+    serviceOrderBudgetItem: { async findFirst() { return null; } },
     adminAuditLog: { async create({ data }) { audits.push(data); } },
     async $queryRaw(_parts, publicId) { const row = [...rows.values()].find((item) => item.publicId === publicId); return row ? [{ id: row.id }] : []; },
   };
@@ -129,6 +133,41 @@ test("ciclo de cadastro audita criação, preço desabilitado, habilitação e e
   assert.equal(prisma.rows.size, 0);
   await service.create(parseCreateServiceDto({ name: "formatação", defaultPrice: "1.00" }), 7);
   assert.equal(prisma.rows.size, 1);
+});
+
+test("itens de orçamento validam quantidades, limites decimais e DTOs por allowlist", () => {
+  assert.equal(parseBudgetQuantity("1"), 1);
+  assert.equal(parseBudgetQuantity("999"), 999);
+  for (const value of ["0", "1000", "1.5", "-1", "9007199254740992", null]) {
+    assert.throws(() => parseBudgetQuantity(value));
+  }
+  assert.equal(parseBudgetMoney("0", "Preço"), "0.00");
+  assert.equal(parseBudgetMoney("999999.99", "Preço"), "999999.99");
+  for (const value of ["1000000", "-0.01", "1.001", 1, "1e3", "1,00"]) assert.throws(() => parseBudgetMoney(value, "Preço"));
+  assert.equal(parseBudgetMoney(null, "Custo", true), null);
+  assert.deepEqual(parseCreateRegisteredLabor({ servicePublicId: "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910", quantity: 1 }), {
+    servicePublicId: "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910", quantity: 1,
+  });
+  assert.deepEqual(parseCreateManualLabor({ description: "  Mão   de Obra ", unitPrice: "0" }), { description: "Mão de Obra", quantity: 1, unitPrice: "0.00" });
+  assert.deepEqual(parseCreateManualPart({ description: "Fonte", unitPrice: "999999.99", unitCost: null }), { description: "Fonte", quantity: 1, unitPrice: "999999.99", unitCost: null });
+  assert.throws(() => parseCreateManualPart({ description: "Fonte", unitPrice: "1", extra: true }));
+  assert.deepEqual(parseUpdateBudgetItem({ expectedVersion: 1, quantity: "999", unitCost: "0" }), { expectedVersion: 1, quantity: 999, unitCost: "0.00" });
+});
+
+test("projeção de eventos de orçamento remove custo estruturado sem permissão", () => {
+  const payload = {
+    itemPublicId: "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910", itemType: "MANUAL_PART", origin: "MANUAL",
+    description: "Fonte", quantity: 2, unitPrice: "10.00", total: "20.00", unitCost: "5.00", totalCost: "10.00",
+    changes: [{ field: "quantity", before: 1, after: 2 }, { field: "unitCost", before: "4.00", after: "5.00" }],
+  };
+  const hidden = sanitizeServiceOrderEventPayload("ITEM_ORCAMENTO_ALTERADO", payload);
+  assert.equal(Object.hasOwn(hidden, "unitCost"), false);
+  assert.equal(Object.hasOwn(hidden, "totalCost"), false);
+  assert.deepEqual(hidden.changes.map(({ field }) => field), ["quantity"]);
+  const visible = sanitizeServiceOrderEventPayload("ITEM_ORCAMENTO_ALTERADO", payload, true);
+  assert.equal(visible.unitCost, "5.00");
+  assert.equal(visible.totalCost, "10.00");
+  assert.deepEqual(visible.changes.map(({ field }) => field), ["quantity", "unitCost"]);
 });
 
 test("log é criado na mesma transação das mutações", async () => {

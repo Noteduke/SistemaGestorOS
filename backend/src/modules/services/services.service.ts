@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, HttpException, Injectable, NotF
 import { Prisma, type ServiceCatalog } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { CreateServiceDto, ServiceListQuery, UpdateServiceDto } from "./dto/service.dto.js";
+import { acquireCatalogNameLock } from "../../infrastructure/prisma/catalog-name-lock.js";
 
 type Tx = Prisma.TransactionClient;
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -100,9 +101,18 @@ export class ServicesService {
     return { data: view(service) };
   }
 
+  async availableForOrder() {
+    const services = await this.prisma.serviceCatalog.findMany({
+      where: { isActive: true }, orderBy: [{ name: "asc" }, { id: "asc" }],
+      select: { publicId: true, name: true, defaultPrice: true },
+    });
+    return { data: services.map((service) => ({ publicId: service.publicId, name: service.name, defaultPrice: service.defaultPrice.toFixed(2) })) };
+  }
+
   async create(input: CreateServiceDto, actorUserId: number) {
     try {
       const service = await this.prisma.$transaction(async (tx) => {
+        await acquireCatalogNameLock(tx, input.normalizedName);
         const created = await tx.serviceCatalog.create({
           data: {
             name: input.name,
@@ -175,9 +185,13 @@ export class ServicesService {
     assertPublicId(publicId);
     try {
       await this.prisma.$transaction(async (tx) => {
+        const initial = await tx.serviceCatalog.findUnique({ where: { publicId } });
+        if (!initial) throw notFound();
+        await acquireCatalogNameLock(tx, initial.normalizedName);
         const current = await lockService(tx, publicId);
         if (current.version !== expectedVersion) throw staleVersion();
-        // When budget items exist, check every historical association here; the future FK must also use RESTRICT.
+        const used = await tx.serviceOrderBudgetItem.findFirst({ where: { serviceCatalogId: current.id }, select: { id: true } });
+        if (used) throw new ConflictException({ code: "SERVICE_ALREADY_USED", message: "Serviço associado a itens atuais ou históricos de OS não pode ser excluído." });
         await tx.adminAuditLog.create({
           data: {
             eventCode: "SERVICE_DELETED", actorUserId,

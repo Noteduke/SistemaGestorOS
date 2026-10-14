@@ -4,6 +4,7 @@ import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { OperationalSituationPatchInput } from "./dto/operational-situation-patch.dto.js";
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
+import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -11,7 +12,7 @@ type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class ServiceOrderOperationalSituationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly budgetItems: ServiceOrderBudgetItemsService) {}
 
   async update(publicId: string, input: OperationalSituationPatchInput, actor: AuthenticatedUser) {
     if (!PUBLIC_ID.test(publicId)) {
@@ -37,13 +38,17 @@ export class ServiceOrderOperationalSituationService {
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }
+        if (current.operationalSituation === input.operationalSituation && input.withdrawBudget) {
+          throw new ConflictException({ code: "BUDGET_WITHDRAWAL_REQUIRES_SITUATION_CHANGE", message: "A retirada integral só pode acompanhar uma mudança para situação de não autorização." });
+        }
 
-        await assertSituationPermission(tx, actor);
+        await assertSituationPermission(tx, actor, input.withdrawBudget === true);
         if (current.operationalSituation === input.operationalSituation) {
           return { data: toServiceOrderDetailView(current) };
         }
 
         const now = new Date();
+        if (input.withdrawBudget) await this.budgetItems.withdrawAllInTransaction(tx, { id: locked.id, numberValue: current.numberValue }, actor);
         await tx.serviceOrder.update({
           where: { id: locked.id },
           data: { operationalSituation: input.operationalSituation },
@@ -78,13 +83,14 @@ export class ServiceOrderOperationalSituationService {
   }
 }
 
-async function assertSituationPermission(tx: Tx, actor: AuthenticatedUser): Promise<void> {
+async function assertSituationPermission(tx: Tx, actor: AuthenticatedUser, withdrawingBudget: boolean): Promise<void> {
   if (actor.isAdmin) return;
   const grants = await tx.userPermission.findMany({
-    where: { userId: actor.id, permission: { code: "service_orders.situation.update" } },
+    where: { userId: actor.id, permission: { code: { in: withdrawingBudget ? ["service_orders.situation.update", "service_orders.budget.update"] : ["service_orders.situation.update"] } } },
     select: { permission: { select: { code: true } } },
   });
-  if (!grants.some(({ permission }) => permission.code === "service_orders.situation.update")) {
+  const codes = new Set(grants.map(({ permission }) => permission.code));
+  if (!codes.has("service_orders.situation.update") || withdrawingBudget && !codes.has("service_orders.budget.update")) {
     throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Você não tem permissão para esta operação." });
   }
 }

@@ -11,10 +11,11 @@ import { ServiceOrdersController } from "./service-orders.controller.js";
 import { ServiceOrdersReadService } from "./service-orders-read.service.js";
 import { ServiceOrderNotesService } from "./service-order-notes.service.js";
 import { ServiceOrderHistoryService } from "./service-order-history.service.js";
+import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [ServiceOrderOpeningsController, ServiceOrdersController],
-  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrderAssignmentsService, ServiceOrdersReadService, ServiceOrderEventsReadService, ServiceOrderNotesService, ServiceOrderHistoryService],
+  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrderAssignmentsService, ServiceOrdersReadService, ServiceOrderEventsReadService, ServiceOrderNotesService, ServiceOrderHistoryService, ServiceOrderBudgetItemsService],
 })
 export class ServiceOrdersModule {}

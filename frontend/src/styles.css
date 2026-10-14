@@ -240,3 +240,16 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
   .event-payload { grid-template-columns: 1fr; }
   .note-form__controls { flex-direction: column; align-items: stretch; }
 }
+.budget-panel { margin-top: 1rem; }
+.budget-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .65rem 1rem; border-top: 1px solid var(--border, #ddd); margin-top: 1rem; padding-top: 1rem; }
+.budget-form h3 { grid-column: 1 / -1; margin: 0; }
+.budget-form label { align-self: end; font-size: .9rem; }
+.budget-form input, .budget-form select, .budget-table input { min-width: 0; padding: .55rem; }
+.budget-form button { align-self: end; }
+.budget-total { text-align: right; margin: 1rem 0; font-size: 1.05rem; }
+.budget-table { width: 100%; border-collapse: collapse; }
+.budget-table th, .budget-table td { border-bottom: 1px solid var(--border, #ddd); padding: .6rem; text-align: left; vertical-align: middle; }
+.budget-table th { white-space: nowrap; }
+.budget-table td:last-child { white-space: nowrap; }
+.budget-item--conflict { outline: 3px solid #d68b00; outline-offset: -3px; background: #fff7dc; }
+.table-scroll { overflow-x: auto; }

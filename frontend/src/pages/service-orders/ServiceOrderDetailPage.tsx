@@ -20,6 +20,7 @@ import {
 } from "../../api/serviceOrders";
 import { AsyncState } from "../../components/AsyncState";
 import { SnapshotCard } from "../../components/SnapshotCard";
+import { ServiceOrderBudgetPanel } from "./ServiceOrderBudgetPanel";
 
 const PAGE_SIZE = 20;
 const ASSIGNABLE_PAGE_SIZE = 100;
@@ -28,6 +29,10 @@ interface ServiceOrderDetailPageProps {
   publicId: string;
   csrfToken: string;
   canCreateNote?: boolean;
+  canReadBudget?: boolean;
+  canEditBudget?: boolean;
+  canReadBudgetCosts?: boolean;
+  canUpdateBudgetCosts?: boolean;
   section: "details" | "events";
   onSectionChange: (section: "details" | "events") => void;
   onBack: () => void;
@@ -49,7 +54,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, section, onSectionChange, onBack }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +86,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [savingAssignments, setSavingAssignments] = useState(false);
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [budgetItemCount, setBudgetItemCount] = useState(0);
 
   function mergeAssignmentLabels(labels: Record<string, string>) {
     assignmentLabelsRef.current = { ...assignmentLabelsRef.current, ...labels };
@@ -236,7 +242,9 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setSituationMessage(null);
     setSituationError(null);
     try {
-      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken);
+      const notAuthorized = selectedSituation === "NOT_AUTHORIZED_REASSEMBLE" || selectedSituation === "NOT_AUTHORIZED_READY_DELIVERY";
+      const withdrawBudget = notAuthorized && budgetItemCount > 0 && window.confirm("Deseja retirar todos os itens atuais do orçamento? Esta ação será registrada no histórico e não poderá ser desfeita.");
+      const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget);
       setOrder(response.data);
       const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
       setSelectedSituation(current ?? "");
@@ -426,6 +434,15 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                   </div>
                 )}
               </section>
+              {canReadBudget && <ServiceOrderBudgetPanel
+                publicId={publicId}
+                csrfToken={csrfToken}
+                canEdit={canEditBudget}
+                canReadCosts={canReadBudgetCosts}
+                canUpdateCosts={canUpdateBudgetCosts}
+                isOpen={order.macroStatus === "ABERTA"}
+                onActiveCountChange={setBudgetItemCount}
+              />}
               <div className="snapshot-grid-cards">
                 <SnapshotCard title="Retrato do cliente" snapshot={order.customerSnapshotJson} />
                 <SnapshotCard title="Retrato do equipamento" snapshot={order.equipmentSnapshotJson} />

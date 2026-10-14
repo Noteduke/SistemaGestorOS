@@ -14,6 +14,12 @@ export class ServicesController {
     return this.services.list(parseServiceListQuery(query));
   }
 
+  @Get("available-for-order")
+  @RequirePermissions("service_orders.budget.update")
+  availableForOrder() {
+    return this.services.availableForOrder();
+  }
+
   @Get(":publicId")
   @RequirePermissions("services.manage")
   get(@Param("publicId") publicId: string) {

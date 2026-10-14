@@ -1,6 +1,18 @@
 # Recorte 2 — Cadastro de Serviços e orçamento simplificado da OS
 
-**Status:** regras funcionais aprovadas por Marcos, consolidadas em [Regras de Negócio](../02-Regras-de-Negocio.md), seção “Orçamento simplificado da OS — decisões aprovadas”. O **Cadastro de Serviços** já possui schema, migration, Backend e Frontend implementados; a migration foi aplicada somente em `gestor_os_opening_test`, não no banco principal. As seções sobre itens de orçamento continuam proposta técnica para revisão, sem migration, API ou tela implementadas. Não houve seed genérico.
+**Status:** regras funcionais aprovadas por Marcos e primeira fatia implementada. Cadastro de Serviços e itens de Serviço/Mão de obra (cadastrada ou avulsa) e Peça avulsa possuem schema, migrations, API e interface. As migrations `20261014120000_service_catalog` e `20261015120000_service_order_budget_items` foram aplicadas somente em `gestor_os_opening_test`, nunca no banco principal nesta etapa. A seção “Implementação realizada” abaixo registra o estado físico e comportamental efetivo; as propostas técnicas subsequentes são histórico de desenho e não prevalecem quando divergirem desse registro. Peça de estoque e catálogo de peças permanecem futuros.
+
+## Implementação realizada
+
+- **Persistência:** `ServiceOrderBudgetItem` relaciona diretamente à OS, sem entidade Budget ou status/ciclo próprio. Os tipos/origens são `SERVICE_LABOR` + `REGISTERED|MANUAL` e `MANUAL_PART` + `MANUAL`. Há descrição exibida e chave normalizada binária para itens manuais, quantidade `INT` de 1–999, preço unitário obrigatório e custo opcional, ambos `DECIMAL(15,2)`, versão, autoria e remoção lógica. Totais são calculados com `Prisma.Decimal`; não são armazenados nas linhas. FKs são restritivas, incluindo serviço cadastrado, de modo que qualquer vínculo histórico impede exclusão física do serviço.
+- **Unicidade:** índices funcionais únicos limitam, por OS e somente enquanto ativo, serviço cadastrado, mão de obra avulsa normalizada e peça avulsa normalizada, separadamente. Inclusão duplicada retorna conflito com referência pública do item atual para destaque na tela; não soma quantidade.
+- **Normalização e concorrência:** descrições são limpas e normalizadas por caixa, acentos e espaços, preservando pontuação como distinção. Mão de obra avulsa é comparada ao Cadastro de Serviços, inclusive desabilitados. A tabela técnica `service_order_budget_name_locks`, bloqueada por linha dentro da transação, serializa essa verificação com inclusão/renomeação concorrente no catálogo; não é entidade de negócio. Peça avulsa ainda não pode ser comparada com catálogo de peças inexistente.
+- **Transações e permissões:** mutações bloqueiam a OS com `FOR UPDATE`, revalidam sua situação macro e permissões dentro da transação, e gravam item e evento atomicamente. Editar exige `service_orders.budget.update`; custo requer também `service_orders.budget.costs.read` e `service_orders.budget.costs.update`. Consulta usa as permissões normais de leitura da OS. Para situação NÃO AUTORIZADO, `withdrawBudget` retira todos os itens logicamente na mesma transação da mudança de situação e exige permissão de editar orçamento.
+- **Histórico:** inclusão, remoção individual e retirada total têm eventos próprios. Cada salvamento de edição gera um evento `ITEM_ORCAMENTO_ALTERADO`, contendo todos os campos alterados com antes/depois. Snapshots e totais representam o instante da operação. Projeções usam allowlist; custo unitário, total de custo e mudanças de custo são omitidos, inclusive em estruturas aninhadas, sem permissão de leitura de custo.
+- **API e interface:** estão implementadas consulta/inclusão/edição/retirada de itens, lista auxiliar de serviços ativos para seleção e painel de orçamento no detalhe da OS. A tela copia o preço padrão no lançamento, sem vínculo posterior do preço; permite quantidade/valor zero dentro dos limites aprovados, edição avulsa e remoção com confirmação simples. Macrostatus que não permite edição mantém os itens em consulta.
+- **Validação:** migration, índices, API autenticada, CSRF, custos, duplicidade, concorrência, retirada individual e integral foram exercitados apenas em `gestor_os_opening_test`. O script operacional remove os registros temporários ao final. O banco principal não foi conectado nem modificado por esta etapa.
+
+Peça de estoque, movimentações e validação de peça avulsa contra catálogo de peças continuam fora desta fatia. As invariantes que dependem de leitura/coordenação entre tabelas são garantidas pelo service transacional; não se deve inferir que o banco as impõe por CHECK.
 
 ## 1. Escopo aprovado e limites
 
@@ -14,12 +26,12 @@ OS ABERTA aceita inclusão/edição/retirada mesmo após autorização, com hist
 
 Consulta estática, sem banco nem execução funcional:
 
-- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. `ServiceCatalog` já foi acrescentado ao schema e testado em banco isolado; ainda não há item de orçamento ou modelo de produto/estoque.
+- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. `ServiceCatalog` e `ServiceOrderBudgetItem` estão no schema; o modelo de produto/estoque permanece futuro.
 - EquipmentLookupService e DTOs de Pessoas: consulta paginada, filtro de ativos quando aplicável, ordenação estável com id interno como desempate e projeção pública sem expor id.
 - normalizeGeneralText em Pessoas: trim, colapso de espaços e caixa alta pt-BR. A comparação exata de orçamento requer chave normalizada própria; não pressupor que a collation global tenha a mesma semântica.
-- AuthPolicyService/guards: sessão, permissão explícita, Administrador e CSRF em mutações. `services.manage` já protege o catálogo; permissões de orçamento/custo continuam futuras.
+- AuthPolicyService/guards: sessão, permissão explícita, Administrador e CSRF em mutações. `services.manage` protege o catálogo e as permissões de orçamento/custo protegem consulta, edição e custo.
 - ServiceOrderOperationalSituationService: transação Prisma, bloqueio da OS por FOR UPDATE, revalidação de macrostatus/permissão e evento na mesma transação. Reaproveitar o padrão, não copiar autorização espalhada.
-- ServiceOrderEventsReadService: eventos paginados por occurredAt/id e payloads por allowlist. Ainda não trata custo, snapshots de itens nem inserção de observação manual.
+- ServiceOrderEventsReadService/ServiceOrderHistoryService: eventos paginados e allowlisted; a leitura de orçamento filtra custos sem permissão, inclusive em snapshots. Observações manuais são criadas/removidas por `/notes` e projetadas com eventos em `/history`; `/events` permanece somente eventos automáticos.
 - Frontend: React/TypeScript, rotas por hash, cliente HTTP, estados de carregamento/erro e paginação; telas de OS e login existentes. A tela administrativa de Serviços está em `#/services`; não existe tela de itens de orçamento.
 - Valores monetários devem ser DECIMAL conforme docs/03; não foi encontrado modelo monetário implementado que fixe precisão para esta fatia. O histórico existente usa eventos, não um mecanismo genérico de soft deletion para itens.
 
@@ -49,7 +61,7 @@ Entidade `ServiceCatalog`, tabela `service_catalog`. Distingui-la dos services N
 | createdByUserId / updatedByUserId | FK User | Autoria das operações |
 | version | INT positivo | Controle otimista contra edição perdida |
 
-Campos/tamanhos acima são o contrato implementado para o catálogo. Preço e ativação são editáveis, inclusive preço de serviço desabilitado; name e normalizedName não entram no DTO de alteração e não são mutáveis no service. Rejeitar tentativa de renomear em vez de ignorá-la. Mudança de nome exige outro cadastro. Ajuste de preço só altera defaultPrice, nunca itens existentes. Como ainda não há itens, a regra de serviço desabilitado em OS histórica e a exigência de serviço ativo para novos lançamentos serão implementadas com a futura associação à OS.
+Campos/tamanhos acima são o contrato implementado para o catálogo. Preço e ativação são editáveis, inclusive preço de serviço desabilitado; name e normalizedName não entram no DTO de alteração e não são mutáveis no service. Rejeitar tentativa de renomear em vez de ignorá-la. Mudança de nome exige outro cadastro. Ajuste de preço só altera defaultPrice, nunca itens existentes. Itens existentes continuam legíveis/editáveis após desativação do serviço; novos lançamentos exigem serviço ativo.
 
 Auditoria implementada: eventos de criação, preço alterado, habilitação/desabilitação e exclusão no `admin_audit_log` existente, na mesma transação da mutação e sem justificativa obrigatória. Preço alterado guarda serviço/publicId, preço anterior e novo; ativação guarda situação anterior/nova; ambos registram ator e instante. Exclusão física guarda, **antes de excluir**, snapshot em `details_json` com publicId, nome e preço padrão vigente; `actor_user_id` e `occurred_at` registram usuário e hora. Não há FK do log para o serviço apagado. Soft delete com unique global manteria o nome reservado; a exclusão física libera a chave. A guarda por associação histórica e a FK restritiva dos itens ainda serão implementadas quando houver itens; não há associação hoje.
 
@@ -59,12 +71,12 @@ Auditoria implementada: eventos de criação, preço alterado, habilitação/des
 - Índices reais de consulta `(isActive, name, id)` e `(name, id)`, com busca pela chave normalizada inclusive entre inativos; a chave possui unique próprio.
 - Nome obrigatório/não vazio até 120 caracteres após limpeza, preço padrão `DECIMAL(15,2) NOT NULL` e `>= 0`. A chave normalizada ignora caixa, acentos e diferenças de espaços, mas considera pontuação; `utf8mb4_bin` protege a comparação canônica. Migration e operações foram testadas no MySQL 8 isolado.
 - Imutabilidade do nome fica no DTO/service e na revisão das operações administrativas; CHECK não compara valor antigo com novo. Nunca oferecer rename no contrato.
-- Item → serviço com FK RESTRICT na exclusão, mesmo para item retirado, permanece contrato futuro. Ainda não existe associação no schema; ao implementá-la, checar vínculo e excluir na mesma transação, com FK como defesa final. Não usar CASCADE que apague histórico.
+- Item → serviço tem FK `RESTRICT` na exclusão, mesmo para item retirado. O service também verifica o vínculo antes de excluir e retorna conflito amigável; a FK é a proteção final. Não usar CASCADE que apague histórico.
 - Desabilitado fica disponível para consulta histórica e para bloquear avulso correspondente; novos lançamentos cadastrados exigem reabilitação. Preço padrão novo afeta somente lançamentos futuros.
 
 ## 5. Itens diretamente na OS — persistência sugerida
 
-Entidade ServiceOrderBudgetItem, tabela service_order_budget_items. Não é schema Prisma pronto para aplicar.
+`ServiceOrderBudgetItem`, tabela `service_order_budget_items`, está no schema e na migration `20261015120000_service_order_budget_items`; a migration foi aplicada somente no banco isolado de validação.
 
 | Campo sugerido | Representação candidata | Regra/uso |
 | --- | --- | --- |
@@ -115,7 +127,7 @@ Concorrência entre criação de cadastro e lançamento avulso precisa de um pro
 
 ### 5.3 Precisão e limites propostos
 
-Usar aritmética decimal no Backend e strings monetárias na API, nunca ponto flutuante binário como fonte de verdade. **A escala de duas casas decimais está aprovada**; DECIMAL(15,2) para preço/custo unitários continua proposta física. Rejeitar entrada com mais de duas casas, sem arredondar silenciosamente. Quantidade INT positivo com teto técnico explícito; validar também intervalo inteiro seguro de DTO/paginação.
+Usar aritmética decimal no Backend e strings monetárias na API, nunca ponto flutuante binário como fonte de verdade. **A escala de duas casas decimais está aprovada**; preço/custo unitários usam `DECIMAL(15,2)`. Entradas com mais de duas casas são rejeitadas, sem arredondamento silencioso. Quantidade é `INT` de 1 a 999.
 
 Calcular produtos e somas em decimal com faixa mais ampla; se persistir totais históricos tipados, propor DECIMAL(25,2) ou strings decimais no JSON. Validar overflow de quantidade × preço e da soma antes de gravar. Precisão total do DECIMAL, limites e formato textual da API ainda são propostas; não reabrir a escala aprovada de duas casas nem reutilizar limites de Pessoas como regra de orçamento.
 
@@ -144,38 +156,40 @@ Custo fica em subestrutura sensível explicitamente tipada no payload persistido
 
 Na mudança para NÃO AUTORIZADO com orçamento atual, propor ampliar o DTO existente de situação com `budgetDisposition: KEEP | REMOVE` e `expectedBudgetVersion`; perguntar antes de salvar. Validar situação, composição atual e permissões, registrar mudança e, se REMOVE, retirada completa atomicamente. Se a composição mudar entre tela e envio, rejeitar conflito e pedir releitura. Manter comportamento atual quando não houver orçamento. Também permitir AGUARDANDO APROVAÇÃO DO ORÇAMENTO sem nenhum item: não criar pré-condição de composição não vazia. Revisar o no-op da rota atual quando a situação já está vigente; ele não pode retirar composição silenciosamente. Não criar endpoint público genérico para inserir eventos ou entidade de aprovação.
 
-Retirar a composição exige a **única permissão de editar orçamento**, além da permissão atual de mudar a situação; quem só muda situação não recebe edição de orçamento por consequência. Nome/canal/evidência/assinatura/motivo não são obrigatórios. Observação manual opcional no histórico é regra aprovada, mas o contrato de escrita ainda não existe e requer fatia própria; a atual GET /events não recebe escrita. A aprovação do reparo usa o evento de mudança de situação existente, sem formulário ou evento de aprovação separado.
+Retirar a composição exige a **única permissão de editar orçamento**, além da permissão atual de mudar a situação; quem só muda situação não recebe edição de orçamento por consequência. Nome/canal/evidência/assinatura/motivo não são obrigatórios. Observação manual opcional usa o contrato próprio `POST /service-orders/:publicId/notes`; não altera orçamento nem situação. A timeline `/history` combina notas ativas e eventos automáticos, enquanto `GET /events` permanece somente leitura de eventos. A aprovação do reparo usa o evento de mudança de situação existente, sem formulário ou evento de aprovação separado.
 
-## 8. Permissões — catálogo implementado e categorias futuras
+## 8. Permissões — catálogo e orçamento implementados
 
-| Código candidato | Capacidade funcional aprovada |
+| Código | Capacidade funcional |
 | --- | --- |
 | `services.manage` | ÚNICA permissão administrativa: criar, mudar preço, habilitar, desabilitar e excluir serviço nunca usado |
 | `service_orders.budget.update` | ÚNICA permissão normal de edição: incluir, editar e retirar itens, inclusive composição inteira quando aplicável |
 | `service_orders.budget.costs.read` | Visualizar custo interno da peça avulsa |
 | `service_orders.budget.costs.update` | Alterar custo interno da peça avulsa; pressupõe leitura |
 
-As quatro **categorias e sua granularidade estão aprovadas**. `services.manage` já foi acrescentada ao catálogo fonte de permissões do Backend, mas não foi executado seed no banco principal; os três códigos de orçamento/custo acima ainda são propostas. A separação funcional visualizar/alterar custo já está aprovada. Política central sugerida: `costs.update` pressupõe capacidade efetiva `costs.read`, sem conceder edição geral por consequência; escrita de custo exige também `budget.update`. Concessão/revogação deve preservar essa dependência. Administrador segue política central existente.
+As quatro permissões da tabela estão no catálogo fonte do Backend; permissões de custo foram seedadas somente no banco isolado de validação. Alterar custo exige leitura de custo e edição do orçamento. Administrador segue a política central existente.
 
-Não criar permissão de leitura do orçamento nem permissão separada de preço cobrado. `service_orders.read` dará leitura de itens, descrições, quantidades, valores cobrados e total atual, mas não do custo; histórico usa `service_orders.events.read` e mutação da situação usa `service_orders.situation.update`. Consulta administrativa do catálogo já usa `services.manage`; a consulta auxiliar futura de serviços ativos para a OS usará `service_orders.budget.update` e não permitirá administrar catálogo. O guard atual exige TODAS as permissões declaradas: não modelar “manage OU budget.update” como uma chamada simples a `@RequirePermissions`. Administrador segue a política central. Apenas a permissão do catálogo foi adicionada à fonte nesta missão; nenhum seed foi executado.
+Não criar permissão de leitura do orçamento nem permissão separada de preço cobrado. `service_orders.read` dá leitura dos itens e valores cobrados, mas não do custo; histórico usa `service_orders.events.read`. A consulta auxiliar de serviços ativos para OS usa `service_orders.budget.update`; não permite administrar catálogo. As permissões implementadas são `service_orders.budget.update`, `service_orders.budget.costs.read` e `service_orders.budget.costs.update`; Administrador segue a política central.
 
-## 9. API e DTOs do catálogo; itens propostos
+## 9. API e DTOs implementados
 
-Todas as rotas abaixo sob /api/v1, sessão obrigatória e CSRF em mutações. Respostas públicas com publicId, valores monetários string e datas ISO; nunca ids internos. As rotas administrativas de `/services` foram implementadas com page/pageSize obrigatórios, máximo 100 e deslocamento seguro; as rotas de itens e `/services/available` continuam propostas.
+Todas as rotas abaixo sob /api/v1 exigem sessão e mutações exigem CSRF. Respostas públicas usam publicId, valores monetários string e datas ISO; nunca ids internos. As rotas de itens e a consulta de serviços disponíveis estão implementadas; a consulta chama-se `/services/available-for-order`.
 
 | Método/rota candidata | Corpo/query proposto | Finalidade |
 | --- | --- | --- |
 | GET /services | page, pageSize, search, status=active/inactive/all | Lista administrativa implementada; exige `services.manage`, active por padrão |
-| GET /services/available | page, pageSize, search | Lookup de ativos para editor da OS; exige `service_orders.budget.update` |
+| GET /services/available-for-order | — | Lookup alfabético de serviços ativos; exige `service_orders.budget.update` |
 | GET /services/:publicId | — | Detalhe cadastral administrativo |
 | POST /services | name, defaultPrice | Criar, nome definitivo |
 | PATCH /services/:publicId | `defaultPrice` OU `isActive`, mais `expectedVersion` | Uma ação por chamada: preço ou habilitar/desabilitar; rejeitar name |
-| DELETE /services/:publicId | expectedVersion obrigatório na query | Exclusão implementada; proteção por vínculo histórico depende dos itens futuros |
-| GET /service-orders/:publicId/budget-items | page, pageSize | Exige `service_orders.read`; itens atuais em ordem de inclusão, total de TODA composição e versão |
-| POST /service-orders/:publicId/budget-items | união discriminada descrita abaixo | Criar item |
-| PATCH /service-orders/:publicId/budget-items/:itemPublicId | quantity, unitPrice, description avulsa, unitCost se permitido, expectedVersion | Editar campos aplicáveis |
-| POST /service-orders/:publicId/budget-items/:itemPublicId/remove | expectedVersion | Retirada lógica, evento e novo total; sem DELETE físico |
-| PATCH /service-orders/:publicId/operational-situation (existente) | situação + budgetDisposition/expectedBudgetVersion propostos | Manter/retirar orçamento no não autorizado |
+| DELETE /services/:publicId | expectedVersion obrigatório na query | Exclusão implementada; vínculo a qualquer item histórico bloqueia a exclusão |
+| GET /service-orders/:publicId/budget-items | — | Exige `service_orders.read`; itens ativos em ordem de inclusão, total atual e indicador `canReadCosts` |
+| POST /service-orders/:publicId/budget-items/service | servicePublicId, quantity, unitPrice opcional | Lançar serviço cadastrado ativo |
+| POST /service-orders/:publicId/budget-items/manual-labor | description, quantity, unitPrice | Lançar mão de obra avulsa |
+| POST /service-orders/:publicId/budget-items/manual-part | description, quantity, unitPrice, unitCost opcional/nulo | Lançar peça avulsa |
+| PATCH /service-orders/:publicId/budget-items/:itemPublicId | expectedVersion e campos editáveis | Editar campos aplicáveis |
+| DELETE /service-orders/:publicId/budget-items/:itemPublicId | — | Retirada lógica, evento e novo total; sem DELETE físico |
+| PATCH /service-orders/:publicId/operational-situation (existente) | operationalSituation, `withdrawBudget` opcional | Manter/retirar orçamento ao mudar para NÃO AUTORIZADO |
 | GET /service-orders/:publicId/events (existente) | page, pageSize | Histórico allowlisted, estendido com filtragem de custo |
 
 **Contrato implementado do catálogo:** `PATCH /services/:publicId` aceita `defaultPrice` OU `isActive`, exatamente um campo mutável por requisição, além de `expectedVersion`; `name` nunca é mutável. Operação que não altera o valor retorna o cadastro sem nova auditoria nem incremento de versão; mudança efetiva registra evento. `services.manage` governa todas as rotas administrativas. A listagem é ordenada por nome exibido e id, com paginação obrigatória até 100 e filtro ativo por padrão. `/services/available` continua futura, para a missão de itens de orçamento.
@@ -206,27 +220,23 @@ Detalhe da OS: seção Orçamento com linhas individuais na ordem de inclusão, 
 
 Sem custo.read não montar campos, colunas ou tooltips de custo; com leitura mas sem alteração, somente consulta. OS FECHADA/CANCELADA em leitura. Confirmar retirada e permitir consultar histórico, sem “Restaurar”. Na situação NÃO AUTORIZADO, perguntar manter/retirar; sem justificativa obrigatória. Resolver 409 com releitura preservando contexto, sem sobrescrever silenciosamente.
 
-## 12. Testes futuros e validação operacional
+## 12. Validações executadas
 
-Nenhum teste funcional será executado nesta tarefa documental.
+As migrations do catálogo e dos itens foram aplicadas no banco isolado `gestor_os_opening_test`, MySQL 8.0.46, e `prisma migrate status` confirmou o histórico atualizado nesse banco. A inspeção física confirmou as tabelas e os três índices funcionais únicos.
 
-- Cadastro: nome obrigatório/imutável em PATCH, normalização, unicidade entre ativos E desabilitados, reabilitação da mesma linha, preço padrão obrigatório/zero aceito/negativo rejeitado, mudança sem propagação retroativa, exclusão real sem associação liberando nome versus vínculo histórico retirado impedindo exclusão, habilitação/desabilitação e auditoria administrativa de preço/ativação/exclusão com ator/instante sem justificativa.
-- Itens: os dois tipos da fatia, as duas origens do serviço sem quarto tipo, múltiplas linhas diferentes, duplicidade de serviço com conflito/destaque sem incremento automático, avulsos sem duplicata em cada tipo, bloqueio por cadastro ativo/inativo na criação/edição de avulso, item cadastrado já lançado ainda editável após desabilitação, ausência de sinônimos/fuzzy, peças sem conversão/estoque e limitação temporal documentada enquanto o catálogo de peças inexiste.
-- Quantidade/valores: 1 inicial na tela, zero/negativo/fração rejeitados na quantidade, cobrança zero aceita, monetários com duas casas, cálculos exatos sem float nem total informado pelo cliente, custo null diferente de zero, custo negativo rejeitado, serviço sem custo, total atual só com itens ativos e overflow/limites conforme contrato final.
-- Segurança: 401/403/CSRF, uma só permissão administrativa para todas as mutações do cadastro, leitura do orçamento por `service_orders.read` sem custo, custo ausente de consulta/resposta de mutação/histórico aninhado/erros/documento do cliente para quem não pode ver; alteração de custo pressupõe leitura e edição de orçamento; nome/total/ator manipulados rejeitados.
-- Ciclo: AGUARDANDO APROVAÇÃO permitido sem itens, editar após autorizado sem mudar situação/reaprovar nem justificar; FECHADA/CANCELADA bloqueiam mutações; remover item preserva snapshot e retira do total; retirar tudo conserva total/itens históricos; novo ciclo manual sem restauração, ordenado pela inclusão.
-- Transações/concorrência: dois lançamentos iguais, editar/retirar, mudar situação/retirar todos com nova linha concorrente, fechar/editar, excluir cadastro/associar, criar cadastro/avulso; falha de evento reverte dados.
-- Frontend: permissão e estados carregando/vazio/erro, paginação/total geral independente da página, preço sugerido editável, nome travado, custo invisível/readonly/editável, escolha não autorizado, histórico seguro e conflito.
-- Operacional futura: HTTP e navegador com banco descartável explicitamente identificado; conferir eventos, saldos inalterados e ausência de financeiro; nunca usar principal por inferência. Migration futura deve testar FKs, CHECKs e uniques condicionais no MySQL isolado antes de autorização de deploy.
+- Backend: `prisma validate`, `prisma generate`, teste unitário direto (9/9) e `npx tsc --noEmit` passaram. `npm run build` passou durante a implementação; a repetição final encontrou `EPERM` ao tentar limpar `backend/dist` enquanto processos Node locais estavam ativos. Não foram encerrados processos nem apagados artefatos manualmente.
+- Frontend: 109 testes passaram em seis arquivos; typecheck e build de produção passaram.
+- HTTP autenticado no banco isolado: leitura vazia, inclusão cadastrada e cópia do preço, serviço desabilitado, edição, mão de obra e peças, normalização/duplicidade, CSRF, custo nulo/zero/oculto/preservado, remoção e relançamento, concorrência de inclusão, bloqueio de exclusão de serviço vinculado, retirada integral com NÃO AUTORIZADO e snapshots de histórico. O script remove os registros descartáveis ao terminar.
+- Nenhuma chamada usou o banco principal `gestor_os`; não houve estoque nem lançamento financeiro.
 
 ## 13. Decisões pendentes e ordem recomendada
 
 1. A duplicidade de descrições avulsas foi decidida: separada por categoria, permitindo a mesma descrição entre categorias.
-2. Revisão do contrato proposto dos itens: códigos técnicos das três permissões futuras, rotas, DTOs, erros, consulta auxiliar de serviços, transação de manter/retirar e edição concorrente. `services.manage` já foi implementada.
-3. Aprovação física dos itens: comprimentos e máximos de quantidade/valores, precisão DECIMAL, collation e garantia concorrente. O catálogo já usa nome até 120, preço DECIMAL(15,2) e atividade ativa por padrão; esses parâmetros não permanecem pendentes para ele.
+2. Os códigos técnicos das permissões, rotas, DTOs e modelo físico dos itens foram aprovados e implementados nesta fatia.
+3. Os limites físicos aplicados são quantidade 1–999, valor/custo unitários até 999999.99 e `DECIMAL(15,2)`; as chaves normalizadas usam comparação binária e unicidade condicional para itens ativos.
 4. Limitação temporal aceita no desenho: sem catálogo/estoque consultável na primeira fatia, não há como conferir peça avulsa equivalente; a regra definitiva será exigida quando houver catálogo. Detalhar futuramente o tratamento de peças avulsas anteriores, sem alterar registros por inferência.
-5. Fatia futura de observação manual opcional no histórico da OS; hoje há apenas eventos automáticos e GET. Não criar aprovação estruturada nem endpoint genérico por inferência.
-6. Implementar no futuro a consulta de seleção com somente serviços ativos em ordem alfabética; serviço desabilitado já usado permanecerá visível/editável na OS existente. Não há `/services/available` neste recorte.
+5. Observação manual opcional já usa `/notes`; não criar aprovação estruturada nem endpoint genérico por inferência.
+6. A consulta de seleção `GET /services/available-for-order` retorna somente serviços ativos em ordem alfabética e exige `service_orders.budget.update`; serviço desabilitado já usado permanece visível/editável na OS existente.
 7. PDF/impressão, envio, validade e aprovação parcial continuam sem desenho aprovado. Não impor novo aceite automático. Estoque, fiscal, faturamento e desconto no fechamento seguem posteriores.
 
-Próxima tarefa recomendada: revisar o contrato técnico dos itens simplificados e, depois, aprovar sua migration própria. A ausência temporal do catálogo de peças deve continuar visível no escopo e nos critérios da entrega.
+Próxima tarefa recomendada: auditoria técnica final e versionamento local. Aplicar as migrations no banco principal exige etapa separada e autorização explícita. A ausência temporal do catálogo de peças deve continuar visível no escopo e nos critérios da entrega.

@@ -67,14 +67,16 @@ it("navega da listagem para o detalhe sem chamar endpoints mutáveis", async () 
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: [order], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }))
-    .mockResolvedValueOnce(response({ data: order }));
+    .mockResolvedValueOnce(response({ data: order }))
+    .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))
+    .mockResolvedValueOnce(response({ data: [] }));
   vi.stubGlobal("fetch", fetchMock);
   render(<App />);
 
   expect(await screen.findByText("OS-000128")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Ver detalhes/ }));
   expect(await screen.findByRole("heading", { name: "OS-000128" })).toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
   expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
 });
 
@@ -170,7 +172,9 @@ it("confirma a abertura e navega ao detalhe, que busca a OS novamente por public
     .mockResolvedValueOnce(response({ data: identity }))
     .mockResolvedValueOnce(response({ data: opening }))
     .mockResolvedValueOnce(response({ data: { publicId: confirmedOrder.publicId, visibleNumber: confirmedOrder.visibleNumber, macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }))
-    .mockResolvedValueOnce(response({ data: confirmedOrder }));
+    .mockResolvedValueOnce(response({ data: confirmedOrder }))
+    .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))
+    .mockResolvedValueOnce(response({ data: [] }));
   vi.stubGlobal("fetch", fetchMock);
   render(<App />);
 
@@ -182,6 +186,8 @@ it("confirma a abertura e navega ao detalhe, que busca a OS novamente por public
     "/api/v1/service-orders/openings/current",
     `/api/v1/service-orders/openings/${openingPublicId}/confirm`,
     `/api/v1/service-orders/${confirmedOrder.publicId}`,
+    `/api/v1/service-orders/${confirmedOrder.publicId}/budget-items`,
+    "/api/v1/services/available-for-order",
   ]);
   expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
     method: "POST",

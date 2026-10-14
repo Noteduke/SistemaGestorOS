@@ -61,10 +61,11 @@ export class ServiceOrderHistoryService {
         serviceOrderId: order.id,
         ...(noteCursorWhere(cursor) ? { AND: [noteCursorWhere(cursor)!] } : {}),
       };
-      const [events, notes, canDeleteAny] = await Promise.all([
+      const [events, notes, canDeleteAny, canReadBudgetCosts] = await Promise.all([
         tx.serviceOrderEvent.findMany({ where: eventWhere, select: eventSelect, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: query.pageSize + 1 }),
         tx.serviceOrderNote.findMany({ where: noteWhere, select: noteSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: query.pageSize + 1 }),
         actor.isAdmin ? Promise.resolve(true) : tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.notes.delete_any" } }, select: { userId: true } }).then(Boolean),
+        actor.isAdmin ? Promise.resolve(true) : tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.budget.costs.read" } }, select: { userId: true } }).then(Boolean),
       ]);
       const rows: Row[] = [
         ...events.map((event) => ({ kind: "SYSTEM_EVENT" as const, position: { occurredAt: event.occurredAt, kind: "SYSTEM_EVENT" as const, id: event.id }, event })),
@@ -80,7 +81,7 @@ export class ServiceOrderHistoryService {
           actor: row.event.actor,
           eventType: row.event.eventType,
           serviceOrderNumber: formatServiceOrderNumber(row.event.numberValue),
-          payload: sanitizeServiceOrderEventPayload(row.event.eventType, row.event.payload),
+          payload: sanitizeServiceOrderEventPayload(row.event.eventType, row.event.payload, canReadBudgetCosts),
         } : {
           kind: "MANUAL_NOTE" as HistoryKind,
           publicId: row.note.publicId,

@@ -185,7 +185,7 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 Item controlado em estoque e comercializado.
 
 ## Orçamento da OS
-Composição de itens vinculados diretamente à Ordem de Serviço. Não constitui entidade, fluxo ou status próprio; seu andamento acompanha a situação operacional da OS. Nesta fase futura não cria financeiro nem movimenta estoque por inclusão de item orçado.
+Composição de itens vinculados diretamente à Ordem de Serviço. Não constitui entidade, fluxo ou status próprio; seu andamento acompanha a situação operacional da OS. A primeira fatia implementada inclui Serviço/Mão de obra e Peça avulsa; inclusão não cria financeiro nem movimenta estoque. Peça de estoque permanece futura.
 
 ## Tipo de item de orçamento
 Uma das três categorias aprovadas: serviço/mão de obra, peça avulsa ou peça do estoque. Outro não é categoria de orçamento; componente de consumo técnico fica fora dos itens cobrados.
@@ -200,7 +200,7 @@ Item lançado manualmente na OS para descrição, orçamento e cobrança, sem v�
 Lançamento de peça de estoque em orçamento de OS. Não altera estoque nem reduz disponibilidade; pode representar peça física ou previsão de compra vinculada ao estoque. Se o item/orçamento/OS for recusado ou cancelado enquanto permanecer ORÇADA, não há movimento de estoque: atualiza-se o status do lançamento e preserva-se o histórico. Peça avulsa não usa este status.
 
 ## Custo interno da peça avulsa
-Valor unitário opcional e não negativo, separado do valor cobrado: NULL é desconhecido; zero é conhecido e efetivamente zero. Custo total é quantidade × custo unitário quando informado. Ver/alterar são capacidades independentes; alteração pressupõe visualização. API/histórico protegem valores e documentos do cliente nunca os incluem. Serviço/Mão de obra não tem custo interno nesta fatia; códigos técnicos de permissão ainda são propostos.
+Valor unitário opcional e não negativo, separado do valor cobrado: NULL é desconhecido; zero é conhecido e efetivamente zero. Custo total é quantidade × custo unitário quando informado. Ver/alterar são capacidades independentes; alteração pressupõe visualização. API e histórico omitem custo sem `service_orders.budget.costs.read`; alterar também exige `service_orders.budget.costs.update` e `service_orders.budget.update`. Serviço/Mão de obra não tem custo interno nesta fatia.
 
 ## Alteração de valor após aprovação
 Alteração do valor cobrado de um dos três tipos aprovados de item da OS após a aprovação do orçamento. Em OS ABERTA, usuário com permissão de editar orçamento pode fazer a mudança sem exigir nova aprovação do cliente, sem mudar automaticamente a situação e sem motivo obrigatório; FECHADA/CANCELADA admite só consulta. O histórico registra usuário, data/hora, OS, item, tipo, campo e valores anterior/novo. Outro não é tipo de item de orçamento.
@@ -302,7 +302,7 @@ Registro único para eventos administrativos e de segurança. No primeiro recort
 
 ## Serviço cadastrado e mão de obra avulsa
 
-Origens distintas de Serviço/Mão de obra, sem novo tipo de item. O Cadastro de Serviços já possui schema, API e tela administrativa; sua migration foi validada somente no banco isolado e permanece pendente no principal. Nome imutável de até 120 caracteres após limpeza preserva caixa, acentos e pontuação na exibição. A chave única entre ativos e desabilitados ignora caixa, acentos e diferenças de espaços, mas considera pontuação; reabilitar o registro existente permite reutilizá-lo. Preço padrão obrigatório com duas casas admite zero e pode ser alterado mesmo quando desabilitado. Serviço nunca associado pode ser excluído fisicamente com auditoria e liberação do nome; o vínculo histórico com OS e seu bloqueio ainda dependem da futura implementação dos itens. Lançamento cadastrado conserva nome e valor próprio da OS. Mão de obra avulsa terá descrição livre obrigatória até 255 caracteres e não poderá corresponder a serviço cadastrado, mesmo desabilitado; itens avulsos ainda não foram implementados.
+Origens distintas de Serviço/Mão de obra, sem novo tipo de item. O Cadastro de Serviços e a inclusão de itens estão implementados; as migrations foram validadas somente no banco isolado e permanecem pendentes no principal. Nome imutável de até 120 caracteres após limpeza preserva caixa, acentos e pontuação na exibição. A chave única entre ativos e desabilitados ignora caixa, acentos e diferenças de espaços, mas considera pontuação. Preço padrão obrigatório com duas casas admite zero. Lançamento cadastrado conserva nome e valor próprio da OS; mudança posterior do preço padrão não altera itens existentes. Mão de obra avulsa tem descrição obrigatória até 255 caracteres e não pode corresponder a serviço cadastrado, mesmo desabilitado.
 
 ## Retirada do orçamento atual
 

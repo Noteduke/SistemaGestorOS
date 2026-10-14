@@ -162,6 +162,14 @@ export function App() {
             publicId={route.publicId}
             csrfToken={session.identity.csrfToken}
             canCreateNote={session.identity.isAdmin || session.identity.permissions.includes("service_orders.update")}
+            canReadBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.read")}
+            canEditBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.update")}
+            canReadBudgetCosts={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.costs.read")}
+            canUpdateBudgetCosts={session.identity.isAdmin || (
+              session.identity.permissions.includes("service_orders.budget.update")
+              && session.identity.permissions.includes("service_orders.budget.costs.read")
+              && session.identity.permissions.includes("service_orders.budget.costs.update")
+            )}
             section={route.section}
             onSectionChange={changeDetailSection}
             onBack={() => navigate("/service-orders")}

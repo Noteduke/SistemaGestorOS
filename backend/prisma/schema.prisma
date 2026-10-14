@@ -149,6 +149,9 @@ model User {
   equipmentOwnershipChanges     EquipmentOwnership[]     @relation("EquipmentOwnershipActor")
   createdCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogCreator")
   updatedCatalogServices        ServiceCatalog[]         @relation("ServiceCatalogUpdater")
+  createdBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemCreator")
+  updatedBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemUpdater")
+  removedBudgetItems            ServiceOrderBudgetItem[] @relation("BudgetItemRemover")
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -235,25 +238,33 @@ model AdminAuditLog {
 }
 
 model ServiceCatalog {
-  id              Int      @id @default(autoincrement())
-  publicId        String   @unique @default(uuid()) @map("public_id") @db.Char(36)
-  name            String   @db.VarChar(120)
-  normalizedName  String   @unique @map("normalized_name") @db.VarChar(191)
-  defaultPrice    Decimal  @map("default_price") @db.Decimal(15, 2)
-  isActive        Boolean  @default(true) @map("is_active")
-  version         Int      @default(1)
-  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
-  createdByUserId Int      @map("created_by_user_id")
-  updatedByUserId Int      @map("updated_by_user_id")
-  createdBy       User     @relation("ServiceCatalogCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  updatedBy       User     @relation("ServiceCatalogUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id              Int                      @id @default(autoincrement())
+  publicId        String                   @unique @default(uuid()) @map("public_id") @db.Char(36)
+  name            String                   @db.VarChar(120)
+  normalizedName  String                   @unique @map("normalized_name") @db.VarChar(191)
+  defaultPrice    Decimal                  @map("default_price") @db.Decimal(15, 2)
+  isActive        Boolean                  @default(true) @map("is_active")
+  version         Int                      @default(1)
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId Int                      @map("created_by_user_id")
+  updatedByUserId Int                      @map("updated_by_user_id")
+  createdBy       User                     @relation("ServiceCatalogCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy       User                     @relation("ServiceCatalogUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  budgetItems     ServiceOrderBudgetItem[]
 
   @@index([isActive, name, id])
   @@index([name, id])
   @@index([createdByUserId])
   @@index([updatedByUserId])
   @@map("service_catalog")
+}
+
+// Technical mutex rows serialize cross-table name checks through the surrounding transaction.
+model ServiceOrderBudgetNameLock {
+  normalizedName String @id @map("normalized_name") @db.VarChar(255)
+
+  @@map("service_order_budget_name_locks")
 }
 
 model PersonAddress {
@@ -369,6 +380,20 @@ enum ServiceOrderMacroStatus {
   @@map("service_order_macro_status")
 }
 
+enum ServiceOrderBudgetItemType {
+  SERVICE_LABOR
+  MANUAL_PART
+
+  @@map("service_order_budget_item_type")
+}
+
+enum ServiceOrderBudgetItemOrigin {
+  REGISTERED
+  MANUAL
+
+  @@map("service_order_budget_item_origin")
+}
+
 enum ServiceOrderOperationalSituation {
   TRIAGE                        @map("TRIAGEM")
   AWAITING_EVALUATION_BUDGET    @map("AGUARDANDO AVALIAÇÃO/ORÇAMENTO")
@@ -475,6 +500,7 @@ model ServiceOrder {
   events           ServiceOrderEvent[]
   notes            ServiceOrderNote[]
   ownershipEvents  EquipmentOwnership[]
+  budgetItems      ServiceOrderBudgetItem[]
 
   @@index([macroStatus, operationalSituation, openedAt])
   @@index([customerId, openedAt])
@@ -536,4 +562,37 @@ model ServiceOrderNote {
   @@index([serviceOrderId, createdAt, id])
   @@index([authorUserId])
   @@map("service_order_notes")
+}
+
+model ServiceOrderBudgetItem {
+  id                    Int                          @id @default(autoincrement())
+  publicId              String                       @unique @default(uuid()) @map("public_id") @db.Char(36)
+  serviceOrderId        Int                          @map("service_order_id")
+  itemType              ServiceOrderBudgetItemType   @map("item_type")
+  origin                ServiceOrderBudgetItemOrigin
+  serviceCatalogId      Int?                         @map("service_catalog_id")
+  description           String                       @db.VarChar(255)
+  normalizedDescription String?                      @map("normalized_description") @db.VarChar(255)
+  quantity              Int                          @default(1)
+  unitPrice             Decimal                      @map("unit_price") @db.Decimal(15, 2)
+  unitCost              Decimal?                     @map("unit_cost") @db.Decimal(15, 2)
+  version               Int                          @default(1)
+  createdAt             DateTime                     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId       Int                          @map("created_by_user_id")
+  updatedByUserId       Int                          @map("updated_by_user_id")
+  removedAt             DateTime?                    @map("removed_at") @db.DateTime(3)
+  removedByUserId       Int?                         @map("removed_by_user_id")
+  serviceOrder          ServiceOrder                 @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceCatalog        ServiceCatalog?              @relation(fields: [serviceCatalogId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy             User                         @relation("BudgetItemCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy             User                         @relation("BudgetItemUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  removedBy             User?                        @relation("BudgetItemRemover", fields: [removedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([serviceOrderId, removedAt, id])
+  @@index([serviceCatalogId])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+  @@index([removedByUserId])
+  @@map("service_order_budget_items")
 }
