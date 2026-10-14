@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { ProductCatalogPage } from "./ProductCatalogPage";
+import type { CatalogProduct } from "../../api/products";
 
-const product = {
+const product: CatalogProduct = {
   publicId: "123e4567-e89b-42d3-a456-426614174000",
   internalCode: "P-1",
   description: "PLACA MÃE",
   category: "PART" as const,
+  salePrice: null,
   isActive: true,
   version: 1,
   createdAt: "2026-10-14T10:00:00.000Z",
@@ -53,7 +55,7 @@ describe("ProductCatalogPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/products", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ internalCode: "P-2", description: "Nova peça", category: "RESALE_GOOD" }),
+      body: JSON.stringify({ internalCode: "P-2", description: "Nova peça", category: "RESALE_GOOD", salePrice: null }),
       headers: expect.objectContaining({ "X-CSRF-Token": "csrf-test" }),
     })));
     expect(await screen.findByText("Produto cadastrado.")).toBeInTheDocument();
@@ -72,11 +74,28 @@ describe("ProductCatalogPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
       method: "PATCH",
-      body: JSON.stringify({ internalCode: "P-1", description: "Placa revisada", category: "PART", expectedVersion: 1 }),
+      body: JSON.stringify({ internalCode: "P-1", description: "Placa revisada", category: "PART", salePrice: null, expectedVersion: 1 }),
     })));
     fireEvent.click(await screen.findByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
       method: "PATCH", body: JSON.stringify({ isActive: false, expectedVersion: 1 }),
     })));
+  });
+
+  it("não apresenta custo para products.manage e mostra custo/lucro somente no modo Administrador", async () => {
+    const priced = { ...product, salePrice: "0.00", acquisitionCost: "0.00", grossProfitEstimate: "0.00" };
+    const fetchMock = vi.fn().mockResolvedValue(response(listing([priced])));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<ProductCatalogPage csrfToken="csrf-test" />);
+    await screen.findByText("PLACA MÃE");
+    expect(screen.queryByLabelText("Custo de aquisição (opcional)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Lucro bruto estimado" })).not.toBeInTheDocument();
+    unmount();
+
+    render(<ProductCatalogPage csrfToken="csrf-test" canManageCosts />);
+    expect(await screen.findByText("PLACA MÃE")).toBeInTheDocument();
+    expect(screen.getByLabelText("Custo de aquisição (opcional)")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Lucro bruto estimado" })).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 0,00").length).toBeGreaterThan(0);
   });
 });

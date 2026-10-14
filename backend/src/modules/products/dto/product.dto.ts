@@ -9,13 +9,15 @@ export type ProductListQuery = {
   search?: string;
   category?: ProductCategory;
 };
-export type CreateProductInput = { internalCode: string | null; description: string; category: ProductCategory };
+export type CreateProductInput = { internalCode: string | null; description: string; category: ProductCategory; salePrice: string | null; acquisitionCost?: string | null };
 export type UpdateProductInput = {
   expectedVersion: number;
   internalCode?: string | null;
   description?: string;
   category?: ProductCategory;
   isActive?: boolean;
+  salePrice?: string | null;
+  acquisitionCost?: string | null;
 };
 
 function object(value: unknown): Record<string, unknown> {
@@ -44,6 +46,15 @@ function parseCategory(value: unknown): ProductCategory {
   return value;
 }
 
+export function parseProductMoney(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,12})(?:\.\d{1,2})?$/u.test(value)) {
+    throw new BadRequestException({ code: "INVALID_PRODUCT_MONEY", message: "Preço e custo devem ser valores decimais não negativos, com até duas casas." });
+  }
+  const [whole, fraction = ""] = value.split(".");
+  return `${whole}.${fraction.padEnd(2, "0")}`;
+}
+
 export function parseProductListQuery(query: Record<string, unknown>): ProductListQuery {
   onlyFields(query, ["page", "pageSize", "status", "search", "category"]);
   const page = positiveInteger(query.page, "page");
@@ -69,17 +80,19 @@ export function parseProductListQuery(query: Record<string, unknown>): ProductLi
 
 export function parseCreateProduct(body: unknown): CreateProductInput {
   const input = object(body);
-  onlyFields(input, ["internalCode", "description", "category"]);
+  onlyFields(input, ["internalCode", "description", "category", "salePrice", "acquisitionCost"]);
   return {
     internalCode: cleanProductCode(input.internalCode),
     description: cleanProductDescription(input.description),
     category: parseCategory(input.category),
+    salePrice: Object.hasOwn(input, "salePrice") ? parseProductMoney(input.salePrice) : null,
+    ...(Object.hasOwn(input, "acquisitionCost") ? { acquisitionCost: parseProductMoney(input.acquisitionCost) } : {}),
   };
 }
 
 export function parseUpdateProduct(body: unknown): UpdateProductInput {
   const input = object(body);
-  onlyFields(input, ["expectedVersion", "internalCode", "description", "category", "isActive"]);
+  onlyFields(input, ["expectedVersion", "internalCode", "description", "category", "isActive", "salePrice", "acquisitionCost"]);
   const expectedVersion = positiveInteger(input.expectedVersion, "expectedVersion");
   const result: UpdateProductInput = { expectedVersion };
   if (Object.hasOwn(input, "internalCode")) result.internalCode = cleanProductCode(input.internalCode);
@@ -89,6 +102,8 @@ export function parseUpdateProduct(body: unknown): UpdateProductInput {
     if (typeof input.isActive !== "boolean") throw new BadRequestException({ code: "INVALID_PRODUCT_STATUS", message: "isActive deve ser booleano." });
     result.isActive = input.isActive;
   }
+  if (Object.hasOwn(input, "salePrice")) result.salePrice = parseProductMoney(input.salePrice);
+  if (Object.hasOwn(input, "acquisitionCost")) result.acquisitionCost = parseProductMoney(input.acquisitionCost);
   if (Object.keys(result).length === 1) throw new BadRequestException({ code: "EMPTY_PRODUCT_UPDATE", message: "Informe ao menos um campo para alterar." });
   return result;
 }

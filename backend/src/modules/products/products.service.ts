@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type Product } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { CreateProductInput, ProductListQuery, UpdateProductInput } from "./dto/product.dto.js";
+import type { AuthenticatedUser } from "../auth/auth.types.js";
 
 type Tx = Prisma.TransactionClient;
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -11,17 +12,33 @@ function assertPublicId(publicId: string): void {
   if (!PUBLIC_ID.test(publicId)) throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." });
 }
 
-function view(product: Product) {
-  return {
+function view(product: Product, canReadCost: boolean) {
+  const result = {
     publicId: product.publicId,
     internalCode: product.internalCode,
     description: product.description,
     category: product.category,
+    salePrice: product.salePrice?.toFixed(2) ?? null,
     isActive: product.isActive,
     version: product.version,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
   };
+  if (!canReadCost) return result;
+  const acquisitionCost = product.acquisitionCost?.toFixed(2) ?? null;
+  return {
+    ...result,
+    acquisitionCost,
+    grossProfitEstimate: product.salePrice !== null && product.acquisitionCost !== null
+      ? product.salePrice.sub(product.acquisitionCost).toFixed(2)
+      : null,
+  };
+}
+
+function assertCostAccess(actor: AuthenticatedUser, input: UpdateProductInput | CreateProductInput): void {
+  if (input.acquisitionCost !== undefined && !actor.isAdmin) {
+    throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Somente Administrador pode alterar o custo de aquisição de Produto nesta etapa." });
+  }
 }
 
 function notFound(): NotFoundException {
@@ -59,7 +76,7 @@ async function lockProduct(tx: Tx, publicId: string): Promise<Product> {
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: ProductListQuery) {
+  async list(query: ProductListQuery, actor: AuthenticatedUser) {
     const where: Prisma.ProductWhereInput = {
       ...(query.status === "active" ? { isActive: true } : {}),
       ...(query.status === "inactive" ? { isActive: false } : {}),
@@ -79,19 +96,20 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
     return {
-      data: products.map(view),
+      data: products.map((product) => view(product, actor.isAdmin)),
       pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
     };
   }
 
-  async get(publicId: string) {
+  async get(publicId: string, actor: AuthenticatedUser) {
     assertPublicId(publicId);
     const product = await this.prisma.product.findUnique({ where: { publicId } });
     if (!product) throw notFound();
-    return { data: view(product) };
+    return { data: view(product, actor.isAdmin) };
   }
 
-  async create(input: CreateProductInput, actorUserId: number) {
+  async create(input: CreateProductInput, actor: AuthenticatedUser) {
+    assertCostAccess(actor, input);
     try {
       const product = await this.prisma.$transaction(async (tx) => {
         const created = await tx.product.create({
@@ -99,29 +117,32 @@ export class ProductsService {
             internalCode: input.internalCode,
             description: input.description,
             category: input.category,
-            createdByUserId: actorUserId,
-            updatedByUserId: actorUserId,
+            salePrice: input.salePrice === null ? null : new Prisma.Decimal(input.salePrice),
+            acquisitionCost: input.acquisitionCost == null ? null : new Prisma.Decimal(input.acquisitionCost),
+            createdByUserId: actor.id,
+            updatedByUserId: actor.id,
           },
         });
         await tx.adminAuditLog.create({
           data: {
             eventCode: "PRODUCT_CREATED",
-            actorUserId,
+            actorUserId: actor.id,
             detailsJson: {
               productPublicId: created.publicId,
-              after: { internalCode: created.internalCode, description: created.description, category: created.category, isActive: created.isActive },
+              after: { internalCode: created.internalCode, description: created.description, category: created.category, salePrice: created.salePrice?.toFixed(2) ?? null, acquisitionCost: created.acquisitionCost?.toFixed(2) ?? null, isActive: created.isActive },
             },
           },
         });
         return created;
       }, TX_OPTIONS);
-      return { data: view(product) };
+      return { data: view(product, actor.isAdmin) };
     } catch (error) {
       return mapWriteError(error);
     }
   }
 
-  async update(publicId: string, input: UpdateProductInput, actorUserId: number) {
+  async update(publicId: string, input: UpdateProductInput, actor: AuthenticatedUser) {
+    assertCostAccess(actor, input);
     assertPublicId(publicId);
     try {
       const product = await this.prisma.$transaction(async (tx) => {
@@ -130,7 +151,7 @@ export class ProductsService {
 
         const before: Record<string, Prisma.InputJsonValue | null> = {};
         const after: Record<string, Prisma.InputJsonValue | null> = {};
-        const data: Prisma.ProductUpdateInput = { updatedBy: { connect: { id: actorUserId } } };
+        const data: Prisma.ProductUpdateInput = { updatedBy: { connect: { id: actor.id } } };
         const addChange = (field: string, oldValue: Prisma.InputJsonValue | null, newValue: Prisma.InputJsonValue | null, assign: () => void) => {
           if (oldValue === newValue) return;
           before[field] = oldValue;
@@ -142,6 +163,14 @@ export class ProductsService {
         if (input.description !== undefined) addChange("description", current.description, input.description, () => { data.description = input.description; });
         if (input.category !== undefined) addChange("category", current.category, input.category, () => { data.category = input.category; });
         if (input.isActive !== undefined) addChange("isActive", current.isActive, input.isActive, () => { data.isActive = input.isActive; });
+        if (input.salePrice !== undefined) {
+          const value = input.salePrice;
+          addChange("salePrice", current.salePrice?.toFixed(2) ?? null, value, () => { data.salePrice = value === null ? null : new Prisma.Decimal(value); });
+        }
+        if (input.acquisitionCost !== undefined) {
+          const value = input.acquisitionCost;
+          addChange("acquisitionCost", current.acquisitionCost?.toFixed(2) ?? null, value, () => { data.acquisitionCost = value === null ? null : new Prisma.Decimal(value); });
+        }
         if (!Object.keys(after).length) return current;
 
         const updated = await tx.product.update({
@@ -151,13 +180,13 @@ export class ProductsService {
         await tx.adminAuditLog.create({
           data: {
             eventCode: "PRODUCT_UPDATED",
-            actorUserId,
+            actorUserId: actor.id,
             detailsJson: { productPublicId: current.publicId, before, after },
           },
         });
         return updated;
       }, TX_OPTIONS);
-      return { data: view(product) };
+      return { data: view(product, actor.isAdmin) };
     } catch (error) {
       return mapWriteError(error);
     }

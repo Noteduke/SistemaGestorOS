@@ -5,6 +5,9 @@ export interface CatalogProduct {
   internalCode: string | null;
   description: string;
   category: ProductCategory;
+  salePrice: string | null;
+  acquisitionCost?: string | null;
+  grossProfitEstimate?: string | null;
   isActive: boolean;
   version: number;
   createdAt: string;
@@ -55,19 +58,23 @@ export function listProducts(page: number, status: ProductStatus, search: string
   return request<ProductPage>(`/api/v1/products?${query}`, "GET", undefined, undefined, signal);
 }
 
-export function createProduct(input: { internalCode: string; description: string; category: ProductCategory }, csrfToken: string) {
+export function createProduct(input: { internalCode: string; description: string; category: ProductCategory; salePrice: string; acquisitionCost?: string }, csrfToken: string) {
   return request<{ data: CatalogProduct }>("/api/v1/products", "POST", csrfToken, {
     internalCode: input.internalCode.trim() || null,
     description: input.description,
     category: input.category,
+    salePrice: input.salePrice.trim() ? input.salePrice.trim().replace(",", ".") : null,
+    ...(input.acquisitionCost !== undefined ? { acquisitionCost: input.acquisitionCost.trim() ? input.acquisitionCost.trim().replace(",", ".") : null } : {}),
   });
 }
 
-export function updateProduct(product: CatalogProduct, input: { internalCode: string; description: string; category: ProductCategory }, csrfToken: string) {
+export function updateProduct(product: CatalogProduct, input: { internalCode: string; description: string; category: ProductCategory; salePrice: string; acquisitionCost?: string }, csrfToken: string) {
   return request<{ data: CatalogProduct }>(`/api/v1/products/${encodeURIComponent(product.publicId)}`, "PATCH", csrfToken, {
     internalCode: input.internalCode.trim() || null,
     description: input.description,
     category: input.category,
+    salePrice: input.salePrice.trim() ? input.salePrice.trim().replace(",", ".") : null,
+    ...(input.acquisitionCost !== undefined ? { acquisitionCost: input.acquisitionCost.trim() ? input.acquisitionCost.trim().replace(",", ".") : null } : {}),
     expectedVersion: product.version,
   });
 }

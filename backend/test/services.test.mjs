@@ -193,16 +193,28 @@ test("produto limpa os campos aprovados e mantém código interno opcional", () 
 
 test("DTO de produto valida categoria, paginação, filtros e allowlist", () => {
   assert.deepEqual(parseCreateProduct({ internalCode: " pç  10 ", description: " Placa   Mãe ", category: "PART" }), {
-    internalCode: "PÇ 10", description: "PLACA MÃE", category: "PART",
+    internalCode: "PÇ 10", description: "PLACA MÃE", category: "PART", salePrice: null,
   });
   assert.deepEqual(parseCreateProduct({ description: "Memória", category: "RESALE_GOOD" }), {
-    internalCode: null, description: "MEMÓRIA", category: "RESALE_GOOD",
+    internalCode: null, description: "MEMÓRIA", category: "RESALE_GOOD", salePrice: null,
   });
+  assert.equal(parseCreateProduct({ description: "Zero", category: "PART", salePrice: "0" }).salePrice, "0.00");
+  assert.equal(parseCreateProduct({ description: "Preço", category: "PART", salePrice: "12.3" }).salePrice, "12.30");
+  assert.equal(parseCreateProduct({ description: "Custo", category: "PART", acquisitionCost: "0.00" }).acquisitionCost, "0.00");
+  assert.equal(parseCreateProduct({ description: "Custo positivo", category: "PART", acquisitionCost: "13.45" }).acquisitionCost, "13.45");
+  assert.equal(parseCreateProduct({ description: "NULL", category: "PART", acquisitionCost: null }).acquisitionCost, null);
+  for (const invalid of ["-1", "1.234", "1e2", 1, "10000000000000"]) {
+    rejectsCode(() => parseCreateProduct({ description: "Inválido", category: "PART", salePrice: invalid }), "INVALID_PRODUCT_MONEY");
+    rejectsCode(() => parseCreateProduct({ description: "Inválido", category: "PART", acquisitionCost: invalid }), "INVALID_PRODUCT_MONEY");
+  }
   assert.deepEqual(parseProductListQuery({ page: "1", pageSize: "20", search: "  placa   mãe ", category: "PART" }), {
     page: 1, pageSize: 20, status: "active", search: "PLACA MÃE", category: "PART",
   });
   assert.deepEqual(parseUpdateProduct({ expectedVersion: 2, internalCode: null, isActive: false }), {
     expectedVersion: 2, internalCode: null, isActive: false,
+  });
+  assert.deepEqual(parseUpdateProduct({ expectedVersion: 2, salePrice: null, acquisitionCost: "0" }), {
+    expectedVersion: 2, salePrice: null, acquisitionCost: "0.00",
   });
   rejectsCode(() => parseCreateProduct({ description: "X", category: "OTHER" }), "INVALID_PRODUCT_CATEGORY");
   rejectsCode(() => parseCreateProduct({ description: "X", category: "PART", unitCost: "1.00" }), "UNSUPPORTED_FIELD");
@@ -254,24 +266,37 @@ function matchProduct(row, where) {
 test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão", async () => {
   const prisma = fakeProductsPrisma();
   const service = new ProductsService(prisma);
-  const created = (await service.create(parseCreateProduct({ internalCode: "P-1", description: "Placa", category: "PART" }), 7)).data;
+  const actor = { id: 7, isAdmin: false };
+  const admin = { id: 8, isAdmin: true };
+  const created = (await service.create(parseCreateProduct({ internalCode: "P-1", description: "Placa", category: "PART", salePrice: "10.00" }), actor)).data;
   assert.equal(created.description, "PLACA");
+  assert.equal(created.salePrice, "10.00");
+  assert.equal(Object.hasOwn(created, "acquisitionCost"), false);
+  await assert.rejects(() => service.update(created.publicId, parseUpdateProduct({ expectedVersion: 1, acquisitionCost: "0" }), actor), (error) => codeOf(error) === "PERMISSION_DENIED");
+  const adminCreated = (await service.create(parseCreateProduct({ description: "Produto custo", category: "PART", salePrice: "10", acquisitionCost: "0" }), admin)).data;
+  assert.equal(adminCreated.acquisitionCost, "0.00");
+  assert.equal(adminCreated.grossProfitEstimate, "10.00");
+  const adminUpdated = (await service.update(adminCreated.publicId, parseUpdateProduct({ expectedVersion: 1, acquisitionCost: null }), admin)).data;
+  assert.equal(adminUpdated.acquisitionCost, null);
+  assert.equal(adminUpdated.grossProfitEstimate, null);
+  assert.deepEqual(prisma.audits[2].detailsJson.before, { acquisitionCost: "0.00" });
+  assert.deepEqual(prisma.audits[2].detailsJson.after, { acquisitionCost: null });
   assert.equal(prisma.audits[0].eventCode, "PRODUCT_CREATED");
-  const found = await service.list(parseProductListQuery({ page: "1", pageSize: "20", search: "p-1" }));
+  const found = await service.list(parseProductListQuery({ page: "1", pageSize: "20", search: "p-1" }), actor);
   assert.equal(found.pagination.total, 1);
-  const updated = (await service.update(created.publicId, parseUpdateProduct({ expectedVersion: 1, description: "Placa mãe", category: "RESALE_GOOD" }), 7)).data;
+  const updated = (await service.update(created.publicId, parseUpdateProduct({ expectedVersion: 1, description: "Placa mãe", category: "RESALE_GOOD" }), actor)).data;
   assert.equal(updated.description, "PLACA MÃE");
   assert.equal(updated.category, "RESALE_GOOD");
-  assert.deepEqual(prisma.audits[1].detailsJson, {
+  assert.deepEqual(prisma.audits.find((entry) => entry.detailsJson?.productPublicId === created.publicId && entry.detailsJson.before)?.detailsJson, {
     productPublicId: created.publicId,
     before: { description: "PLACA", category: "PART" },
     after: { description: "PLACA MÃE", category: "RESALE_GOOD" },
   });
-  const inactive = (await service.update(created.publicId, { expectedVersion: 2, isActive: false }, 7)).data;
+  const inactive = (await service.update(created.publicId, { expectedVersion: 2, isActive: false }, actor)).data;
   assert.equal(inactive.isActive, false);
-  assert.equal((await service.list({ page: 1, pageSize: 20, status: "active" })).pagination.total, 0);
-  assert.equal((await service.list({ page: 1, pageSize: 20, status: "inactive" })).pagination.total, 1);
-  await assert.rejects(() => service.update(created.publicId, { expectedVersion: 1, isActive: true }, 7), (error) => codeOf(error) === "PRODUCT_VERSION_CONFLICT");
-  await assert.rejects(() => service.create(parseCreateProduct({ internalCode: "P-1", description: "Duplicado", category: "PART" }), 7), (error) => codeOf(error) === "DUPLICATE_PRODUCT_CODE");
-  assert.deepEqual(prisma.audits.map((entry) => entry.eventCode), ["PRODUCT_CREATED", "PRODUCT_UPDATED", "PRODUCT_UPDATED"]);
+  assert.equal((await service.list({ page: 1, pageSize: 20, status: "active" }, actor)).pagination.total, 1);
+  assert.equal((await service.list({ page: 1, pageSize: 20, status: "inactive" }, actor)).pagination.total, 1);
+  await assert.rejects(() => service.update(created.publicId, { expectedVersion: 1, isActive: true }, actor), (error) => codeOf(error) === "PRODUCT_VERSION_CONFLICT");
+  await assert.rejects(() => service.create(parseCreateProduct({ internalCode: "P-1", description: "Duplicado", category: "PART" }), actor), (error) => codeOf(error) === "DUPLICATE_PRODUCT_CODE");
+  assert.deepEqual(prisma.audits.filter((entry) => entry.detailsJson?.productPublicId === created.publicId).map((entry) => entry.eventCode), ["PRODUCT_CREATED", "PRODUCT_UPDATED", "PRODUCT_UPDATED"]);
 });

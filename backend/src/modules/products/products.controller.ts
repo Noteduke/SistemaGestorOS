@@ -10,22 +10,22 @@ export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
   @Get()
-  list(@Query() query: Record<string, unknown>) {
-    return this.products.list(parseProductListQuery(query));
+  list(@Query() query: Record<string, unknown>, @Req() request: AuthRequest) {
+    return this.products.list(parseProductListQuery(query), request.auth!);
   }
 
   @Get(":publicId")
-  get(@Param("publicId") publicId: string) {
-    return this.products.get(publicId);
+  get(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
+    return this.products.get(publicId, request.auth!);
   }
 
   @Post()
   create(@Body() body: unknown, @Req() request: AuthRequest) {
-    return this.products.create(parseCreateProduct(body), request.auth!.id);
+    return this.products.create(parseCreateProduct(body), request.auth!);
   }
 
   @Patch(":publicId")
   update(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
-    return this.products.update(publicId, parseUpdateProduct(body), request.auth!.id);
+    return this.products.update(publicId, parseUpdateProduct(body), request.auth!);
   }
 }

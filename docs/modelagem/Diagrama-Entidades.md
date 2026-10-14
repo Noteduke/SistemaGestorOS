@@ -372,7 +372,7 @@ erDiagram
 
 `ServiceOrderEditControl` mantém relação 1:1 com `ServiceOrder` e relação opcional com `User` detentor. É entidade técnica persistida para coordenar contextos/abas, com hash do token e versão de lease; não se relaciona com itens de orçamento individualmente. Uma OS sem controle ativo pode continuar tendo uma linha técnica com `holder_user_id` nulo.
 
-## Cadastro básico de Produtos — migration isolada
+## Cadastro de Produtos — migrations isoladas
 
 ```mermaid
 erDiagram
@@ -384,6 +384,8 @@ erDiagram
         varchar64 internal_code UK "opcional"
         varchar255 description
         enum category "PART ou RESALE_GOOD"
+        decimal15_2 sale_price "nullable"
+        decimal15_2 acquisition_cost "nullable; protegido"
         boolean is_active
         int version
         datetime3 created_at
@@ -393,4 +395,4 @@ erDiagram
     }
 ```
 
-O cadastro não se relaciona ainda com orçamento ou estoque. A migration `20261015130000_product_catalog` foi aplicada somente no banco isolado `gestor_os_opening_test`; permanece pendente no principal.
+O cadastro não se relaciona ainda com orçamento ou estoque. As migrations `20261015130000_product_catalog` e `20261015140000_product_pricing` foram aplicadas somente no banco isolado `gestor_os_opening_test`; permanecem pendentes no principal.

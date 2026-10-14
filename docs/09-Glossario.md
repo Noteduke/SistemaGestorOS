@@ -184,6 +184,20 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 ## Produto
 Item controlado em estoque e comercializado.
 
+O cadastro possui preço de venda padrão e custo de aquisição opcionais; `NULL` é distinto de zero. O custo histórico de uma aplicação futura à OS será capturado no momento em que a peça for marcada como aplicada.
+
+## Custo de aquisição do Produto
+
+Referência cadastral opcional e não negativa. `NULL` significa desconhecido e não pode ser substituído automaticamente por zero. Até decisão específica de permissão de Produto, somente Administrador visualiza ou altera esse campo; permissões de custos do orçamento não se aplicam.
+
+## Preço de venda padrão do Produto
+
+Preço opcional e não negativo, sugerido em integração futura ao orçamento. `NULL` significa não informado; zero é um preço conhecido válido. Alterações de preço no orçamento não atualizam o cadastro.
+
+## Peça defeituosa
+
+Peça que requer destino próprio no futuro e não deve retornar automaticamente à disponibilidade. Destinos, estados, transições, responsáveis e impactos permanecem pendentes do desenho de estoque.
+
 ## Orçamento da OS
 Composição de itens vinculados diretamente à Ordem de Serviço. Não constitui entidade, fluxo ou status próprio; seu andamento acompanha a situação operacional da OS. A primeira fatia implementada inclui Serviço/Mão de obra e Peça avulsa; inclusão não cria financeiro nem movimenta estoque. Peça de estoque permanece futura.
 

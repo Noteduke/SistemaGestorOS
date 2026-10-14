@@ -20,6 +20,7 @@ const app = await NestFactory.create(AppModule, { logger: false });
 app.setGlobalPrefix("api/v1");
 const prisma = app.get(PrismaService);
 let userId;
+let adminUserId;
 let createdPermission = false;
 const productIds = [];
 
@@ -89,7 +90,7 @@ try {
   assert.equal((await api(base, "POST", "/products", { cookie: sessionCookie, body: { description: "Sem CSRF", category: "PART" } })).status, 403);
 
   const created = await api(base, "POST", "/products", { cookie: sessionCookie, csrf, body: {
-    internalCode: ` teste-${suffix} `, description: "  Placa   Mãe de Teste ", category: "PART",
+    internalCode: ` teste-${suffix} `, description: "  Placa   Mãe de Teste ", category: "PART", salePrice: "12.50",
   } });
   assert.equal(created.status, 201);
   const product = created.body.data;
@@ -97,6 +98,13 @@ try {
   assert.equal(product.internalCode, `TESTE-${suffix}`);
   assert.equal(product.description, "PLACA MÃE DE TESTE");
   assert.equal(product.category, "PART");
+  assert.equal(product.salePrice, "12.50");
+  assert.equal(Object.hasOwn(product, "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(product, "grossProfitEstimate"), false);
+  const negativeSale = await api(base, "POST", "/products", { cookie: sessionCookie, csrf, body: {
+    description: "Preço negativo rejeitado", category: "PART", salePrice: "-0.01",
+  } });
+  assert.equal(negativeSale.status, 400);
   assert.equal(product.isActive, true);
 
   assert.equal((await api(base, "GET", `/products/${product.publicId}`, { cookie: sessionCookie })).body.data.publicId, product.publicId);
@@ -110,11 +118,16 @@ try {
   assert.equal(duplicate.body.error?.code ?? duplicate.body.code, "DUPLICATE_PRODUCT_CODE");
 
   const updated = await api(base, "PATCH", `/products/${product.publicId}`, { cookie: sessionCookie, csrf, body: {
-    internalCode: product.internalCode, description: "Placa principal", category: "RESALE_GOOD", expectedVersion: product.version,
+    internalCode: product.internalCode, description: "Placa principal", category: "RESALE_GOOD", salePrice: "0.00", expectedVersion: product.version,
   } });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.data.description, "PLACA PRINCIPAL");
   assert.equal(updated.body.data.category, "RESALE_GOOD");
+  assert.equal(updated.body.data.salePrice, "0.00");
+  const forbiddenCostWrite = await api(base, "PATCH", `/products/${product.publicId}`, { cookie: sessionCookie, csrf, body: {
+    acquisitionCost: "0.00", expectedVersion: updated.body.data.version,
+  } });
+  assert.equal(forbiddenCostWrite.status, 403);
   const stale = await api(base, "PATCH", `/products/${product.publicId}`, { cookie: sessionCookie, csrf, body: {
     description: "Sobrescrita antiga", expectedVersion: product.version,
   } });
@@ -130,12 +143,67 @@ try {
   assert.equal(activeList.body.data.some((item) => item.publicId === product.publicId), false);
   assert.equal(inactiveList.body.data.some((item) => item.publicId === product.publicId), true);
   assert.equal((await api(base, "GET", `/products/${product.publicId}`, { cookie: sessionCookie })).status, 200);
+  const nonAdminList = await api(base, "GET", `/products?page=1&pageSize=20&status=all&search=${suffix}`, { cookie: sessionCookie });
+  const nonAdminProduct = nonAdminList.body.data.find((item) => item.publicId === product.publicId);
+  assert.equal(Object.hasOwn(nonAdminProduct, "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(nonAdminProduct, "grossProfitEstimate"), false);
+
+  const adminPassword = randomBytes(24).toString("base64url");
+  const adminUser = await prisma.user.create({ data: {
+    username: `validacao.products.admin.${suffix.toLowerCase()}`,
+    passwordHash: await argon2.hash(adminPassword), isAdmin: true,
+  } });
+  adminUserId = adminUser.id;
+  const adminCsrfContext = await api(base, "GET", "/auth/csrf");
+  const adminPreCookie = cookie(adminCsrfContext.response, "gos_pre_auth");
+  const adminLogin = await api(base, "POST", "/auth/login", {
+    cookie: adminPreCookie, csrf: adminCsrfContext.body.data.csrfToken,
+    body: { username: adminUser.username, password: adminPassword },
+  });
+  assert.ok([200, 201].includes(adminLogin.status));
+  const adminSessionCookie = cookie(adminLogin.response, "gos_session");
+  const adminIdentity = await api(base, "GET", "/auth/me", { cookie: adminSessionCookie });
+  const adminCsrf = adminIdentity.body.data.csrfToken;
+  assert.equal(adminIdentity.body.data.isAdmin, true);
+  const adminCreated = await api(base, "POST", "/products", { cookie: adminSessionCookie, csrf: adminCsrf, body: {
+    internalCode: `CUSTO-${suffix}`, description: "Produto custo teste", category: "PART", salePrice: "10.00", acquisitionCost: "2.50",
+  } });
+  assert.equal(adminCreated.status, 201);
+  const adminProduct = adminCreated.body.data;
+  productIds.push(adminProduct.publicId);
+  assert.equal(adminProduct.acquisitionCost, "2.50");
+  assert.equal(adminProduct.grossProfitEstimate, "7.50");
+  const negativeCost = await api(base, "PATCH", `/products/${adminProduct.publicId}`, { cookie: adminSessionCookie, csrf: adminCsrf, body: {
+    acquisitionCost: "-0.01", expectedVersion: adminProduct.version,
+  } });
+  assert.equal(negativeCost.status, 400);
+  const zeroCost = await api(base, "PATCH", `/products/${adminProduct.publicId}`, { cookie: adminSessionCookie, csrf: adminCsrf, body: {
+    acquisitionCost: "0.00", expectedVersion: adminProduct.version,
+  } });
+  assert.equal(zeroCost.status, 200);
+  assert.equal(zeroCost.body.data.acquisitionCost, "0.00");
+  assert.equal(zeroCost.body.data.grossProfitEstimate, "10.00");
+  const adminUpdated = await api(base, "PATCH", `/products/${adminProduct.publicId}`, { cookie: adminSessionCookie, csrf: adminCsrf, body: {
+    acquisitionCost: null, expectedVersion: zeroCost.body.data.version,
+  } });
+  assert.equal(adminUpdated.status, 200);
+  assert.equal(adminUpdated.body.data.acquisitionCost, null);
+  assert.equal(adminUpdated.body.data.grossProfitEstimate, null);
+  const adminProductLogs = await prisma.adminAuditLog.findMany({ where: { actorUserId: adminUserId, eventCode: { startsWith: "PRODUCT_" } }, orderBy: { id: "asc" } });
+  const costLogs = adminProductLogs.filter((log) => log.detailsJson?.productPublicId === adminProduct.publicId && log.detailsJson?.before?.acquisitionCost !== undefined);
+  assert.equal(costLogs.length, 2);
+  assert.deepEqual(costLogs[0].detailsJson.before, { acquisitionCost: "2.50" });
+  assert.deepEqual(costLogs[0].detailsJson.after, { acquisitionCost: "0.00" });
+  assert.deepEqual(costLogs[1].detailsJson.before, { acquisitionCost: "0.00" });
+  assert.deepEqual(costLogs[1].detailsJson.after, { acquisitionCost: null });
+
+  await api(base, "POST", "/auth/logout", { cookie: adminSessionCookie, csrf: adminCsrf });
 
   const logs = await prisma.adminAuditLog.findMany({ where: { actorUserId: userId, eventCode: { startsWith: "PRODUCT_" } }, orderBy: { id: "asc" } });
   const productLogs = logs.filter((log) => log.detailsJson?.productPublicId === product.publicId);
   assert.deepEqual(productLogs.map((log) => log.eventCode), ["PRODUCT_CREATED", "PRODUCT_UPDATED", "PRODUCT_UPDATED"]);
-  assert.deepEqual(productLogs[1].detailsJson.before, { description: "PLACA MÃE DE TESTE", category: "PART" });
-  assert.deepEqual(productLogs[1].detailsJson.after, { description: "PLACA PRINCIPAL", category: "RESALE_GOOD" });
+  assert.deepEqual(productLogs[1].detailsJson.before, { description: "PLACA MÃE DE TESTE", category: "PART", salePrice: "12.50" });
+  assert.deepEqual(productLogs[1].detailsJson.after, { description: "PLACA PRINCIPAL", category: "RESALE_GOOD", salePrice: "0.00" });
   assert.ok(productLogs.every((log) => log.actorUserId === userId));
 
   const logout = await api(base, "POST", "/auth/logout", { cookie: sessionCookie, csrf });
@@ -149,6 +217,12 @@ try {
     await prisma.userPermission.deleteMany({ where: { userId } });
     await prisma.user.update({ where: { id: userId }, data: { isActive: false } });
     await prisma.user.delete({ where: { id: userId } });
+  }
+  if (adminUserId !== undefined) {
+    await prisma.adminAuditLog.deleteMany({ where: { actorUserId: adminUserId } });
+    await prisma.userSession.deleteMany({ where: { userId: adminUserId } });
+    await prisma.user.update({ where: { id: adminUserId }, data: { isActive: false } });
+    await prisma.user.delete({ where: { id: adminUserId } });
   }
   if (createdPermission) {
     const remainingUsers = await prisma.userPermission.count({ where: { permission: { code: "products.manage" } } });

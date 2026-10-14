@@ -275,6 +275,8 @@ model Product {
   internalCode    String?         @unique @map("internal_code") @db.VarChar(64)
   description     String          @db.VarChar(255)
   category        ProductCategory
+  salePrice       Decimal?        @map("sale_price") @db.Decimal(15, 2)
+  acquisitionCost Decimal?        @map("acquisition_cost") @db.Decimal(15, 2)
   isActive        Boolean         @default(true) @map("is_active")
   version         Int             @default(1)
   createdAt       DateTime        @default(now()) @map("created_at") @db.DateTime(3)
