@@ -89,6 +89,77 @@ it("pesquisa peça do estoque, copia preço padrão editável e não envia saldo
   expect(screen.getAllByText("Peça do estoque").length).toBeGreaterThan(0);
 });
 
+it("aplica e desfaz quantidade de peça com controle, revisão e classificação defeituosa", async () => {
+  const itemPublicId = "7a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
+  const productItem = {
+    publicId: itemPublicId, itemType: "STOCK_PART", origin: "PRODUCT_CATALOG", servicePublicId: null,
+    productPublicId: "8a5ccbc1-a7cc-4a12-8f71-65b9f379d910", description: "DISPLAY", quantity: 1, unitPrice: "10.00", total: "10.00", version: 1,
+    createdAt: "2026-10-14T12:00:00.000Z", applications: [], appliedQuantity: 0,
+  };
+  let budgetReads = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith(`/service-orders/${orderId}/budget-items`)) {
+      budgetReads += 1;
+      const appliedQuantity = budgetReads === 2 ? 1 : 0;
+      return response({ data: [{ ...productItem, appliedQuantity }], total: "10.00", canReadCosts: false });
+    }
+    if (url.endsWith("/services/available-for-order")) return response({ data: [] });
+    if (url.endsWith(`/budget-items/${itemPublicId}/applications`) && init?.method === "POST") return response({ data: {}, serviceOrderRevision: "2026-10-14T12:01:00.000Z" });
+    if (url.endsWith(`/budget-items/${itemPublicId}/applications/reversals`) && init?.method === "POST") return response({ data: {}, serviceOrderRevision: "2026-10-14T12:02:00.000Z" });
+    throw new Error(`Fetch inesperado: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canManageStock canReadCosts={false} canUpdateCosts={false} isOpen />);
+  await screen.findByText("DISPLAY");
+  await userEvent.click(screen.getByRole("button", { name: "Marcar como aplicada" }));
+  await screen.findByText("Aplicada: 1");
+  const applyCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith(`/budget-items/${itemPublicId}/applications`) && init?.method === "POST");
+  expect(applyCall?.[1]).toEqual(expect.objectContaining({
+    method: "POST", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token", "X-Service-Order-Edit-Token": "00000000-0000-4000-8000-000000000001", "X-Service-Order-Revision": "2026-10-14T12:00:00.000Z" }),
+    body: JSON.stringify({ quantity: 1 }),
+  }));
+
+  fireEvent.change(screen.getByLabelText("Quantidade para desfazer DISPLAY"), { target: { value: "1" } });
+  fireEvent.change(screen.getByLabelText("Unidades defeituosas DISPLAY"), { target: { value: "1" } });
+  await userEvent.click(screen.getByRole("button", { name: "Desfazer aplicação" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith(`/budget-items/${itemPublicId}/applications/reversals`) && init?.method === "POST")).toBe(true));
+  const reverseCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith(`/budget-items/${itemPublicId}/applications/reversals`) && init?.method === "POST");
+  expect(reverseCall?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ quantity: 1, defectiveQuantity: 1 }) }));
+  expect(screen.queryByText("R$ 5.00")).not.toBeInTheDocument();
+});
+
+it("confirma a remoção com aplicações e envia a quantidade defeituosa", async () => {
+  const itemPublicId = "9a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
+  const productItem = {
+    publicId: itemPublicId, itemType: "STOCK_PART", origin: "PRODUCT_CATALOG", servicePublicId: null,
+    productPublicId: "8a5ccbc1-a7cc-4a12-8f71-65b9f379d910", description: "TECLADO", quantity: 1, unitPrice: "10.00", total: "10.00", version: 1,
+    createdAt: "2026-10-14T12:00:00.000Z", applications: [], appliedQuantity: 2,
+  };
+  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+  vi.stubGlobal("prompt", vi.fn().mockReturnValue("1"));
+  let budgetReads = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith(`/service-orders/${orderId}/budget-items`)) {
+      budgetReads += 1;
+      return response({ data: budgetReads === 1 ? [productItem] : [], total: budgetReads === 1 ? "10.00" : "0.00", canReadCosts: false });
+    }
+    if (url.endsWith("/services/available-for-order")) return response({ data: [] });
+    if (url.endsWith(`/budget-items/${itemPublicId}`) && init?.method === "DELETE") return response({ data: { removed: true }, serviceOrderRevision: "2026-10-14T12:01:00.000Z" });
+    throw new Error(`Fetch inesperado: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canManageStock canReadCosts={false} canUpdateCosts={false} isOpen />);
+  await screen.findByText("TECLADO");
+  await userEvent.click(screen.getByRole("button", { name: "Remover" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith(`/budget-items/${itemPublicId}`) && init?.method === "DELETE")).toBe(true));
+  const removeCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith(`/budget-items/${itemPublicId}`) && init?.method === "DELETE");
+  expect(removeCall?.[1]).toEqual(expect.objectContaining({ method: "DELETE", body: JSON.stringify({ confirmed: true, defectiveQuantity: 1 }) }));
+  expect(window.confirm).toHaveBeenCalled();
+  expect(window.prompt).toHaveBeenCalled();
+});
+
 it("mantém rascunho do orçamento visível e somente leitura após perder o controle", async () => {
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))

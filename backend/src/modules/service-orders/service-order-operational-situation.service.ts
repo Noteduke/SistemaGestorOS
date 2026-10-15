@@ -51,7 +51,7 @@ export class ServiceOrderOperationalSituationService {
         }
 
         const now = new Date();
-        if (input.withdrawBudget) await this.budgetItems.withdrawAllInTransaction(tx, { id: locked.id, numberValue: current.numberValue }, actor);
+        if (input.withdrawBudget) await this.budgetItems.withdrawAllInTransaction(tx, { id: locked.id, publicId: current.publicId, numberValue: current.numberValue }, actor);
         await advanceServiceOrderRevision(tx, locked.id, current.updatedAt, { operationalSituation: input.operationalSituation });
         await tx.serviceOrderEvent.create({
           data: {

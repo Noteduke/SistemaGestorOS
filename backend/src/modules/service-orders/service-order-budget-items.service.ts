@@ -6,6 +6,8 @@ import { normalizeServiceName } from "../services/domain/service-name.js";
 import type { CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, CreateStockPartInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
 import { acquireCatalogNameLock } from "../../infrastructure/prisma/catalog-name-lock.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
+import { ServiceOrderStockApplicationsService } from "./service-order-stock-applications.service.js";
+import type { RemoveBudgetItemInput } from "./dto/service-order-stock-application.dto.js";
 
 type Tx = Prisma.TransactionClient;
 const txOptions = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 15_000 } as const;
@@ -31,14 +33,6 @@ async function canReadCosts(tx: Tx, actor: AuthenticatedUser): Promise<boolean> 
   return Boolean(await tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.budget.costs.read" } }, select: { userId: true } }));
 }
 
-async function assertManualPartDoesNotMatchProduct(tx: Tx, normalizedDescription: string): Promise<void> {
-  await acquireCatalogNameLock(tx, normalizedDescription);
-  const products = await tx.product.findMany({ select: { description: true } });
-  if (products.some((product) => normalizeServiceName(product.description) === normalizedDescription)) {
-    throw new ConflictException({ code: "MANUAL_PART_MATCHES_CATALOG", message: "Use a peça cadastrada correspondente, inclusive se estiver inativa." });
-  }
-}
-
 async function lockedOrder(tx: Tx, publicId: string) {
   const lock = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_orders WHERE public_id = ${publicId} FOR UPDATE`;
   if (!lock[0]) throw orderNotFound();
@@ -52,12 +46,13 @@ function total(items: Array<Pick<ServiceOrderBudgetItem, "quantity" | "unitPrice
   return items.reduce((sum, item) => sum.add(item.unitPrice.mul(item.quantity)), new Prisma.Decimal(0));
 }
 
-function itemView(item: ServiceOrderBudgetItem, includeCosts: boolean, servicePublicId: string | null = null, productPublicId: string | null = null) {
+function itemView(item: ServiceOrderBudgetItem, includeCosts: boolean, servicePublicId: string | null = null, productPublicId: string | null = null, stockApplication?: { appliedQuantity: number; applications: Array<Record<string, unknown>> }) {
   const lineTotal = item.unitPrice.mul(item.quantity);
   return {
     publicId: item.publicId, itemType: item.itemType, origin: item.origin, servicePublicId, productPublicId,
     description: item.description, quantity: item.quantity, unitPrice: serializeDecimal(item.unitPrice),
     total: serializeDecimal(lineTotal), version: item.version, createdAt: item.createdAt,
+    ...(item.itemType === "STOCK_PART" ? { appliedQuantity: stockApplication?.appliedQuantity ?? 0, applications: stockApplication?.applications ?? [] } : {}),
     ...(includeCosts ? { unitCost: item.unitCost === null ? null : serializeDecimal(item.unitCost), totalCost: item.unitCost === null ? null : serializeDecimal(item.unitCost.mul(item.quantity)) } : {}),
   };
 }
@@ -81,7 +76,7 @@ function isLockConflict(error: unknown): boolean {
 
 @Injectable()
 export class ServiceOrderBudgetItemsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly stockApplications: ServiceOrderStockApplicationsService) {}
 
   async list(orderPublicId: string, actor: AuthenticatedUser) {
     assertId(orderPublicId);
@@ -93,7 +88,8 @@ export class ServiceOrderBudgetItemsService {
         where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" },
         include: { serviceCatalog: { select: { publicId: true } }, product: { select: { publicId: true } } },
       });
-      const data = items.map((item) => itemView(item, includeCosts, item.serviceCatalog?.publicId ?? null, item.product?.publicId ?? null));
+      const stockSummaries = await this.stockApplications.listForItems(tx, order.id, items, actor);
+      const data = items.map((item) => itemView(item, includeCosts, item.serviceCatalog?.publicId ?? null, item.product?.publicId ?? null, stockSummaries.get(item.id)));
       return { data, total: serializeDecimal(total(items)), canReadCosts: includeCosts };
     }, txOptions);
   }
@@ -190,11 +186,9 @@ export class ServiceOrderBudgetItemsService {
           await acquireCatalogNameLock(tx, normalizedDescription);
           const service = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE normalized_name = ${normalizedDescription} FOR UPDATE`;
           if (service.length) throw new ConflictException({ code: "MANUAL_LABOR_MATCHES_CATALOG", message: "Use o serviço cadastrado correspondente, inclusive se estiver desativado." });
-        } else {
-          await assertManualPartDoesNotMatchProduct(tx, normalizedDescription);
         }
-        const existing = await tx.serviceOrderBudgetItem.findFirst({ where: { serviceOrderId: order.id, itemType, origin: "MANUAL", normalizedDescription, removedAt: null }, select: { publicId: true } });
-        if (existing) throw duplicate(existing.publicId, itemType === "SERVICE_LABOR" ? "mão de obra avulsa" : "peça avulsa");
+        const existing = itemType === "SERVICE_LABOR" ? await tx.serviceOrderBudgetItem.findFirst({ where: { serviceOrderId: order.id, itemType, origin: "MANUAL", normalizedDescription, removedAt: null }, select: { publicId: true } }) : null;
+        if (existing) throw duplicate(existing.publicId, "mão de obra avulsa");
         const item = await tx.serviceOrderBudgetItem.create({ data: {
           serviceOrderId: order.id, itemType, origin: "MANUAL", description, normalizedDescription, quantity: input.quantity,
           unitPrice: decimal(input.unitPrice), unitCost: itemType === "MANUAL_PART" && "unitCost" in input && input.unitCost != null ? decimal(input.unitCost) : null,
@@ -242,14 +236,12 @@ export class ServiceOrderBudgetItemsService {
             if ((await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE normalized_name = ${normalizedDescription} FOR UPDATE`).length) {
               throw new ConflictException({ code: "MANUAL_LABOR_MATCHES_CATALOG", message: "Use o serviço cadastrado correspondente." });
             }
-          } else {
-            await assertManualPartDoesNotMatchProduct(tx, normalizedDescription);
           }
         }
-        const duplicate = await tx.serviceOrderBudgetItem.findFirst({ where: {
+        const duplicate = current.itemType === "SERVICE_LABOR" ? await tx.serviceOrderBudgetItem.findFirst({ where: {
           serviceOrderId: order.id, id: { not: current.id }, itemType: current.itemType, origin: "MANUAL", normalizedDescription,
           removedAt: null,
-        }, select: { publicId: true } });
+        }, select: { publicId: true } }) : null;
         if (current.origin === "MANUAL" && duplicate) throw duplicateItem(duplicate.publicId);
         const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
         if (input.quantity !== undefined && input.quantity !== current.quantity) changes.push({ field: "quantity", before: current.quantity, after: input.quantity });
@@ -282,7 +274,7 @@ export class ServiceOrderBudgetItemsService {
     } catch (error) { return mapWriteError(error); }
   }
 
-  async remove(orderPublicId: string, itemPublicId: string, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
+  async remove(orderPublicId: string, itemPublicId: string, input: RemoveBudgetItemInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
     assertId(orderPublicId); assertId(itemPublicId);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -294,29 +286,50 @@ export class ServiceOrderBudgetItemsService {
         if (!locks[0]) throw itemNotFound();
         const item = await tx.serviceOrderBudgetItem.findUniqueOrThrow({ where: { id: locks[0].id }, include: { product: { select: { publicId: true } } } });
         if (item.removedAt) throw itemNotFound();
+        const application = item.itemType === "STOCK_PART"
+          ? (await this.stockApplications.listForItems(tx, order.id, [item], actor)).get(item.id)
+          : undefined;
+        const appliedQuantity = application?.appliedQuantity ?? 0;
+        if (appliedQuantity > 0 && !input.confirmed) {
+          throw new ConflictException({ code: "STOCK_APPLICATION_CONFIRMATION_REQUIRED", message: "A remoção desfará as aplicações ainda ativas. Confirme a operação e informe quantas unidades estão defeituosas.", details: { appliedQuantity } });
+        }
+        if (input.defectiveQuantity > appliedQuantity) {
+          throw new BadRequestException({ code: "INVALID_DEFECTIVE_QUANTITY", message: "A quantidade defeituosa não pode exceder a quantidade aplicada ainda ativa." });
+        }
+        const stockReversal = appliedQuantity > 0
+          ? await this.stockApplications.reverseInTransaction(tx, order, item, actor, appliedQuantity, input.defectiveQuantity, false)
+          : null;
         const beforeRows = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { id: true, quantity: true, unitPrice: true } });
         const beforeTotal = total(beforeRows);
         const now = new Date();
         const removed = await tx.serviceOrderBudgetItem.update({ where: { id: item.id }, data: { removedAt: now, removedByUserId: actor.id, updatedByUserId: actor.id, version: { increment: 1 } } });
         const afterRows = beforeRows.filter((row) => row.id !== item.id);
         const afterTotal = total(afterRows);
-        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_REMOVIDO", removed, [{ field: "item", before: snapshot(item, item.product?.publicId), after: null }], beforeTotal, afterTotal, item.product?.publicId ?? null);
+        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_REMOVIDO", removed,
+          [{ field: "item", before: { ...snapshot(item, item.product?.publicId), ...(stockReversal ? { stockApplicationsReversed: stockReversal.reversals } : {}) } as Prisma.InputJsonValue, after: null }],
+          beforeTotal, afterTotal, item.product?.publicId ?? null);
         const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
         return { data: { removed: true, publicId: item.publicId, total: serializeDecimal(afterTotal) }, serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
 
-  async withdrawAllInTransaction(tx: Tx, order: { id: number; numberValue: bigint }, actor: AuthenticatedUser) {
+  async withdrawAllInTransaction(tx: Tx, order: { id: number; publicId: string; numberValue: bigint }, actor: AuthenticatedUser) {
     const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" }, include: { product: { select: { publicId: true } } } });
     if (!items.length) return null;
-    const snapshotItems = items.map((item) => snapshot(item, item.product?.publicId));
+    const reversals = new Map<number, Array<Record<string, unknown>>>();
+    for (const item of items) {
+      if (item.itemType !== "STOCK_PART") continue;
+      const reversal = await this.stockApplications.reverseAllInTransaction(tx, order, item, actor);
+      if (reversal) reversals.set(item.id, reversal.reversals);
+    }
+    const snapshotItems = items.map((item) => ({ ...snapshot(item, item.product?.publicId), ...(reversals.has(item.id) ? { stockApplicationsReversed: reversals.get(item.id) } : {}) }));
     const totalBefore = total(items);
     const now = new Date();
     await tx.serviceOrderBudgetItem.updateMany({ where: { id: { in: items.map(({ id }) => id) }, removedAt: null }, data: { removedAt: now, removedByUserId: actor.id, updatedByUserId: actor.id, version: { increment: 1 } } });
     await tx.serviceOrderEvent.create({ data: {
       serviceOrderId: order.id, actorUserId: actor.id, eventType: "ORCAMENTO_RETIRADO", numberValue: order.numberValue, occurredAt: now,
-      payload: { items: snapshotItems, total: serializeDecimal(totalBefore), itemCount: items.length },
+      payload: { items: snapshotItems, total: serializeDecimal(totalBefore), itemCount: items.length } as Prisma.InputJsonValue,
     } });
     return { itemCount: items.length, total: serializeDecimal(totalBefore) };
   }

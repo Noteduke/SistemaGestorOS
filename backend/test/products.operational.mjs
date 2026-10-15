@@ -181,7 +181,7 @@ try {
     cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 1 },
   })));
   assert.ok(concurrentEntries.every((result) => result.status === 201), "entradas concorrentes serializam sem perda");
-  assert.deepEqual(concurrentEntries[1].body.data.stock, { total: 5, applied: 0, defective: 0, available: 5 });
+  assert.deepEqual(concurrentEntries.map((result) => result.body.data.stock.total).sort((a, b) => a - b), [4, 5], "cada resposta reflete uma das duas operações serializadas");
   const stockSummary = await api(base, "GET", stockRoute, { cookie: stockOnlySession.cookie });
   assert.deepEqual(stockSummary.body.data.stock, { total: 5, applied: 0, defective: 0, available: 5 });
   const stockHistory = await api(base, "GET", `${stockRoute}/movements?page=1&pageSize=20`, { cookie: stockOnlySession.cookie });

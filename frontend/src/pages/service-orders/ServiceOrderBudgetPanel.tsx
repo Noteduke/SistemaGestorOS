@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
-  addManualLaborBudgetItem, addManualPartBudgetItem, addRegisteredBudgetService, addStockPartBudgetItem,
+  addManualLaborBudgetItem, addManualPartBudgetItem, addRegisteredBudgetService, addStockPartBudgetItem, applyStockPartToServiceOrder, reverseStockPartApplication,
   getServiceOrderBudget, listAvailableCatalogProducts, listAvailableCatalogServices, removeBudgetItem, updateBudgetItem,
   ApiError, type AvailableCatalogProduct, type AvailableCatalogService, type ServiceOrderBudget, type ServiceOrderBudgetItem,
 } from "../../api/serviceOrders";
 
-type Props = { publicId: string; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
+type Props = { publicId: string; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; canManageStock?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
 type Mode = "service" | "labor" | "part" | "stock-part";
 
 function errorText(error: unknown): string {
@@ -23,7 +23,7 @@ function errorText(error: unknown): string {
   return "Não foi possível concluir a operação do orçamento.";
 }
 
-export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expectedRevision, canEdit, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onDirtyChange, onDataConflict }: Props) {
+export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expectedRevision, canEdit, canManageStock = false, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onDirtyChange, onDataConflict }: Props) {
   const [budget, setBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudget, setConflictBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudgetLoading, setConflictBudgetLoading] = useState(false);
@@ -45,6 +45,9 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
   const [editDescription, setEditDescription] = useState("");
   const [editCost, setEditCost] = useState("");
   const [busy, setBusy] = useState(false);
+  const [applyQuantities, setApplyQuantities] = useState<Record<string, string>>({});
+  const [reverseQuantities, setReverseQuantities] = useState<Record<string, string>>({});
+  const [defectiveQuantities, setDefectiveQuantities] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -151,10 +154,43 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
     finally { setBusy(false); }
   }
 
-  async function remove(item: ServiceOrderBudgetItem) {
-    if (!window.confirm("Deseja remover este item do orçamento?")) return;
+  async function applyStock(item: ServiceOrderBudgetItem) {
+    const amount = Number(applyQuantities[item.publicId] ?? "1");
+    if (!Number.isSafeInteger(amount) || amount < 1) { setError("Informe uma quantidade inteira positiva para aplicar."); return; }
     setBusy(true); setError(null); setMessage(null);
-    try { const result = await removeBudgetItem(publicId, item.publicId, csrfToken, editToken, expectedRevision); onRevisionChange?.(result.serviceOrderRevision); setMessage("Item removido do orçamento."); await reload(); }
+    try {
+      const result = await applyStockPartToServiceOrder(publicId, item.publicId, { quantity: amount }, csrfToken, editToken, expectedRevision);
+      onRevisionChange?.(result.serviceOrderRevision); setMessage(`${amount} unidade(s) marcada(s) como aplicada(s).`); await reload();
+    } catch (reason) { reportFailure(reason); }
+    finally { setBusy(false); }
+  }
+
+  async function reverseStock(item: ServiceOrderBudgetItem) {
+    const amount = Number(reverseQuantities[item.publicId] ?? "1");
+    const defective = Number(defectiveQuantities[item.publicId] ?? "0");
+    if (!Number.isSafeInteger(amount) || amount < 1 || !Number.isSafeInteger(defective) || defective < 0 || defective > amount) {
+      setError("Informe quantidades inteiras válidas; a quantidade defeituosa deve estar entre zero e a quantidade revertida."); return;
+    }
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const result = await reverseStockPartApplication(publicId, item.publicId, { quantity: amount, defectiveQuantity: defective }, csrfToken, editToken, expectedRevision);
+      onRevisionChange?.(result.serviceOrderRevision); setMessage(`${amount} unidade(s) retirada(s) da aplicação; ${defective} classificada(s) como defeituosa(s).`); await reload();
+    } catch (reason) { reportFailure(reason); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(item: ServiceOrderBudgetItem) {
+    const applied = item.appliedQuantity ?? 0;
+    let removalBody: { confirmed: true; defectiveQuantity: number } | undefined;
+    if (applied > 0) {
+      if (!window.confirm(`Este item tem ${applied} unidade(s) aplicada(s). A remoção desfará essas aplicações e preservará o histórico. Continuar?`)) return;
+      const response = window.prompt(`Quantas das ${applied} unidade(s) devem ser classificadas como defeituosas? Informe 0 se nenhuma.`, "0");
+      if (response === null) return;
+      if (!/^\d+$/u.test(response) || Number(response) > applied) { setError("Informe uma quantidade defeituosa inteira entre zero e a quantidade aplicada."); return; }
+      removalBody = { confirmed: true, defectiveQuantity: Number(response) };
+    } else if (!window.confirm("Deseja remover este item do orçamento?")) return;
+    setBusy(true); setError(null); setMessage(null);
+    try { const result = await removeBudgetItem(publicId, item.publicId, csrfToken, editToken, expectedRevision, removalBody); onRevisionChange?.(result.serviceOrderRevision); setMessage(applied > 0 ? "Item removido do orçamento; as aplicações foram revertidas na mesma operação." : "Item removido do orçamento."); await reload(); }
     catch (reason) { reportFailure(reason); }
     finally { setBusy(false); }
   }
@@ -190,7 +226,14 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
             <td>{editing === item.publicId ? <input aria-label="Valor unitário" inputMode="decimal" value={editPrice} disabled={!canEditCurrent} onChange={(event) => setEditPrice(event.target.value)} /> : `R$ ${item.unitPrice}`}</td>
             <td>R$ {item.total}</td>
             {canReadCosts && activeItems.some((entry) => entry.itemType === "MANUAL_PART") && <td>{item.itemType !== "MANUAL_PART" ? "—" : editing === item.publicId && canUpdateCosts ? <input aria-label="Custo unitário" inputMode="decimal" value={editCost} disabled={!canEditCurrent} onChange={(event) => setEditCost(event.target.value)} placeholder="Não informado" /> : item.unitCost == null ? "Não informado" : `R$ ${item.unitCost}`}</td>}
-            {canEditCurrent && isOpen && <td>{editing === item.publicId ? <><button className="text-button" type="button" disabled={busy} onClick={() => void saveEdit(item)}>Salvar</button><button className="text-button" type="button" disabled={busy} onClick={() => setEditing(null)}>Cancelar</button></> : <><button className="text-button" type="button" disabled={busy} onClick={() => startEdit(item)}>Editar</button><button className="text-button" type="button" disabled={busy} onClick={() => void remove(item)}>Remover</button></>}</td>}
+            {canEditCurrent && isOpen && <td>{editing === item.publicId ? <><button className="text-button" type="button" disabled={busy} onClick={() => void saveEdit(item)}>Salvar</button><button className="text-button" type="button" disabled={busy} onClick={() => setEditing(null)}>Cancelar</button></> : <><button className="text-button" type="button" disabled={busy} onClick={() => startEdit(item)}>Editar</button>{item.itemType === "STOCK_PART" && canManageStock && <div className="stock-application-controls">
+              <p>Aplicada: {item.appliedQuantity ?? 0}</p>
+              <label>Quantidade para aplicar <input aria-label={`Quantidade para aplicar ${item.description}`} type="number" min="1" step="1" value={applyQuantities[item.publicId] ?? "1"} disabled={busy} onChange={(event) => setApplyQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
+              <button className="text-button" type="button" disabled={busy} onClick={() => void applyStock(item)}>Marcar como aplicada</button>
+              {(item.appliedQuantity ?? 0) > 0 && <><label>Quantidade para desfazer <input aria-label={`Quantidade para desfazer ${item.description}`} type="number" min="1" max={item.appliedQuantity} step="1" value={reverseQuantities[item.publicId] ?? "1"} disabled={busy} onChange={(event) => setReverseQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
+                <label>Unidades defeituosas <input aria-label={`Unidades defeituosas ${item.description}`} type="number" min="0" max={reverseQuantities[item.publicId] ?? "1"} step="1" value={defectiveQuantities[item.publicId] ?? "0"} disabled={busy} onChange={(event) => setDefectiveQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
+                <button className="text-button" type="button" disabled={busy} onClick={() => void reverseStock(item)}>Desfazer aplicação</button></>}
+            </div>}<button className="text-button" type="button" disabled={busy} onClick={() => void remove(item)}>Remover</button></>}</td>}
           </tr>)}</tbody>
         </table></div>
       )}

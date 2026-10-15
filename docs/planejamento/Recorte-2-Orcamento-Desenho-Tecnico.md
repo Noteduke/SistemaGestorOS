@@ -1,6 +1,6 @@
 # Recorte 2 — Cadastro de Serviços e orçamento simplificado da OS
 
-**Status:** o orçamento implementa Serviço/Mão de obra (cadastrada ou avulsa), Peça avulsa e Peça do estoque. A associação Produto–item tem schema, migration, API e interface. A migration `20261016120000_budget_stock_parts`, junto às migrations `20261014120000_service_catalog`, `20261015120000_service_order_budget_items` e `20261015130000_product_catalog`, foi aplicada somente em `gestor_os_opening_test`, nunca no banco principal nesta etapa. Este parágrafo e “Implementação realizada” registram o estado atual; o restante mantém decisões/propostas históricas. Aplicação física, movimentações e baixas de peças da OS continuam futuras.
+**Status:** o orçamento implementa Serviço/Mão de obra (cadastrada ou avulsa), Peça avulsa e Peça do estoque. A associação Produto–item tem schema, migration, API e interface. As migrations `20261016120000_budget_stock_parts` e `20261016130000_service_order_stock_applications`, junto às migrations anteriores do catálogo e orçamento, foram aplicadas somente em `gestor_os_opening_test`; não foram aplicadas no banco principal. Este parágrafo e “Implementação realizada” registram o estado atual. As seções seguintes preservam o desenho aprovado antes da implementação do orçamento e devem ser lidas como histórico/proposta da etapa anterior; regras posteriores de aplicação e reversão estão em [Recorte 5](Recorte-5-Aplicacao-de-Pecas-na-OS.md). A baixa definitiva no encerramento e integração completa com cancelamento continuam futuras.
 
 ## Implementação realizada
 
@@ -14,7 +14,7 @@ O item de estoque é `STOCK_PART` com origem `PRODUCT_CATALOG`: referência rest
 - **API e interface:** estão implementadas consulta/inclusão/edição/retirada de itens, lista auxiliar de serviços ativos para seleção e painel de orçamento no detalhe da OS. A tela copia o preço padrão no lançamento, sem vínculo posterior do preço; permite quantidade/valor zero dentro dos limites aprovados, edição avulsa e remoção com confirmação simples. Macrostatus que não permite edição mantém os itens em consulta.
 - **Validação:** migration, índices, API autenticada, CSRF, custos, duplicidade, concorrência, retirada individual e integral foram exercitados apenas em `gestor_os_opening_test`. O script operacional remove os registros temporários ao final. O banco principal não foi conectado nem modificado por esta etapa.
 
-Peça de estoque, movimentações e validação de peça avulsa contra catálogo de peças continuam fora desta fatia. As invariantes que dependem de leitura/coordenação entre tabelas são garantidas pelo service transacional; não se deve inferir que o banco as impõe por CHECK.
+**Registro histórico do desenho anterior à implementação do Recorte 2:** naquele momento, peça de estoque, movimentações e comparação de peça avulsa com catálogo estavam fora do escopo. A inclusão de Peça do Estoque no orçamento e a aplicação/reversão física foram implementadas posteriormente nos Recortes 2 e 5. As invariantes que dependem de coordenação entre tabelas são garantidas pelo service transacional; não se deve inferir que o banco as impõe por CHECK.
 
 ## 1. Escopo aprovado e limites
 

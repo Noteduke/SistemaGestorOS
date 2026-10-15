@@ -1,6 +1,6 @@
 # Recorte 4 — Controle inicial de Estoque
 
-**Status:** modelo, migration, permissão, Backend e tela inicial implementados. Migration e seed validados exclusivamente em `gestor_os_opening_test`; banco principal não acessado. Aplicação de peças à OS e demais origens futuras continuam fora deste recorte.
+**Status:** modelo, migration, permissão, Backend e tela inicial do controle inicial de estoque implementados. As migrations deste recorte foram validadas exclusivamente em `gestor_os_opening_test`; banco principal não acessado nesta etapa. Este documento registra o estado e escopo do Recorte 4 antes da integração com OS. Aplicação e reversão de peças foram implementadas posteriormente no [Recorte 5](Recorte-5-Aplicacao-de-Pecas-na-OS.md); baixa definitiva no encerramento e integração completa com cancelamento continuam futuras.
 
 ## Escopo
 
@@ -22,7 +22,7 @@ Tipos e efeitos registrados:
 | `DEFECTIVE_RETURNED` | `0` | `0` | `-q` |
 | `DEFECTIVE_DISCARDED` | `-q` | `0` | `-q` |
 
-`appliedDelta` existe para suportar a futura integração, mas todos os tipos atuais o mantêm em zero; esta etapa não cria nem altera aplicações de OS.
+**Estado histórico no Recorte 4:** `appliedDelta` foi reservado para integração futura e todos os tipos daquele recorte mantinham o valor em zero. O Recorte 5 acrescentou os movimentos `SERVICE_ORDER_APPLIED` e `SERVICE_ORDER_REVERSED`, que atualizam esse delta no livro imutável.
 
 Os saldos são sempre calculados por agregação do livro: `Total = SUM(totalDelta)`, `Aplicadas = SUM(appliedDelta)`, `Defeituosas = SUM(defectiveDelta)` e `Disponíveis = Total − Aplicadas − Defeituosas`. Sem movimentos, os quatro valores são zero. Estoque disponível negativo é válido.
 

@@ -184,13 +184,13 @@ Cadastro único de identificação da marca de um equipamento, representando tam
 ## Produto
 Item controlado em estoque e comercializado.
 
-O cadastro possui preço de venda padrão e custo de aquisição opcionais; `NULL` é distinto de zero. O saldo é derivado do livro de movimentos no controle inicial; a inclusão do Produto não cria saldo. O custo histórico de uma aplicação futura à OS será capturado no momento em que a peça for marcada como aplicada.
+O cadastro possui preço de venda padrão e custo de aquisição opcionais; `NULL` é distinto de zero. O saldo é derivado do livro de movimentos; a inclusão do Produto não cria saldo. O custo histórico da aplicação à OS é capturado no momento do movimento e preservado contra alterações posteriores do cadastro.
 
 ## Movimento de estoque
 Registro imutável que representa entrada, ajuste, classificação de defeituosa, retorno à disponibilidade ou descarte. O livro de movimentos é a fonte dos saldos; operação e Log Administrativo são gravados atomicamente com ator e instante do servidor.
 
 ## Saldo de estoque
-Valores derivados do livro: Total é a soma de `totalDelta`, Aplicadas é a soma de `appliedDelta`, Defeituosas é a soma de `defectiveDelta` e Disponíveis = Total − Aplicadas − Defeituosas. O primeiro recorte usa um local implícito, unidades inteiras e admite saldo negativo. Aplicadas permanece zero enquanto não houver integração com OS.
+Valores derivados do livro: Total é a soma de `totalDelta`, Aplicadas é a soma de `appliedDelta`, Defeituosas é a soma de `defectiveDelta` e Disponíveis = Total − Aplicadas − Defeituosas. O primeiro recorte usa um local implícito, unidades inteiras e admite saldo negativo. Movimentos de aplicação/reversão de OS compõem Aplicadas; baixa definitiva no encerramento ainda não está implementada.
 
 ## Gestão de estoque
 Capacidade `products.stock.manage`, que permite registrar movimentos manuais e consultar produtos/saldos/histórico. `products.manage` também permite consultas, mas não escritas de estoque. A permissão de estoque não concede criação ou alteração de produtos. Administrador recebe acesso efetivo pela política central.
@@ -355,3 +355,15 @@ Projeção cronológica de eventos automáticos imutáveis e observações manua
 ## Controle de edição da OS
 
 Concessão técnica temporária, associada a uma única OS confirmada e a um contexto de navegador, que permite executar mutações protegidas enquanto não expirar nem for transferida. Não substitui as permissões da operação.
+
+## Aplicação de peça do estoque na OS
+
+Movimento imutável que vincula Produto, item de orçamento e OS ABERTA, aumentando a quantidade aplicada e reduzindo a disponibilidade sem alterar o total do estoque nem dar baixa definitiva. Exige controle exclusivo, revisão atual e permissões de edição do orçamento e movimentação de estoque.
+
+## Reversão de aplicação
+
+Movimento imutável que desfaz, total ou parcialmente, uma aplicação ainda ativa. A quantidade normal volta a disponível; a parcela classificada como defeituosa aumenta o saldo defeituoso e não retorna à disponibilidade. Cada reversão referencia os movimentos de aplicação de origem.
+
+## Custo histórico da aplicação
+
+Snapshot do custo de aquisição do Produto no instante da aplicação, preservando `NULL` quando desconhecido. Mudanças posteriores no cadastro não o reescrevem; sua projeção em orçamento e histórico de OS exige `products.cost.read`.

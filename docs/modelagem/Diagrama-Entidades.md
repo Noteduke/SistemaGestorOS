@@ -270,7 +270,7 @@ erDiagram
 - **Numeração e abertura — regras aprovadas:** número visível `OS-` + seis dígitos, sequência global, crescente, única e imutável, gerada antes da confirmação. A abertura em andamento fica persistida, sobrevive a reinício, não é atendimento ativo e não possui snapshot; cada usuário pode ter uma por vez. Usuário comum só retoma/cancela a própria; Administrador ou `service_orders.opening.manage` pode atuar em outra, com evento de auditoria. A confirmação com cliente/equipamento cria OS ABERTA/TRIAGEM. Edições temporárias não exigem histórico detalhado; eventos principais são registrados; não há expiração automática obrigatória no Recorte 1. Aberturas em andamento/canceladas não aparecem na listagem comum. Abandono libera número conforme a regra de sequência ou registra ABERTURA CANCELADA; etiqueta não consome o número. O schema Prisma já contém OS, abertura e sequenciador; a migration passou em banco restaurado e foi aplicada ao principal. O diagrama de OS mostra essa estrutura.
 - **OS, mudanças de status e reabertura — regras funcionais aprovadas:** situação operacional e status macro são distintos; após TRIAGEM, a situação pode mudar livremente por usuário autorizado. FECHADA/CANCELADA exigem Administrador ou permissão específica; transições diretas entre elas são proibidas. Reabertura simples é textual. Reabertura completa mantém o número e retorna a ABERTA/AGUARDANDO AVALIAÇÃO/ORÇAMENTO, cancela faturamento/pagamentos do ativo com histórico, move peças vinculadas para ORÇADA e notifica o Administrador; pode reabrir OS CANCELADA. As situações, atribuições padrão, resultados e regra de orçamento em NÃO AUTORIZADO estão em `docs/02-Regras-de-Negocio.md`. O schema Prisma contém a base de OS e eventos do Recorte 1, ainda sem os fluxos e relações de reabertura, financeiro e estoque descritos aqui. O diagrama de OS mostra a base física aplicada.
 - **Equipamento comprado/Doado — fluxo aprovado para etapa posterior:** OS externa fica FECHADA; equipamento passa à Pessoa da própria empresa e gera OS interna ABERTA/TRIAGEM ligada reciprocamente. Informações da origem são herdadas em área histórica separada; cobranças, pagamentos, serviços cobrados, peças UTILIZADAS/BAIXADAS e pendências não se tornam itens ativos. Só Administrador configura a Pessoa, que deve ser elegível como titular; sem configuração, bloqueia o encerramento. A original não recebe movimentação técnica depois da nova OS e só admite reabertura simples. A interna não pode repetir esse resultado. O schema Prisma contém a base de OS, mas não a configuração da Pessoa da empresa, vínculos recíprocos entre OS ou histórico herdado; o diagrama de OS mostra somente a base física atual. Não se aprova modelo físico adicional para esse fluxo. Atomicidade, herança, efeitos fiscais/financeiros e reconciliações de estoque permanecem pendentes.
-- **Orçamento simplificado — modelo implementado em migration pendente no principal:** `ServiceOrderBudgetItem` relaciona diretamente OS, catálogos opcionais de Serviço/Produto, autoria e retirada lógica. Inclui Serviço/Mão de obra cadastrada ou avulsa, Peça avulsa e Peça do estoque. `STOCK_PART`/`PRODUCT_CATALOG` requer referência restritiva ao Produto, com descrição e preço snapshot; unicidade funcional impede produto repetido entre itens ativos da mesma OS. A migration `20261016120000_budget_stock_parts` foi validada somente em `gestor_os_opening_test`; o diagrama ER base acima ainda não incorpora os itens. Aplicação física, reserva e baixa de estoque continuam fora desta associação. `ServiceOrderBudgetNameLock` permanece tabela técnica. Ver [Modelo-Banco](Modelo-Banco.md) e [desenho técnico do Recorte 2](../planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md).
+- **Orçamento e aplicação de peças — implementados em banco isolado:** `ServiceOrderBudgetItem` relaciona diretamente OS, catálogos opcionais de Serviço/Produto, autoria e retirada lógica. Inclui Serviço/Mão de obra cadastrada ou avulsa, Peça avulsa e Peça do estoque. `STOCK_PART`/`PRODUCT_CATALOG` requer referência restritiva ao Produto, com descrição e preço snapshot; produto ativo não pode repetir entre itens ativos da mesma OS. As migrations `20261016120000_budget_stock_parts` e `20261016130000_service_order_stock_applications` foram validadas/aplicadas somente em `gestor_os_opening_test`, não no banco principal. O diagrama ER base acima ainda não incorpora orçamento e movimentos de aplicação. Aplicação/reversão ficam registradas no livro `ProductStockMovement`, sem reserva nem baixa definitiva; a baixa no encerramento e integração completa com cancelamento continuam futuras. `ServiceOrderBudgetNameLock` permanece tabela técnica. Ver [Modelo-Banco](Modelo-Banco.md), [desenho do Recorte 2](../planejamento/Recorte-2-Orcamento-Desenho-Tecnico.md) e [Recorte 5](../planejamento/Recorte-5-Aplicacao-de-Pecas-na-OS.md).
 
 ```mermaid
 erDiagram
@@ -401,6 +401,9 @@ O modelo de catálogo/preços e a relação com o livro de estoque estão implem
 erDiagram
     Product ||--o{ ProductStockMovement : recebe
     User ||--o{ ProductStockMovement : registra
+    ServiceOrder ||--o{ ProductStockMovement : origina
+    ServiceOrderBudgetItem ||--o{ ProductStockMovement : vincula
+    ProductStockMovement ||--o{ ProductStockMovement : reverte
     ProductStockMovement {
         int id PK
         char36 public_id UK
@@ -410,9 +413,13 @@ erDiagram
         int total_delta
         int applied_delta
         int defective_delta
+        int service_order_id FK
+        int budget_item_id FK
+        int source_movement_id FK
+        decimal unit_cost_snapshot
         int actor_user_id FK
         datetime3 occurred_at
     }
 ```
 
-`ProductStockMovement` é um ledger append-only. Não existe tabela de saldo/local; um único local é implícito, e os saldos são somas de deltas. `applied_delta` permanece zero enquanto não houver integração com OS. A migration foi aplicada somente ao banco isolado `gestor_os_opening_test` e não foi aplicada ao principal.
+`ProductStockMovement` é um ledger append-only. Não existe tabela de saldo/local; um único local é implícito, e os saldos são somas de deltas. Movimentos da OS vinculam-se ao Produto, item, OS e aplicação original quando são reversões. `unit_cost_snapshot` mantém o custo conhecido no instante da aplicação ou `NULL`; sua projeção exige `products.cost.read`. A migration `20261016130000_service_order_stock_applications` foi aplicada somente ao banco isolado `gestor_os_opening_test` e não foi aplicada ao principal.

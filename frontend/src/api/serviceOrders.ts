@@ -58,6 +58,8 @@ export interface ServiceOrderBudgetItem {
   totalCost?: string | null;
   version: number;
   createdAt: string;
+  appliedQuantity?: number;
+  applications?: Array<{ publicId: string; quantity: number; reversedQuantity: number; remainingQuantity: number; occurredAt: string; unitCostSnapshot?: string | null }>;
 }
 
 export interface AvailableCatalogService { publicId: string; name: string; defaultPrice: string }
@@ -291,8 +293,14 @@ export function addManualPartBudgetItem(publicId: string, body: { description: s
 export function updateBudgetItem(publicId: string, itemPublicId: string, body: Record<string, unknown>, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "PATCH", csrfToken, body, editToken, expectedRevision);
 }
-export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string, editToken?: string, expectedRevision?: string) {
-  return mutateBudget<{ data: { removed: boolean; publicId: string; total: string }; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken, undefined, editToken, expectedRevision);
+export function applyStockPartToServiceOrder(publicId: string, itemPublicId: string, body: { quantity: number }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+  return mutateBudget<{ data: { movementPublicId: string; quantity: number; stock: { total: number; applied: number; defective: number; available: number } }; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}/applications`, "POST", csrfToken, body, editToken, expectedRevision);
+}
+export function reverseStockPartApplication(publicId: string, itemPublicId: string, body: { quantity: number; defectiveQuantity?: number }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+  return mutateBudget<{ data: unknown; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}/applications/reversals`, "POST", csrfToken, body, editToken, expectedRevision);
+}
+export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string, editToken?: string, expectedRevision?: string, body?: { confirmed: true; defectiveQuantity: number }) {
+  return mutateBudget<{ data: { removed: boolean; publicId: string; total: string }; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken, body, editToken, expectedRevision);
 }
 
 async function mutateEditControl<T>(publicId: string, action: "acquire" | "heartbeat" | "release" | "takeover", csrfToken: string, editToken: string): Promise<T> {

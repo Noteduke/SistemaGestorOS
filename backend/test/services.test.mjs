@@ -12,6 +12,7 @@ import { parseCreateProduct, parseProductListQuery, parseUpdateProduct } from ".
 import { ProductsService } from "../dist/modules/products/products.service.js";
 import { parseProductStockMovementsQuery, parseStockAdjustmentBody, parseStockDisposalBody, parseStockQuantityBody } from "../dist/modules/products/dto/product-stock.dto.js";
 import { movementDeltas, stockBalanceFromDeltas, stockMovementViolation } from "../dist/modules/products/domain/product-stock-ledger.js";
+import { parseApplyStockPart, parseRemoveBudgetItem, parseReverseStockPart } from "../dist/modules/service-orders/dto/service-order-stock-application.dto.js";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
@@ -383,4 +384,42 @@ test("razão de estoque deriva os saldos e protege quantidades classificadas", (
   assert.equal(stockMovementViolation("MANUAL_ADJUSTMENT", -4, before), "CLASSIFIED_STOCK_PROTECTED");
   assert.equal(stockMovementViolation("MANUAL_ADJUSTMENT", -3, before), undefined);
   assert.deepEqual(movementDeltas("DEFECTIVE_DISCARDED", 1), { total: -1, applied: 0, defective: -1 });
+});
+
+test("aplicação e reversão de peça aceitam somente unidades positivas e defeituosas limitadas", () => {
+  assert.deepEqual(parseApplyStockPart({ quantity: "3" }), { quantity: 3 });
+  assert.deepEqual(parseReverseStockPart({ quantity: 3, defectiveQuantity: "1" }), { quantity: 3, defectiveQuantity: 1 });
+  assert.deepEqual(parseReverseStockPart({ quantity: 1 }), { quantity: 1, defectiveQuantity: 0 });
+  assert.deepEqual(parseRemoveBudgetItem(undefined), { confirmed: false, defectiveQuantity: 0 });
+  assert.deepEqual(parseRemoveBudgetItem({ confirmed: true, defectiveQuantity: 2 }), { confirmed: true, defectiveQuantity: 2 });
+  for (const value of [0, -1, 1.5, "1.2", Number.MAX_SAFE_INTEGER + 1]) {
+    rejectsCode(() => parseApplyStockPart({ quantity: value }), "INVALID_STOCK_QUANTITY");
+  }
+  rejectsCode(() => parseReverseStockPart({ quantity: 2, defectiveQuantity: 3 }), "INVALID_DEFECTIVE_QUANTITY");
+  rejectsCode(() => parseReverseStockPart({ quantity: 1, unexpected: true }), "UNSUPPORTED_FIELD");
+  rejectsCode(() => parseRemoveBudgetItem({ confirmed: false }), "INVALID_BODY");
+  rejectsCode(() => parseRemoveBudgetItem({ confirmed: true, defectiveQuantity: -1 }), "INVALID_STOCK_QUANTITY");
+});
+
+test("histórico de aplicação oculta custo por padrão e preserva NULL somente para leitor autorizado", () => {
+  const applied = {
+    itemPublicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f",
+    productPublicId: "652c6498-a270-43b2-8627-4a754bb5fdad",
+    movementPublicId: "2e04601f-e202-422b-8116-7af31e6347dc",
+    description: "Peça teste", quantity: 3, appliedBefore: 0, appliedAfter: 3,
+    availableBefore: 0, availableAfter: -3, unitCostSnapshot: null,
+  };
+  const hiddenApplied = sanitizeServiceOrderEventPayload("PECA_ESTOQUE_APLICADA", applied, false, false);
+  assert.equal(Object.hasOwn(hiddenApplied, "unitCostSnapshot"), false);
+  const visibleApplied = sanitizeServiceOrderEventPayload("PECA_ESTOQUE_APLICADA", applied, false, true);
+  assert.equal(visibleApplied.unitCostSnapshot, null);
+
+  const reversed = {
+    ...applied, defectiveQuantity: 1, defectiveBefore: 0, defectiveAfter: 1,
+    reversals: [{ sourceApplicationPublicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f", quantity: 1, defectiveQuantity: 1, unitCostSnapshot: "0.00" }],
+  };
+  const hiddenReversal = sanitizeServiceOrderEventPayload("PECA_ESTOQUE_APLICACAO_REVERTIDA", reversed, false, false);
+  assert.equal(Object.hasOwn(hiddenReversal.reversals[0], "unitCostSnapshot"), false);
+  const visibleReversal = sanitizeServiceOrderEventPayload("PECA_ESTOQUE_APLICACAO_REVERTIDA", reversed, false, true);
+  assert.equal(visibleReversal.reversals[0].unitCostSnapshot, "0.00");
 });

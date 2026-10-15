@@ -16,6 +16,8 @@ import { ServiceOrderHistoryService } from "./service-order-history.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 import { parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseCreateStockPart, parseUpdateBudgetItem } from "./dto/budget-item.dto.js";
 import { ServiceOrderEditControlService } from "./service-order-edit-control.service.js";
+import { ServiceOrderStockApplicationsService } from "./service-order-stock-applications.service.js";
+import { parseApplyStockPart, parseRemoveBudgetItem, parseReverseStockPart } from "./dto/service-order-stock-application.dto.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
@@ -28,6 +30,7 @@ export class ServiceOrdersController {
     private readonly history: ServiceOrderHistoryService,
     private readonly budgetItems: ServiceOrderBudgetItemsService,
     private readonly editControl: ServiceOrderEditControlService,
+    private readonly stockApplications: ServiceOrderStockApplicationsService,
   ) {}
 
   @Get()
@@ -122,8 +125,20 @@ export class ServiceOrdersController {
 
   @Delete(":publicId/budget-items/:itemPublicId")
   @RequirePermissions("service_orders.budget.update")
-  removeBudgetItem(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Req() request: AuthRequest) {
-    return this.budgetItems.remove(publicId, itemPublicId, request.auth!, editToken(request), serviceOrderRevision(request));
+  removeBudgetItem(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.budgetItems.remove(publicId, itemPublicId, parseRemoveBudgetItem(body), request.auth!, editToken(request), serviceOrderRevision(request));
+  }
+
+  @Post(":publicId/budget-items/:itemPublicId/applications")
+  @RequirePermissions("service_orders.budget.update", "products.stock.manage")
+  applyStockPart(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.stockApplications.apply(publicId, itemPublicId, parseApplyStockPart(body).quantity, request.auth!, editToken(request), serviceOrderRevision(request));
+  }
+
+  @Post(":publicId/budget-items/:itemPublicId/applications/reversals")
+  @RequirePermissions("service_orders.budget.update", "products.stock.manage")
+  reverseStockPart(@Param("publicId") publicId: string, @Param("itemPublicId") itemPublicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.stockApplications.reverse(publicId, itemPublicId, parseReverseStockPart(body), request.auth!, editToken(request), serviceOrderRevision(request));
   }
 
   @Post(":publicId/notes")

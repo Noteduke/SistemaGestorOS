@@ -33,20 +33,22 @@ const payloadKeys: Record<string, readonly string[]> = {
   ITEM_ORCAMENTO_ALTERADO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
   ITEM_ORCAMENTO_REMOVIDO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
   ORCAMENTO_RETIRADO: ["items", "total", "itemCount"],
+  PECA_ESTOQUE_APLICADA: ["itemPublicId", "productPublicId", "movementPublicId", "description", "quantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "unitCostSnapshot"],
+  PECA_ESTOQUE_APLICACAO_REVERTIDA: ["itemPublicId", "productPublicId", "description", "quantity", "defectiveQuantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "defectiveBefore", "defectiveAfter", "reversals"],
 };
 
 const booleanPayloadKeys = new Set(["numberReleased"]);
 const arrayPayloadKeys = new Set(["previousUserPublicIds", "newUserPublicIds", "addedUserPublicIds", "removedUserPublicIds"]);
 const publicIdPayloadKeys = new Set([
   "initiatingUserPublicId", "canceledByUserPublicId", "openingPublicId", "serviceOrderPublicId", "equipmentPublicId",
-  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId",
+  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId", "itemPublicId", "movementPublicId",
 ]);
 const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const budgetEventTypes = new Set(["ITEM_ORCAMENTO_CRIADO", "ITEM_ORCAMENTO_ALTERADO", "ITEM_ORCAMENTO_REMOVIDO", "ORCAMENTO_RETIRADO"]);
 const budgetSnapshotKeys = ["publicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost"] as const;
 
-export function sanitizeServiceOrderEventPayload(eventType: string, value: Prisma.JsonValue | null, includeCosts = false): Record<string, unknown> | null {
+export function sanitizeServiceOrderEventPayload(eventType: string, value: Prisma.JsonValue | null, includeCosts = false, includeProductCosts = includeCosts): Record<string, unknown> | null {
   const allowed = Object.hasOwn(payloadKeys, eventType) ? payloadKeys[eventType] : undefined;
   if (!allowed || value === null || typeof value !== "object" || Array.isArray(value)) return null;
 
@@ -55,16 +57,29 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
   for (const key of allowed) {
     const candidate = source[key];
     if (budgetEventTypes.has(eventType) && !includeCosts && (key === "unitCost" || key === "totalCost")) continue;
-    if (budgetEventTypes.has(eventType) && (key === "changes" || key === "items")) {
+    if (key === "unitCostSnapshot") {
+      if (includeProductCosts && (candidate === null || typeof candidate === "string")) sanitized[key] = candidate;
+      continue;
+    }
+    if ((budgetEventTypes.has(eventType) || eventType === "ORCAMENTO_RETIRADO") && (key === "changes" || key === "items")) {
       if (key === "changes" && Array.isArray(candidate)) {
         sanitized.changes = candidate.flatMap((change) => {
           if (!isRecord(change) || typeof change.field !== "string" || !["item", "quantity", "unitPrice", "description", "unitCost"].includes(change.field)) return [];
           if (!includeCosts && change.field === "unitCost") return [];
-          return [{ field: change.field, before: sanitizeBudgetSnapshot(change.before, includeCosts), after: sanitizeBudgetSnapshot(change.after, includeCosts) }];
+          return [{ field: change.field, before: sanitizeBudgetSnapshot(change.before, includeCosts, includeProductCosts), after: sanitizeBudgetSnapshot(change.after, includeCosts, includeProductCosts) }];
         });
       } else if (key === "items" && Array.isArray(candidate)) {
-        sanitized.items = candidate.map((item) => sanitizeBudgetSnapshot(item, includeCosts)).filter((item) => item !== null);
+        sanitized.items = candidate.map((item) => sanitizeBudgetSnapshot(item, includeCosts, includeProductCosts)).filter((item) => item !== null);
       }
+      continue;
+    }
+    if (key === "reversals") {
+      if (Array.isArray(candidate)) sanitized.reversals = candidate.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.sourceApplicationPublicId !== "string" || !publicIdPattern.test(entry.sourceApplicationPublicId)
+          || typeof entry.quantity !== "number" || typeof entry.defectiveQuantity !== "number") return [];
+        return [{ sourceApplicationPublicId: entry.sourceApplicationPublicId, quantity: entry.quantity, defectiveQuantity: entry.defectiveQuantity,
+          ...(includeProductCosts && (typeof entry.unitCostSnapshot === "string" || entry.unitCostSnapshot === null) ? { unitCostSnapshot: entry.unitCostSnapshot } : {}) }];
+      });
       continue;
     }
     if (booleanPayloadKeys.has(key)) {
@@ -82,7 +97,7 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
-function sanitizeBudgetSnapshot(value: unknown, includeCosts: boolean): Record<string, unknown> | null {
+function sanitizeBudgetSnapshot(value: unknown, includeCosts: boolean, includeProductCosts: boolean): Record<string, unknown> | null {
   if (value === null) return null;
   if (!isRecord(value)) return null;
   const snapshot: Record<string, unknown> = {};
@@ -91,17 +106,24 @@ function sanitizeBudgetSnapshot(value: unknown, includeCosts: boolean): Record<s
     const candidate = value[key];
     if (typeof candidate === "string" || typeof candidate === "number") snapshot[key] = candidate;
   }
+  const reversals = value.stockApplicationsReversed;
+  if (Array.isArray(reversals)) snapshot.stockApplicationsReversed = reversals.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.sourceApplicationPublicId !== "string" || !publicIdPattern.test(entry.sourceApplicationPublicId)
+      || typeof entry.quantity !== "number" || typeof entry.defectiveQuantity !== "number") return [];
+    return [{ sourceApplicationPublicId: entry.sourceApplicationPublicId, quantity: entry.quantity, defectiveQuantity: entry.defectiveQuantity,
+      ...(includeProductCosts && (typeof entry.unitCostSnapshot === "string" || entry.unitCostSnapshot === null) ? { unitCostSnapshot: entry.unitCostSnapshot } : {}) }];
+  });
   return snapshot;
 }
 
-function toEventView(event: EventRow, includeCosts: boolean) {
+function toEventView(event: EventRow, includeCosts: boolean, includeProductCosts: boolean) {
   return {
     eventType: event.eventType,
     occurredAt: event.occurredAt,
     visibleNumber: formatServiceOrderNumber(event.numberValue),
     numberValue: event.numberValue.toString(),
     actor: { publicId: event.actor.publicId, username: event.actor.username },
-    payload: sanitizeServiceOrderEventPayload(event.eventType, event.payload, includeCosts),
+    payload: sanitizeServiceOrderEventPayload(event.eventType, event.payload, includeCosts, includeProductCosts),
   };
 }
 
@@ -129,10 +151,13 @@ export class ServiceOrderEventsReadService {
       }),
       this.prisma.serviceOrderEvent.count({ where }),
     ]);
-    const costGrant = actor.isAdmin || Boolean(await this.prisma.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.budget.costs.read" } }, select: { userId: true } }));
+    const grants = actor.isAdmin ? [] : await this.prisma.userPermission.findMany({ where: { userId: actor.id, permission: { code: { in: ["service_orders.budget.costs.read", "products.cost.read"] } } }, select: { permission: { select: { code: true } } } });
+    const grantCodes = new Set(grants.map(({ permission }) => permission.code));
+    const canReadBudgetCosts = actor.isAdmin || grantCodes.has("service_orders.budget.costs.read");
+    const canReadProductCosts = actor.isAdmin || grantCodes.has("products.cost.read");
 
     return {
-      data: events.map((event: EventRow) => toEventView(event, costGrant)),
+      data: events.map((event: EventRow) => toEventView(event, canReadBudgetCosts, canReadProductCosts)),
       pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
     };
   }

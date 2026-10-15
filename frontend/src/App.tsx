@@ -232,6 +232,7 @@ export function App() {
             currentUsername={session.identity.username}
             canReadBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.read")}
             canEditBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.update")}
+            canManageStock={session.identity.isAdmin || session.identity.permissions.includes("products.stock.manage")}
             canReadBudgetCosts={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.costs.read")}
             canUpdateBudgetCosts={session.identity.isAdmin || (
               session.identity.permissions.includes("service_orders.budget.update")

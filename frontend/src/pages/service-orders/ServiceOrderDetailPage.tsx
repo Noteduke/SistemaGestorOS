@@ -60,6 +60,7 @@ interface ServiceOrderDetailPageProps {
   canCreateNote?: boolean;
   canReadBudget?: boolean;
   canEditBudget?: boolean;
+  canManageStock?: boolean;
   canReadBudgetCosts?: boolean;
   canUpdateBudgetCosts?: boolean;
   canManageEdit?: boolean;
@@ -90,7 +91,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canManageStock = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -763,6 +764,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 editToken={editToken}
                 expectedRevision={editRevision}
                 canEdit={canEditBudget && isEditing && !dataConflict}
+                canManageStock={canManageStock}
                 canReadCosts={canReadBudgetCosts}
                 canUpdateCosts={canUpdateBudgetCosts}
                 onEditControlLost={markEditControlLost}
