@@ -3,7 +3,7 @@ import { Prisma, type ServiceOrderBudgetItem } from "../../generated/prisma/clie
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { normalizeServiceName } from "../services/domain/service-name.js";
-import type { CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
+import type { CreateManualLaborInput, CreateManualPartInput, CreateRegisteredLaborInput, CreateStockPartInput, UpdateBudgetItemInput } from "./dto/budget-item.dto.js";
 import { acquireCatalogNameLock } from "../../infrastructure/prisma/catalog-name-lock.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
 
@@ -31,6 +31,14 @@ async function canReadCosts(tx: Tx, actor: AuthenticatedUser): Promise<boolean> 
   return Boolean(await tx.userPermission.findFirst({ where: { userId: actor.id, permission: { code: "service_orders.budget.costs.read" } }, select: { userId: true } }));
 }
 
+async function assertManualPartDoesNotMatchProduct(tx: Tx, normalizedDescription: string): Promise<void> {
+  await acquireCatalogNameLock(tx, normalizedDescription);
+  const products = await tx.product.findMany({ select: { description: true } });
+  if (products.some((product) => normalizeServiceName(product.description) === normalizedDescription)) {
+    throw new ConflictException({ code: "MANUAL_PART_MATCHES_CATALOG", message: "Use a peça cadastrada correspondente, inclusive se estiver inativa." });
+  }
+}
+
 async function lockedOrder(tx: Tx, publicId: string) {
   const lock = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_orders WHERE public_id = ${publicId} FOR UPDATE`;
   if (!lock[0]) throw orderNotFound();
@@ -44,10 +52,10 @@ function total(items: Array<Pick<ServiceOrderBudgetItem, "quantity" | "unitPrice
   return items.reduce((sum, item) => sum.add(item.unitPrice.mul(item.quantity)), new Prisma.Decimal(0));
 }
 
-function itemView(item: ServiceOrderBudgetItem, includeCosts: boolean) {
+function itemView(item: ServiceOrderBudgetItem, includeCosts: boolean, servicePublicId: string | null = null, productPublicId: string | null = null) {
   const lineTotal = item.unitPrice.mul(item.quantity);
   return {
-    publicId: item.publicId, itemType: item.itemType, origin: item.origin, servicePublicId: undefined,
+    publicId: item.publicId, itemType: item.itemType, origin: item.origin, servicePublicId, productPublicId,
     description: item.description, quantity: item.quantity, unitPrice: serializeDecimal(item.unitPrice),
     total: serializeDecimal(lineTotal), version: item.version, createdAt: item.createdAt,
     ...(includeCosts ? { unitCost: item.unitCost === null ? null : serializeDecimal(item.unitCost), totalCost: item.unitCost === null ? null : serializeDecimal(item.unitCost.mul(item.quantity)) } : {}),
@@ -81,12 +89,11 @@ export class ServiceOrderBudgetItemsService {
       const order = await tx.serviceOrder.findFirst({ where: { ...confirmedWhere, publicId: orderPublicId }, select: { id: true } });
       if (!order) throw orderNotFound();
       const includeCosts = await canReadCosts(tx, actor);
-      const [items, linked] = await Promise.all([
-        tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" } }),
-        tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null, serviceCatalogId: { not: null } }, select: { serviceCatalog: { select: { publicId: true } }, publicId: true } }),
-      ]);
-      const linkedIds = new Map(linked.map((entry) => [entry.publicId, entry.serviceCatalog?.publicId]));
-      const data = items.map((item) => ({ ...itemView(item, includeCosts), servicePublicId: linkedIds.get(item.publicId) ?? null }));
+      const items = await tx.serviceOrderBudgetItem.findMany({
+        where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" },
+        include: { serviceCatalog: { select: { publicId: true } }, product: { select: { publicId: true } } },
+      });
+      const data = items.map((item) => itemView(item, includeCosts, item.serviceCatalog?.publicId ?? null, item.product?.publicId ?? null));
       return { data, total: serializeDecimal(total(items)), canReadCosts: includeCosts };
     }, txOptions);
   }
@@ -110,7 +117,7 @@ export class ServiceOrderBudgetItemsService {
         const service = await tx.serviceCatalog.findUniqueOrThrow({ where: { id: serviceLocks[0].id } });
         if (!service.isActive) throw new ConflictException({ code: "SERVICE_INACTIVE", message: "Reative o serviço para incluí-lo nesta OS." });
         const existing = await tx.serviceOrderBudgetItem.findFirst({ where: { serviceOrderId: order.id, serviceCatalogId: service.id, removedAt: null }, select: { publicId: true } });
-        if (existing) throw duplicate(existing.publicId);
+        if (existing) throw duplicate(existing.publicId, "serviço cadastrado");
         const beforeRows = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
         const price = input.unitPrice === undefined ? service.defaultPrice : decimal(input.unitPrice);
         const item = await tx.serviceOrderBudgetItem.create({ data: {
@@ -121,6 +128,37 @@ export class ServiceOrderBudgetItemsService {
         await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_CRIADO", item, [{ field: "item", before: null, after: snapshot(item) }], total(beforeRows), total(items));
         const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
         return { data: itemView(item, await canReadCosts(tx, actor)), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
+      }, txOptions);
+    } catch (error) { return mapWriteError(error); }
+  }
+
+  async createStockPart(orderPublicId: string, input: CreateStockPartInput, actor: AuthenticatedUser, editToken?: string, expectedRevision?: string) {
+    assertId(orderPublicId); assertId(input.productPublicId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const order = await lockedOrder(tx, orderPublicId);
+        await assertEditControlInTransaction(tx, order.id, actor, editToken);
+        assertServiceOrderRevision(order.updatedAt, expectedRevision);
+        await assertPermission(tx, actor, "service_orders.budget.update");
+        const locks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM products WHERE public_id = ${input.productPublicId} FOR UPDATE`;
+        if (!locks[0]) throw new NotFoundException({ code: "PRODUCT_NOT_FOUND", message: "Produto não encontrado." });
+        const product = await tx.product.findUniqueOrThrow({ where: { id: locks[0].id } });
+        if (!product.isActive) throw new ConflictException({ code: "PRODUCT_INACTIVE", message: "Ative o produto para incluí-lo nesta OS." });
+        const existing = await tx.serviceOrderBudgetItem.findFirst({ where: { serviceOrderId: order.id, productId: product.id, removedAt: null }, select: { publicId: true } });
+        if (existing) throw duplicate(existing.publicId, "peça do estoque");
+        const unitPrice = input.unitPrice === undefined ? product.salePrice : decimal(input.unitPrice);
+        if (unitPrice === null) throw new BadRequestException({ code: "PRODUCT_PRICE_REQUIRED", message: "Informe o valor unitário para incluir este produto no orçamento." });
+        const beforeRows = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
+        const item = await tx.serviceOrderBudgetItem.create({ data: {
+          serviceOrderId: order.id, itemType: "STOCK_PART", origin: "PRODUCT_CATALOG", productId: product.id,
+          description: product.description, normalizedDescription: null, quantity: input.quantity, unitPrice, unitCost: null,
+          createdByUserId: actor.id, updatedByUserId: actor.id,
+        } });
+        const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
+        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_CRIADO", item,
+          [{ field: "item", before: null, after: snapshot(item, product.publicId) }], total(beforeRows), total(items), product.publicId);
+        const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
+        return { data: itemView(item, await canReadCosts(tx, actor), null, product.publicId), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
   }
@@ -152,9 +190,11 @@ export class ServiceOrderBudgetItemsService {
           await acquireCatalogNameLock(tx, normalizedDescription);
           const service = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE normalized_name = ${normalizedDescription} FOR UPDATE`;
           if (service.length) throw new ConflictException({ code: "MANUAL_LABOR_MATCHES_CATALOG", message: "Use o serviço cadastrado correspondente, inclusive se estiver desativado." });
+        } else {
+          await assertManualPartDoesNotMatchProduct(tx, normalizedDescription);
         }
         const existing = await tx.serviceOrderBudgetItem.findFirst({ where: { serviceOrderId: order.id, itemType, origin: "MANUAL", normalizedDescription, removedAt: null }, select: { publicId: true } });
-        if (existing) throw duplicate(existing.publicId);
+        if (existing) throw duplicate(existing.publicId, itemType === "SERVICE_LABOR" ? "mão de obra avulsa" : "peça avulsa");
         const item = await tx.serviceOrderBudgetItem.create({ data: {
           serviceOrderId: order.id, itemType, origin: "MANUAL", description, normalizedDescription, quantity: input.quantity,
           unitPrice: decimal(input.unitPrice), unitCost: itemType === "MANUAL_PART" && "unitCost" in input && input.unitCost != null ? decimal(input.unitCost) : null,
@@ -185,6 +225,7 @@ export class ServiceOrderBudgetItemsService {
         if (current.version !== input.expectedVersion) throw new ConflictException({ code: "BUDGET_ITEM_VERSION_CONFLICT", message: "O item mudou desde que foi aberto. Recarregue a composição." });
         const includeCosts = await canReadCosts(tx, actor);
         const costRequested = Object.hasOwn(input, "unitCost");
+        if (costRequested && current.itemType !== "MANUAL_PART") throw new BadRequestException({ code: "BUDGET_ITEM_COST_NOT_SUPPORTED", message: "Este tipo de item não admite custo nesta etapa." });
         if (costRequested) {
           await assertPermission(tx, actor, "service_orders.budget.costs.read");
           await assertPermission(tx, actor, "service_orders.budget.costs.update");
@@ -201,6 +242,8 @@ export class ServiceOrderBudgetItemsService {
             if ((await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_catalog WHERE normalized_name = ${normalizedDescription} FOR UPDATE`).length) {
               throw new ConflictException({ code: "MANUAL_LABOR_MATCHES_CATALOG", message: "Use o serviço cadastrado correspondente." });
             }
+          } else {
+            await assertManualPartDoesNotMatchProduct(tx, normalizedDescription);
           }
         }
         const duplicate = await tx.serviceOrderBudgetItem.findFirst({ where: {
@@ -218,7 +261,8 @@ export class ServiceOrderBudgetItemsService {
           const after = next === null ? null : serializeDecimal(next);
           if (before !== after) changes.push({ field: "unitCost", before, after });
         }
-        if (!changes.length) return { data: itemView(current, includeCosts), serviceOrderRevision: order.updatedAt.toISOString() };
+        const linkedProduct = current.productId === null ? null : await tx.product.findUnique({ where: { id: current.productId }, select: { publicId: true } });
+        if (!changes.length) return { data: itemView(current, includeCosts, null, linkedProduct?.publicId ?? null), serviceOrderRevision: order.updatedAt.toISOString() };
         const updateData: Prisma.ServiceOrderBudgetItemUpdateInput = {
           ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
           ...(input.unitPrice !== undefined ? { unitPrice: decimal(input.unitPrice) } : {}),
@@ -230,9 +274,9 @@ export class ServiceOrderBudgetItemsService {
         const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { quantity: true, unitPrice: true } });
         const nextTotal = total(items);
         const previousTotal = nextTotal.sub(updated.unitPrice.mul(updated.quantity)).add(current.unitPrice.mul(current.quantity));
-        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_ALTERADO", updated, changes as Array<{ field: string; before: Prisma.InputJsonValue | null; after: Prisma.InputJsonValue | null }>, previousTotal, nextTotal);
+        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_ALTERADO", updated, changes as Array<{ field: string; before: Prisma.InputJsonValue | null; after: Prisma.InputJsonValue | null }>, previousTotal, nextTotal, linkedProduct?.publicId ?? null);
         const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
-        return { data: itemView(updated, includeCosts), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
+        return { data: itemView(updated, includeCosts, null, linkedProduct?.publicId ?? null), serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
         }
       }, txOptions);
     } catch (error) { return mapWriteError(error); }
@@ -248,7 +292,7 @@ export class ServiceOrderBudgetItemsService {
         await assertPermission(tx, actor, "service_orders.budget.update");
         const locks = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM service_order_budget_items WHERE public_id = ${itemPublicId} AND service_order_id = ${order.id} FOR UPDATE`;
         if (!locks[0]) throw itemNotFound();
-        const item = await tx.serviceOrderBudgetItem.findUniqueOrThrow({ where: { id: locks[0].id } });
+        const item = await tx.serviceOrderBudgetItem.findUniqueOrThrow({ where: { id: locks[0].id }, include: { product: { select: { publicId: true } } } });
         if (item.removedAt) throw itemNotFound();
         const beforeRows = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, select: { id: true, quantity: true, unitPrice: true } });
         const beforeTotal = total(beforeRows);
@@ -256,7 +300,7 @@ export class ServiceOrderBudgetItemsService {
         const removed = await tx.serviceOrderBudgetItem.update({ where: { id: item.id }, data: { removedAt: now, removedByUserId: actor.id, updatedByUserId: actor.id, version: { increment: 1 } } });
         const afterRows = beforeRows.filter((row) => row.id !== item.id);
         const afterTotal = total(afterRows);
-        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_REMOVIDO", removed, [{ field: "item", before: snapshot(item), after: null }], beforeTotal, afterTotal);
+        await createEvent(tx, order.id, order.numberValue, actor.id, "ITEM_ORCAMENTO_REMOVIDO", removed, [{ field: "item", before: snapshot(item, item.product?.publicId), after: null }], beforeTotal, afterTotal, item.product?.publicId ?? null);
         const serviceOrderUpdatedAt = await advanceServiceOrderRevision(tx, order.id, order.updatedAt);
         return { data: { removed: true, publicId: item.publicId, total: serializeDecimal(afterTotal) }, serviceOrderRevision: serviceOrderUpdatedAt.toISOString() };
       }, txOptions);
@@ -264,9 +308,9 @@ export class ServiceOrderBudgetItemsService {
   }
 
   async withdrawAllInTransaction(tx: Tx, order: { id: number; numberValue: bigint }, actor: AuthenticatedUser) {
-    const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" } });
+    const items = await tx.serviceOrderBudgetItem.findMany({ where: { serviceOrderId: order.id, removedAt: null }, orderBy: { id: "asc" }, include: { product: { select: { publicId: true } } } });
     if (!items.length) return null;
-    const snapshotItems = items.map(snapshot);
+    const snapshotItems = items.map((item) => snapshot(item, item.product?.publicId));
     const totalBefore = total(items);
     const now = new Date();
     await tx.serviceOrderBudgetItem.updateMany({ where: { id: { in: items.map(({ id }) => id) }, removedAt: null }, data: { removedAt: now, removedByUserId: actor.id, updatedByUserId: actor.id, version: { increment: 1 } } });
@@ -278,24 +322,26 @@ export class ServiceOrderBudgetItemsService {
   }
 }
 
-function duplicate(publicId: string): ConflictException {
-  return new ConflictException({ code: "BUDGET_ITEM_DUPLICATE", message: "Este serviço já existe na composição da OS.", details: { existingItemPublicId: publicId } });
+function duplicate(publicId: string, label: string): ConflictException {
+  return new ConflictException({ code: "BUDGET_ITEM_DUPLICATE", message: `Este ${label} já existe na composição da OS.`, details: { existingItemPublicId: publicId } });
 }
 function duplicateItem(publicId: string): ConflictException {
   return new ConflictException({ code: "BUDGET_ITEM_DUPLICATE", message: "Já existe uma descrição equivalente ativa nesta categoria.", details: { existingItemPublicId: publicId } });
 }
-function snapshot(item: ServiceOrderBudgetItem) {
+function snapshot(item: ServiceOrderBudgetItem, productPublicId?: string | null) {
   return {
     publicId: item.publicId, itemType: item.itemType, origin: item.origin, description: item.description,
+    ...(productPublicId ? { productPublicId } : {}),
     quantity: item.quantity, unitPrice: serializeDecimal(item.unitPrice), total: serializeDecimal(item.unitPrice.mul(item.quantity)),
     ...(item.unitCost === null ? {} : { unitCost: serializeDecimal(item.unitCost), totalCost: serializeDecimal(item.unitCost.mul(item.quantity)) }),
   };
 }
 async function createEvent(tx: Tx, orderId: number, numberValue: bigint, actorId: number, eventType: string, item: ServiceOrderBudgetItem,
-  changes: Array<{ field: string; before: Prisma.InputJsonValue | null; after: Prisma.InputJsonValue | null }>, totalBefore: Prisma.Decimal, totalAfter: Prisma.Decimal): Promise<void> {
+  changes: Array<{ field: string; before: Prisma.InputJsonValue | null; after: Prisma.InputJsonValue | null }>, totalBefore: Prisma.Decimal, totalAfter: Prisma.Decimal, productPublicId?: string | null): Promise<void> {
   await tx.serviceOrderEvent.create({ data: {
     serviceOrderId: orderId, actorUserId: actorId, eventType, numberValue, payload: {
       itemPublicId: item.publicId, itemType: item.itemType, origin: item.origin, description: item.description,
+      ...(productPublicId ? { productPublicId } : {}),
       quantity: item.quantity, unitPrice: serializeDecimal(item.unitPrice), total: serializeDecimal(item.unitPrice.mul(item.quantity)),
       changes, totalBefore: serializeDecimal(totalBefore), totalAfter: serializeDecimal(totalAfter),
       ...(item.unitCost === null ? {} : { unitCost: serializeDecimal(item.unitCost), totalCost: serializeDecimal(item.unitCost.mul(item.quantity)) }),

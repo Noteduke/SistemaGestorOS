@@ -14,7 +14,7 @@ import { parseListServiceOrderHistoryQuery } from "./dto/list-service-order-hist
 import { ServiceOrderNotesService } from "./service-order-notes.service.js";
 import { ServiceOrderHistoryService } from "./service-order-history.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
-import { parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseUpdateBudgetItem } from "./dto/budget-item.dto.js";
+import { parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLabor, parseCreateStockPart, parseUpdateBudgetItem } from "./dto/budget-item.dto.js";
 import { ServiceOrderEditControlService } from "./service-order-edit-control.service.js";
 
 @Controller("service-orders")
@@ -94,6 +94,12 @@ export class ServiceOrdersController {
   @RequirePermissions("service_orders.budget.update")
   addRegisteredService(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
     return this.budgetItems.createRegistered(publicId, parseCreateRegisteredLabor(body), request.auth!, editToken(request), serviceOrderRevision(request));
+  }
+
+  @Post(":publicId/budget-items/stock-part")
+  @RequirePermissions("service_orders.budget.update")
+  addStockPart(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.budgetItems.createStockPart(publicId, parseCreateStockPart(body), request.auth!, editToken(request), serviceOrderRevision(request));
   }
 
   @Post(":publicId/budget-items/manual-labor")

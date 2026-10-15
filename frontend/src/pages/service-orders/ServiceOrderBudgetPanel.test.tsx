@@ -43,6 +43,52 @@ it("envia peça com quantidade máxima, custo opcional e CSRF", async () => {
   }));
 });
 
+it("pesquisa peça do estoque, copia preço padrão editável e não envia saldo nem custo", async () => {
+  const productPublicId = "2a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
+  const productItem = {
+    publicId: "4a5ccbc1-a7cc-4a12-8f71-65b9f379d910", itemType: "STOCK_PART", origin: "PRODUCT_CATALOG",
+    servicePublicId: null, productPublicId, description: "FONTE", quantity: 2, unitPrice: "0.00", total: "0.00", version: 1,
+    createdAt: "2026-10-14T12:00:00.000Z",
+  };
+  let budgetReads = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith(`/service-orders/${orderId}/budget-items`)) {
+      budgetReads += 1;
+      return response({ data: budgetReads === 1 ? [] : [productItem], total: "0.00", canReadCosts: true });
+    }
+    if (url.endsWith("/services/available-for-order")) return response({ data: [] });
+    if (url.includes("/products/available-for-order")) return response({
+      data: [{ publicId: productPublicId, internalCode: "F-01", description: "FONTE", defaultPrice: "6.50" }],
+      pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+    });
+    if (url.endsWith("/budget-items/stock-part") && init?.method === "POST") return response({ data: productItem, serviceOrderRevision: "2026-10-14T12:01:00.000Z" });
+    throw new Error(`Fetch inesperado: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canReadCosts canUpdateCosts isOpen />);
+  await screen.findByText("Nenhum item no orçamento.");
+  await userEvent.selectOptions(screen.getByLabelText("Tipo"), "stock-part");
+  await userEvent.type(screen.getByLabelText("Pesquisar produtos ativos"), "fonte");
+  await screen.findByRole("option", { name: /F-01 · FONTE/ });
+  await userEvent.selectOptions(screen.getByLabelText("Produto"), productPublicId);
+  expect(screen.getByLabelText("Valor unitário")).toHaveValue("6.50");
+  fireEvent.change(screen.getByLabelText("Valor unitário"), { target: { value: "0.00" } });
+  fireEvent.change(screen.getByLabelText("Quantidade (1 a 999)"), { target: { value: "2" } });
+  await userEvent.click(screen.getByRole("button", { name: "Adicionar ao orçamento" }));
+
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/budget-items/stock-part") && init?.method === "POST")).toBe(true));
+  const lookupCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/products/available-for-order"));
+  expect(String(lookupCall?.[0])).toContain("search=fonte");
+  const createCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/budget-items/stock-part") && init?.method === "POST");
+  expect(createCall?.[1]).toEqual(expect.objectContaining({
+    method: "POST", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token" }),
+    body: JSON.stringify({ productPublicId, quantity: 2, unitPrice: "0.00" }),
+  }));
+  expect(screen.queryByText("Custo unitário")).not.toBeInTheDocument();
+  expect(screen.getAllByText("Peça do estoque").length).toBeGreaterThan(0);
+});
+
 it("mantém rascunho do orçamento visível e somente leitura após perder o controle", async () => {
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(response({ data: [], total: "0.00", canReadCosts: true }))

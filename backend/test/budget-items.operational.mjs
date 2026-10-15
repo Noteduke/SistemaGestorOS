@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
 import dotenv from "dotenv";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "../dist/generated/prisma/client.js";
+import { Prisma, PrismaClient } from "../dist/generated/prisma/client.js";
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = dotenv.parse(fs.readFileSync(path.join(backendDir, ".env")));
@@ -28,7 +28,7 @@ const username = `budgettest_${nonce}`;
 const password = randomBytes(32).toString("base64url");
 const catalogName = `Serviço validação ${nonce}`;
 const inactiveName = `Mão de obra ${nonce}`;
-const normalizedNames = [catalogName, inactiveName, `Diagnóstico ${nonce}`, `Diagnóstico alterado ${nonce}`, `Peça sem custo ${nonce}`]
+const normalizedNames = [catalogName, inactiveName, `Diagnóstico ${nonce}`, `Diagnóstico alterado ${nonce}`, `Peça sem custo ${nonce}`, `PEÇA ESTOQUE ${nonce}`, `PEÇA ZERO ${nonce}`, `PEÇA SEM PREÇO ${nonce}`, `PEÇA INATIVA ${nonce}`]
   .map((value) => value.normalize("NFD").replace(/\p{M}/gu, "").toLocaleUpperCase("pt-BR").replace(/\s+/gu, " ").trim());
 let userId;
 let order;
@@ -38,6 +38,7 @@ let cookie;
 let csrfToken;
 let editToken;
 const createdServiceIds = [];
+const createdProductIds = [];
 const createdItemIds = [];
 const results = [];
 
@@ -111,11 +112,12 @@ try {
   userId = user.id;
   const permissionCodes = [
     "service_orders.read", "service_orders.events.read", "service_orders.update", "service_orders.situation.update",
-    "service_orders.budget.update", "service_orders.budget.costs.read", "service_orders.budget.costs.update", "services.manage",
+    "service_orders.budget.update", "service_orders.budget.costs.read", "service_orders.budget.costs.update", "services.manage", "products.manage",
   ];
   const permissionRows = await prisma.permission.findMany({ where: { code: { in: permissionCodes } }, select: { id: true, code: true } });
   assert.equal(permissionRows.length, permissionCodes.length, "Execute seed-permissions no banco de teste antes deste roteiro.");
-  await prisma.userPermission.createMany({ data: permissionRows.map(({ id }) => ({ userId, permissionId: id })) });
+  const productManagePermission = permissionRows.find(({ code }) => code === "products.manage");
+  await prisma.userPermission.createMany({ data: permissionRows.filter(({ code }) => code !== "products.manage").map(({ id }) => ({ userId, permissionId: id })) });
 
   server = spawn(process.execPath, ["dist/main.js"], {
     cwd: backendDir,
@@ -124,6 +126,24 @@ try {
     stdio: "ignore",
   });
   await waitForServer();
+
+  const stockProduct = await prisma.product.create({ data: {
+    internalCode: `OS-${nonce}`, description: `PEÇA ESTOQUE ${nonce}`.toLocaleUpperCase("pt-BR"), category: "PART",
+    salePrice: new Prisma.Decimal("12.40"), acquisitionCost: new Prisma.Decimal("7.10"), createdByUserId: userId, updatedByUserId: userId,
+  } });
+  const zeroPriceProduct = await prisma.product.create({ data: {
+    internalCode: `ZERO-${nonce}`, description: `PEÇA ZERO ${nonce}`.toLocaleUpperCase("pt-BR"), category: "PART",
+    salePrice: new Prisma.Decimal("0.00"), acquisitionCost: null, createdByUserId: userId, updatedByUserId: userId,
+  } });
+  const noPriceProduct = await prisma.product.create({ data: {
+    internalCode: `SEM-PRECO-${nonce}`, description: `PEÇA SEM PREÇO ${nonce}`.toLocaleUpperCase("pt-BR"), category: "PART",
+    salePrice: null, acquisitionCost: new Prisma.Decimal("3.00"), createdByUserId: userId, updatedByUserId: userId,
+  } });
+  const inactiveProduct = await prisma.product.create({ data: {
+    internalCode: `INATIVO-${nonce}`, description: `PEÇA INATIVA ${nonce}`.toLocaleUpperCase("pt-BR"), category: "PART",
+    salePrice: new Prisma.Decimal("9.00"), isActive: false, createdByUserId: userId, updatedByUserId: userId,
+  } });
+  createdProductIds.push(stockProduct.publicId, zeroPriceProduct.publicId, noPriceProduct.publicId, inactiveProduct.publicId);
 
   const preAuth = await fetch("http://127.0.0.1:3137/api/v1/auth/csrf");
   const preAuthCookie = cookiePair(preAuth, "gos_pre_auth");
@@ -154,6 +174,74 @@ try {
   const available = await api("/services/available-for-order");
   assert.equal(available.status, 200);
   assert.deepEqual(available.body.data, []);
+
+  const availableProducts = await api(`/products/available-for-order?page=1&pageSize=20&search=${nonce}`);
+  assert.equal(availableProducts.status, 200, JSON.stringify(availableProducts.body));
+  assert.equal(availableProducts.body.data.length, 3, "lookup de orçamento inclui somente produtos ativos");
+  const lookupProduct = availableProducts.body.data.find((row) => row.publicId === stockProduct.publicId);
+  assert.deepEqual(lookupProduct, { publicId: stockProduct.publicId, internalCode: stockProduct.internalCode, description: stockProduct.description, defaultPrice: "12.40" });
+  assert.equal(JSON.stringify(availableProducts.body).includes("acquisitionCost"), false);
+  assert.equal(JSON.stringify(availableProducts.body).includes("available"), false, "lookup não expõe saldo rejeitado como parte da seleção");
+  assert.equal(availableProducts.body.data.some((row) => row.publicId === inactiveProduct.publicId), false);
+  await expectFailure("/products", "POST", { description: `CADASTRO NEGADO ${nonce}`, category: "PART", salePrice: "1.00" }, 403, "PERMISSION_DENIED");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/stock-part`, "POST", { productPublicId: inactiveProduct.publicId, quantity: 1 }, 409, "PRODUCT_INACTIVE");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/stock-part`, "POST", { productPublicId: noPriceProduct.publicId, quantity: 1 }, 400, "PRODUCT_PRICE_REQUIRED");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/stock-part`, "POST", { productPublicId: stockProduct.publicId, quantity: 1000 }, 400, "INVALID_BUDGET_QUANTITY");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/stock-part`, "POST", { productPublicId: stockProduct.publicId, quantity: 1, unitPrice: "-1.00" }, 400, "INVALID_BUDGET_MONEY");
+
+  const movementCountBeforeBudget = await prisma.productStockMovement.count({ where: { productId: { in: [stockProduct.id, zeroPriceProduct.id, noPriceProduct.id] } } });
+  const stockPart = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, {
+    method: "POST", body: { productPublicId: stockProduct.publicId, quantity: 4 },
+  });
+  assert.equal(stockPart.status, 201, JSON.stringify(stockPart.body));
+  assert.equal(stockPart.body.data.itemType, "STOCK_PART");
+  assert.equal(stockPart.body.data.origin, "PRODUCT_CATALOG");
+  assert.equal(stockPart.body.data.productPublicId, stockProduct.publicId);
+  assert.equal(stockPart.body.data.description, stockProduct.description);
+  assert.equal(stockPart.body.data.quantity, 4);
+  assert.equal(stockPart.body.data.unitPrice, "12.40");
+  assert.equal(stockPart.body.data.total, "49.60");
+  assert.equal(stockPart.body.data.unitCost, null);
+  createdItemIds.push(stockPart.body.data.publicId);
+  const zeroStockPart = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, {
+    method: "POST", body: { productPublicId: zeroPriceProduct.publicId, quantity: 1 },
+  });
+  assert.equal(zeroStockPart.status, 201, JSON.stringify(zeroStockPart.body));
+  assert.equal(zeroStockPart.body.data.unitPrice, "0.00", "preço padrão zero é preservado");
+  createdItemIds.push(zeroStockPart.body.data.publicId);
+  const manuallyPriced = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, {
+    method: "POST", body: { productPublicId: noPriceProduct.publicId, quantity: 2, unitPrice: "8.35" },
+  });
+  assert.equal(manuallyPriced.status, 201, JSON.stringify(manuallyPriced.body));
+  assert.equal(manuallyPriced.body.data.unitPrice, "8.35");
+  createdItemIds.push(manuallyPriced.body.data.publicId);
+  const duplicateStockPart = await expectFailure(`/service-orders/${order.publicId}/budget-items/stock-part`, "POST", { productPublicId: stockProduct.publicId, quantity: 1 }, 409, "BUDGET_ITEM_DUPLICATE");
+  assert.equal(duplicateStockPart.body.details.existingItemPublicId, stockPart.body.data.publicId);
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/manual-part`, "POST", { description: stockProduct.description, unitPrice: "1.00" }, 409, "MANUAL_PART_MATCHES_CATALOG");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/manual-part`, "POST", { description: inactiveProduct.description, unitPrice: "1.00" }, 409, "MANUAL_PART_MATCHES_CATALOG");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/manual-part`, "POST", { description: stockProduct.description.toLocaleLowerCase("pt-BR").replace(" ", "   "), unitPrice: "1.00" }, 409, "MANUAL_PART_MATCHES_CATALOG");
+  const linked = await api(`/service-orders/${order.publicId}/budget-items`);
+  const linkedView = linked.body.data.find((row) => row.publicId === stockPart.body.data.publicId);
+  assert.equal(linkedView.productPublicId, stockProduct.publicId);
+  assert.equal(await prisma.productStockMovement.count({ where: { productId: { in: [stockProduct.id, zeroPriceProduct.id, noPriceProduct.id] } } }), movementCountBeforeBudget);
+  assert.deepEqual((await prisma.productStockMovement.aggregate({ where: { productId: stockProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } }))._sum,
+    { totalDelta: null, appliedDelta: null, defectiveDelta: null }, "inclusão no orçamento não altera o ledger nem reserva saldo");
+  const createdBudgetEvent = await prisma.serviceOrderEvent.findFirst({ where: { serviceOrderId: order.id, actorUserId: userId, eventType: "ITEM_ORCAMENTO_CRIADO", payload: { path: "$.itemPublicId", equals: stockPart.body.data.publicId } } });
+  assert.equal(createdBudgetEvent.payload.productPublicId, stockProduct.publicId);
+  await prisma.product.update({ where: { id: stockProduct.id }, data: { description: `${stockProduct.description} ATUALIZADO`, salePrice: new Prisma.Decimal("99.00") } });
+  const snapshotAfterCatalogChange = await api(`/service-orders/${order.publicId}/budget-items`);
+  const unchangedSnapshot = snapshotAfterCatalogChange.body.data.find((row) => row.publicId === stockPart.body.data.publicId);
+  assert.equal(unchangedSnapshot.description, stockProduct.description);
+  assert.equal(unchangedSnapshot.unitPrice, "12.40", "mudanças futuras no cadastro não alteram a fotografia da OS");
+  const revisedStockPart = await api(`/service-orders/${order.publicId}/budget-items/${stockPart.body.data.publicId}`, {
+    method: "PATCH", body: { expectedVersion: 1, quantity: 5, unitPrice: "0.00" },
+  });
+  assert.equal(revisedStockPart.status, 200, JSON.stringify(revisedStockPart.body));
+  assert.equal(revisedStockPart.body.data.description, stockProduct.description);
+  assert.equal(revisedStockPart.body.data.total, "0.00");
+  assert.equal((await prisma.product.findUnique({ where: { id: stockProduct.id } })).salePrice.toFixed(2), "99.00", "editar preço na OS não altera o preço do cadastro");
+  assert.equal(await prisma.productStockMovement.count({ where: { productId: stockProduct.id } }), movementCountBeforeBudget);
+  results.push("Lookup ativo autorizado por edição do orçamento, preço/snapshot, sem custo/saldo, sem movimento ou reserva do estoque");
 
   const serviceCreate = await api("/services", { method: "POST", body: { name: catalogName, defaultPrice: "123.45" } });
   assert.equal(serviceCreate.status, 201, JSON.stringify(serviceCreate.body));
@@ -201,6 +289,13 @@ try {
   assert.equal(part.status, 201, JSON.stringify(part.body));
   createdItemIds.push(part.body.data.publicId);
   assert.equal(part.body.data.total, "9990.00");
+  await expectFailure(`/service-orders/${order.publicId}/budget-items/${part.body.data.publicId}`, "PATCH", {
+    expectedVersion: 1, description: inactiveProduct.description.toLocaleLowerCase("pt-BR").replace(" ", "   "),
+  }, 409, "MANUAL_PART_MATCHES_CATALOG");
+  await prisma.userPermission.create({ data: { userId, permissionId: productManagePermission.id } });
+  await expectFailure("/products", "POST", { description: part.body.data.description.toLocaleLowerCase("pt-BR").replace(" ", "   "), category: "PART", salePrice: "1.00" }, 409, "PRODUCT_DESCRIPTION_MATCHES_MANUAL_PART");
+  await expectFailure(`/products/${stockProduct.publicId}`, "PATCH", { expectedVersion: 1, description: part.body.data.description }, 409, "PRODUCT_DESCRIPTION_MATCHES_MANUAL_PART");
+  await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: productManagePermission.id } } });
   const duplicatePart = await expectFailure(`/service-orders/${order.publicId}/budget-items/manual-part`, "POST", {
     description: `  diagnostico   ${nonce}  `, unitPrice: "1.00",
   }, 409, "BUDGET_ITEM_DUPLICATE");
@@ -272,7 +367,9 @@ try {
   assert.ok(budgetHistory.length);
   assert.equal(JSON.stringify(budgetHistory).includes("unitCost"), false);
   const eventsHidden = await api(`/service-orders/${order.publicId}/events?page=1&pageSize=100`);
-  assert.equal(JSON.stringify(eventsHidden.body.data.filter((entry) => entry.eventType.startsWith("ITEM_ORCAMENTO_"))).includes("unitCost"), false);
+  const budgetEventsHidden = eventsHidden.body.data.filter((entry) => entry.eventType.startsWith("ITEM_ORCAMENTO_"));
+  assert.equal(JSON.stringify(budgetEventsHidden).includes("unitCost"), false);
+  assert.ok(budgetEventsHidden.some((entry) => entry.payload.productPublicId === stockProduct.publicId), "histórico mantém a referência pública do Produto");
   await prisma.userPermission.create({ data: { userId, permissionId: costReadPermission.id } });
   results.push("Custo oculto na composição e no histórico; alteração negada sem permissão e custo preservado em edição comum");
 
@@ -331,6 +428,7 @@ try {
       await prisma.$transaction(async (tx) => {
         await tx.serviceOrderEvent.deleteMany({ where: { serviceOrderId: order.id, actorUserId: userId } });
         await tx.serviceOrderBudgetItem.deleteMany({ where: { serviceOrderId: order.id, OR: [{ createdByUserId: userId }, { updatedByUserId: userId }, { removedByUserId: userId }] } });
+        await tx.product.deleteMany({ where: { publicId: { in: createdProductIds } } });
         await tx.serviceCatalog.deleteMany({ where: { createdByUserId: userId } });
         await tx.adminAuditLog.deleteMany({ where: { actorUserId: userId } });
         await tx.userSession.deleteMany({ where: { userId } });

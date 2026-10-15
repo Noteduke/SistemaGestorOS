@@ -29,9 +29,9 @@ const payloadKeys: Record<string, readonly string[]> = {
   ABERTURA_CONFIRMADA: ["openingPublicId", "serviceOrderPublicId", "visibleNumber", "customerPublicId", "equipmentPublicId", "macroStatus", "operationalSituation", "snapshotCapturedAt"],
   SITUACAO_OPERACIONAL_ALTERADA: ["previousOperationalSituation", "newOperationalSituation"],
   ATRIBUICOES_ALTERADAS: ["previousUserPublicIds", "newUserPublicIds", "addedUserPublicIds", "removedUserPublicIds", "actorUserPublicId"],
-  ITEM_ORCAMENTO_CRIADO: ["itemPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
-  ITEM_ORCAMENTO_ALTERADO: ["itemPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
-  ITEM_ORCAMENTO_REMOVIDO: ["itemPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
+  ITEM_ORCAMENTO_CRIADO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
+  ITEM_ORCAMENTO_ALTERADO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
+  ITEM_ORCAMENTO_REMOVIDO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
   ORCAMENTO_RETIRADO: ["items", "total", "itemCount"],
 };
 
@@ -39,12 +39,12 @@ const booleanPayloadKeys = new Set(["numberReleased"]);
 const arrayPayloadKeys = new Set(["previousUserPublicIds", "newUserPublicIds", "addedUserPublicIds", "removedUserPublicIds"]);
 const publicIdPayloadKeys = new Set([
   "initiatingUserPublicId", "canceledByUserPublicId", "openingPublicId", "serviceOrderPublicId", "equipmentPublicId",
-  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId",
+  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId",
 ]);
 const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const budgetEventTypes = new Set(["ITEM_ORCAMENTO_CRIADO", "ITEM_ORCAMENTO_ALTERADO", "ITEM_ORCAMENTO_REMOVIDO", "ORCAMENTO_RETIRADO"]);
-const budgetSnapshotKeys = ["publicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost"] as const;
+const budgetSnapshotKeys = ["publicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost"] as const;
 
 export function sanitizeServiceOrderEventPayload(eventType: string, value: Prisma.JsonValue | null, includeCosts = false): Record<string, unknown> | null {
   const allowed = Object.hasOwn(payloadKeys, eventType) ? payloadKeys[eventType] : undefined;

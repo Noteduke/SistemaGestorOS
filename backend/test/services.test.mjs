@@ -253,6 +253,8 @@ function fakeProductsPrisma() {
   };
   const tx = {
     product,
+    serviceOrderBudgetItem: { async findFirst() { return null; } },
+    serviceOrderBudgetNameLock: { async upsert() {} },
     adminAuditLog: { async create({ data }) { audits.push(data); } },
     async $queryRaw(_parts, publicId) { const row = [...rows.values()].find((item) => item.publicId === publicId); return row ? [{ id: row.id }] : []; },
   };
@@ -367,6 +369,13 @@ test("razão de estoque deriva os saldos e protege quantidades classificadas", (
 
   const before = stockBalanceFromDeltas({ total: 5, applied: 1, defective: 1 });
   assert.equal(before.available, 3);
+  assert.deepEqual(movementDeltas("MANUAL_ADJUSTMENT", -3), { total: -3, applied: 0, defective: 0 },
+    "ajuste manual altera somente o total e preserva as quantidades aplicadas/defeituosas");
+  assert.deepEqual(stockBalanceFromDeltas({
+    total: before.total - 3,
+    applied: before.applied + movementDeltas("MANUAL_ADJUSTMENT", -3).applied,
+    defective: before.defective + movementDeltas("MANUAL_ADJUSTMENT", -3).defective,
+  }), { total: 2, applied: 1, defective: 1, available: 0 });
   assert.equal(stockMovementViolation("DEFECTIVE_CLASSIFIED", 3, before), undefined);
   assert.equal(stockMovementViolation("DEFECTIVE_CLASSIFIED", 4, before), "INSUFFICIENT_AVAILABLE_STOCK");
   assert.equal(stockMovementViolation("DEFECTIVE_RETURNED", 2, before), "INSUFFICIENT_DEFECTIVE_STOCK");

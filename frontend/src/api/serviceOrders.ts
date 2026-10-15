@@ -46,9 +46,10 @@ export interface ServiceOrderDetail extends ServiceOrderSummary {
 
 export interface ServiceOrderBudgetItem {
   publicId: string;
-  itemType: "SERVICE_LABOR" | "MANUAL_PART";
-  origin: "REGISTERED" | "MANUAL";
+  itemType: "SERVICE_LABOR" | "MANUAL_PART" | "STOCK_PART";
+  origin: "REGISTERED" | "MANUAL" | "PRODUCT_CATALOG";
   servicePublicId: string | null;
+  productPublicId?: string | null;
   description: string;
   quantity: number;
   unitPrice: string;
@@ -60,6 +61,7 @@ export interface ServiceOrderBudgetItem {
 }
 
 export interface AvailableCatalogService { publicId: string; name: string; defaultPrice: string }
+export interface AvailableCatalogProduct { publicId: string; internalCode: string | null; description: string; defaultPrice: string | null }
 export interface ServiceOrderBudget { data: ServiceOrderBudgetItem[]; total: string; canReadCosts: boolean }
 
 export interface ServiceOrderOpeningConfirmation {
@@ -248,6 +250,11 @@ export function listAvailableCatalogServices(signal?: AbortSignal) {
   return get<{ data: AvailableCatalogService[] }>("/api/v1/services/available-for-order", signal);
 }
 
+export function listAvailableCatalogProducts(search: string, page = 1, pageSize = 20, signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize), ...(search.trim() ? { search: search.trim() } : {}) });
+  return get<Paginated<AvailableCatalogProduct>>(`/api/v1/products/available-for-order?${query}`, signal);
+}
+
 export function getServiceOrderBudget(publicId: string, signal?: AbortSignal) {
   return get<ServiceOrderBudget>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items`, signal);
 }
@@ -271,6 +278,9 @@ async function mutateBudget<T>(path: string, method: "POST" | "PATCH" | "DELETE"
 
 export function addRegisteredBudgetService(publicId: string, body: { servicePublicId: string; quantity: number; unitPrice?: string }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/service`, "POST", csrfToken, body, editToken, expectedRevision);
+}
+export function addStockPartBudgetItem(publicId: string, body: { productPublicId: string; quantity: number; unitPrice?: string }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+  return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/stock-part`, "POST", csrfToken, body, editToken, expectedRevision);
 }
 export function addManualLaborBudgetItem(publicId: string, body: { description: string; quantity: number; unitPrice: string }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<{ data: ServiceOrderBudgetItem; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/manual-labor`, "POST", csrfToken, body, editToken, expectedRevision);

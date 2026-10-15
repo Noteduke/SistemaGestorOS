@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 
 export type CreateRegisteredLaborInput = { servicePublicId: string; quantity: number; unitPrice?: string };
+export type CreateStockPartInput = { productPublicId: string; quantity: number; unitPrice?: string };
 export type CreateManualLaborInput = { description: string; quantity: number; unitPrice: string };
 export type CreateManualPartInput = { description: string; quantity: number; unitPrice: string; unitCost?: string | null };
 export type UpdateBudgetItemInput = { expectedVersion: number; quantity?: number; unitPrice?: string; description?: string; unitCost?: string | null };
@@ -56,6 +57,16 @@ export function parseCreateRegisteredLabor(body: unknown): CreateRegisteredLabor
   const quantity = parseBudgetQuantity(input.quantity ?? 1)!;
   const unitPrice = input.unitPrice === undefined ? undefined : parseBudgetMoney(input.unitPrice, "Valor unitário")!;
   return { servicePublicId: input.servicePublicId, quantity, ...(unitPrice !== undefined ? { unitPrice } : {}) };
+}
+
+export function parseCreateStockPart(body: unknown): CreateStockPartInput {
+  const input = object(body); fields(input, ["productPublicId", "quantity", "unitPrice"]);
+  if (typeof input.productPublicId !== "string" || !publicIdPattern.test(input.productPublicId)) {
+    throw new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Produto inválido." });
+  }
+  const quantity = parseBudgetQuantity(input.quantity ?? 1)!;
+  const unitPrice = input.unitPrice === undefined ? undefined : parseBudgetMoney(input.unitPrice, "Valor unitário")!;
+  return { productPublicId: input.productPublicId, quantity, ...(unitPrice !== undefined ? { unitPrice } : {}) };
 }
 
 export function parseCreateManualLabor(body: unknown): CreateManualLaborInput {

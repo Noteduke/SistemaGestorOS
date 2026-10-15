@@ -3,7 +3,9 @@ import { Prisma, type Product } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { AuthPolicyService } from "../auth/auth-policy.service.js";
 import { ProductStockService } from "./product-stock.service.js";
-import type { CreateProductInput, ProductListQuery, UpdateProductInput } from "./dto/product.dto.js";
+import { normalizeServiceName } from "../services/domain/service-name.js";
+import { acquireCatalogNameLock, acquireCatalogNameLocks } from "../../infrastructure/prisma/catalog-name-lock.js";
+import type { AvailableProductQuery, CreateProductInput, ProductListQuery, UpdateProductInput } from "./dto/product.dto.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 
 type Tx = Prisma.TransactionClient;
@@ -45,6 +47,14 @@ function staleVersion(): ConflictException {
   return new ConflictException({ code: "PRODUCT_VERSION_CONFLICT", message: "O produto foi alterado por outra operação. Recarregue os dados." });
 }
 
+async function assertNoManualPartUsesDescription(tx: Tx, normalizedDescription: string): Promise<void> {
+  const existing = await tx.serviceOrderBudgetItem.findFirst({
+    where: { itemType: "MANUAL_PART", origin: "MANUAL", normalizedDescription, removedAt: null },
+    select: { id: true },
+  });
+  if (existing) throw new ConflictException({ code: "PRODUCT_DESCRIPTION_MATCHES_MANUAL_PART", message: "Há uma peça avulsa ativa com esta descrição normalizada em uma OS; revise o lançamento antes de cadastrar ou renomear o produto." });
+}
+
 function hasCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
@@ -74,6 +84,31 @@ export class ProductsService {
 
   private async canReadCosts(actor: AuthenticatedUser): Promise<boolean> {
     return this.policy.hasPermission(actor, "products.cost.read");
+  }
+
+  async availableForOrder(query: AvailableProductQuery) {
+    const where: Prisma.ProductWhereInput = {
+      isActive: true,
+      ...(query.search ? { OR: [
+        { internalCode: { contains: query.search } },
+        { description: { contains: query.search } },
+      ] } : {}),
+    };
+    const [products, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where, orderBy: [{ description: "asc" }, { id: "asc" }],
+        skip: (query.page - 1) * query.pageSize, take: query.pageSize,
+        select: { publicId: true, internalCode: true, description: true, salePrice: true },
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+    return {
+      data: products.map((product) => ({
+        publicId: product.publicId, internalCode: product.internalCode,
+        description: product.description, defaultPrice: product.salePrice?.toFixed(2) ?? null,
+      })),
+      pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
+    };
   }
 
   private async assertCanUpdateCost(actor: AuthenticatedUser, input: UpdateProductInput | CreateProductInput): Promise<void> {
@@ -124,6 +159,9 @@ export class ProductsService {
     await this.assertCanUpdateCost(actor, input);
     try {
       const product = await this.prisma.$transaction(async (tx) => {
+        const normalizedDescription = normalizeServiceName(input.description);
+        await acquireCatalogNameLock(tx, normalizedDescription);
+        await assertNoManualPartUsesDescription(tx, normalizedDescription);
         const created = await tx.product.create({
           data: {
             internalCode: input.internalCode,
@@ -160,6 +198,11 @@ export class ProductsService {
       const product = await this.prisma.$transaction(async (tx) => {
         const current = await lockProduct(tx, publicId);
         if (current.version !== input.expectedVersion) throw staleVersion();
+        if (input.description !== undefined && input.description !== current.description) {
+          const normalizedDescription = normalizeServiceName(input.description);
+          await acquireCatalogNameLocks(tx, [normalizeServiceName(current.description), normalizedDescription]);
+          await assertNoManualPartUsesDescription(tx, normalizedDescription);
+        }
 
         const before: Record<string, Prisma.InputJsonValue | null> = {};
         const after: Record<string, Prisma.InputJsonValue | null> = {};

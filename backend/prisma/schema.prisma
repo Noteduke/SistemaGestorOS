@@ -283,22 +283,23 @@ model ServiceCatalog {
 }
 
 model Product {
-  id              Int                    @id @default(autoincrement())
-  publicId        String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
-  internalCode    String?                @unique @map("internal_code") @db.VarChar(64)
-  description     String                 @db.VarChar(255)
-  category        ProductCategory
-  salePrice       Decimal?               @map("sale_price") @db.Decimal(15, 2)
-  acquisitionCost Decimal?               @map("acquisition_cost") @db.Decimal(15, 2)
-  isActive        Boolean                @default(true) @map("is_active")
-  version         Int                    @default(1)
-  createdAt       DateTime               @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
-  createdByUserId Int                    @map("created_by_user_id")
-  updatedByUserId Int                    @map("updated_by_user_id")
-  createdBy       User                   @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  updatedBy       User                   @relation("ProductUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  stockMovements  ProductStockMovement[]
+  id                      Int                      @id @default(autoincrement())
+  publicId                String                   @unique @default(uuid()) @map("public_id") @db.Char(36)
+  internalCode            String?                  @unique @map("internal_code") @db.VarChar(64)
+  description             String                   @db.VarChar(255)
+  category                ProductCategory
+  salePrice               Decimal?                 @map("sale_price") @db.Decimal(15, 2)
+  acquisitionCost         Decimal?                 @map("acquisition_cost") @db.Decimal(15, 2)
+  isActive                Boolean                  @default(true) @map("is_active")
+  version                 Int                      @default(1)
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId         Int                      @map("created_by_user_id")
+  updatedByUserId         Int                      @map("updated_by_user_id")
+  createdBy               User                     @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy               User                     @relation("ProductUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  stockMovements          ProductStockMovement[]
+  serviceOrderBudgetItems ServiceOrderBudgetItem[]
 
   @@index([isActive, category, description, id])
   @@index([description, id])
@@ -449,6 +450,7 @@ enum ServiceOrderMacroStatus {
 enum ServiceOrderBudgetItemType {
   SERVICE_LABOR
   MANUAL_PART
+  STOCK_PART
 
   @@map("service_order_budget_item_type")
 }
@@ -456,6 +458,7 @@ enum ServiceOrderBudgetItemType {
 enum ServiceOrderBudgetItemOrigin {
   REGISTERED
   MANUAL
+  PRODUCT_CATALOG
 
   @@map("service_order_budget_item_origin")
 }
@@ -638,6 +641,7 @@ model ServiceOrderBudgetItem {
   itemType              ServiceOrderBudgetItemType   @map("item_type")
   origin                ServiceOrderBudgetItemOrigin
   serviceCatalogId      Int?                         @map("service_catalog_id")
+  productId             Int?                         @map("product_id")
   description           String                       @db.VarChar(255)
   normalizedDescription String?                      @map("normalized_description") @db.VarChar(255)
   quantity              Int                          @default(1)
@@ -652,12 +656,14 @@ model ServiceOrderBudgetItem {
   removedByUserId       Int?                         @map("removed_by_user_id")
   serviceOrder          ServiceOrder                 @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   serviceCatalog        ServiceCatalog?              @relation(fields: [serviceCatalogId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  product               Product?                     @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdBy             User                         @relation("BudgetItemCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   updatedBy             User                         @relation("BudgetItemUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   removedBy             User?                        @relation("BudgetItemRemover", fields: [removedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([serviceOrderId, removedAt, id])
   @@index([serviceCatalogId])
+  @@index([productId])
   @@index([createdByUserId])
   @@index([updatedByUserId])
   @@index([removedByUserId])

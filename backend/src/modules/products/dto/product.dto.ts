@@ -19,6 +19,7 @@ export type UpdateProductInput = {
   salePrice?: string | null;
   acquisitionCost?: string | null;
 };
+export type AvailableProductQuery = { page: number; pageSize: number; search?: string };
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -76,6 +77,21 @@ export function parseProductListQuery(query: Record<string, unknown>): ProductLi
     ...(search ? { search } : {}),
     ...(query.category !== undefined ? { category: parseCategory(query.category) } : {}),
   };
+}
+
+export function parseAvailableProductQuery(query: Record<string, unknown>): AvailableProductQuery {
+  onlyFields(query, ["page", "pageSize", "search"]);
+  const page = query.page === undefined ? 1 : positiveInteger(query.page, "page");
+  const pageSize = query.pageSize === undefined ? 20 : positiveInteger(query.pageSize, "pageSize");
+  if (pageSize > 100 || !Number.isSafeInteger((page - 1) * pageSize)) {
+    throw new BadRequestException({ code: "INVALID_PAGINATION", message: "Paginação fora do intervalo permitido." });
+  }
+  if (query.search !== undefined && typeof query.search !== "string") {
+    throw new BadRequestException({ code: "INVALID_SEARCH", message: "search deve ser texto." });
+  }
+  const search = typeof query.search === "string" ? query.search.trim().replace(/\s+/gu, " ").toLocaleUpperCase("pt-BR") : "";
+  if (search.length > 120) throw new BadRequestException({ code: "INVALID_SEARCH", message: "Busca não pode exceder 120 caracteres." });
+  return { page, pageSize, ...(search ? { search } : {}) };
 }
 
 export function parseCreateProduct(body: unknown): CreateProductInput {

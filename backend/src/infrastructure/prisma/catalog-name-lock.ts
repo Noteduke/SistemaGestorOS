@@ -11,3 +11,7 @@ export async function acquireCatalogNameLock(tx: Tx, normalizedName: string): Pr
   });
   await tx.$queryRaw`SELECT normalized_name FROM service_order_budget_name_locks WHERE normalized_name = ${normalizedName} FOR UPDATE`;
 }
+
+export async function acquireCatalogNameLocks(tx: Tx, normalizedNames: string[]): Promise<void> {
+  for (const name of [...new Set(normalizedNames)].sort()) await acquireCatalogNameLock(tx, name);
+}

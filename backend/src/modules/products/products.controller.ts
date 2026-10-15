@@ -1,12 +1,18 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { AuthRequest } from "../auth/auth.types.js";
 import { RequireAnyPermissions, RequirePermissions } from "../auth/decorators/auth-metadata.js";
-import { parseCreateProduct, parseProductListQuery, parseUpdateProduct } from "./dto/product.dto.js";
+import { parseAvailableProductQuery, parseCreateProduct, parseProductListQuery, parseUpdateProduct } from "./dto/product.dto.js";
 import { ProductsService } from "./products.service.js";
 
 @Controller("products")
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
+
+  @Get("available-for-order")
+  @RequirePermissions("service_orders.budget.update")
+  availableForOrder(@Query() query: Record<string, unknown>) {
+    return this.products.availableForOrder(parseAvailableProductQuery(query));
+  }
 
   @Get()
   @RequireAnyPermissions("products.manage", "products.stock.manage")
