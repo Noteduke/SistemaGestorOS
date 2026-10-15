@@ -54,4 +54,4 @@ Testes devem cobrir autorização, entradas, ajustes, saldo negativo, proteção
 
 ## Fora de escopo e pendências
 
-Aplicação/estorno de peças em OS, baixa por encerramento, compra, venda, fornecedor, inventário, devolução ao fornecedor, lotes, seriais, custo por movimento e múltiplos locais permanecem futuros. O saldo `Aplicadas` fica zero até existir integração transacional com OS. Não haverá operação de aplicação nesta fatia.
+No escopo original do Recorte 4, aplicação/estorno de peças em OS, baixa por encerramento, compra, venda, fornecedor, inventário, devolução ao fornecedor, lotes, seriais, custo por movimento e múltiplos locais permaneciam fora. O saldo `Aplicadas` ficava zero naquela etapa. A aplicação e reversão foram implementadas posteriormente no Recorte 5; baixa por encerramento e as demais integrações continuam futuras.
