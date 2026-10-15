@@ -346,7 +346,7 @@ Enquanto a OS estiver ABERTA, a aplicação pode ser desfeita total ou parcialme
 
 No encerramento com reparo, comparar quantidades orçadas e aplicadas e exigir regularização explícita de diferenças, sem ajuste automático. A inclusão de peças além do orçamento não exige nova autorização do cliente por si só. Ao concluir o encerramento, a quantidade aplicada é baixada definitivamente. No encerramento sem reparo, desfazer aplicações e devolver disponibilidade, sem cobrança. No cancelamento com peças aplicadas, confirmar que foram fisicamente retiradas; então desfazer aplicações e devolver disponibilidade. As operações relevantes preservam histórico operacional e Log Administrativo conforme sua natureza; o encerramento/cancelamento e seus efeitos de estoque e histórico devem ser atômicos. Se qualquer operação falhar, nada daquela operação será efetivado. Peças avulsas não geram baixa.
 
-Essas regras funcionais não aprovam ainda tabelas, histórico físico, movimentações, endpoints, telas ou implementação de estoque; permanecem futuros.
+Essas regras da integração entre OS e estoque não aprovam modelo físico ou rotas para aplicar, reverter ou baixar peças na OS; esses fluxos permanecem futuros. O ledger e as operações manuais iniciais de estoque são definidos separadamente na seção de Produtos abaixo e no desenho técnico do Recorte 4.
 
 ### Cadastro básico de Produtos — primeira etapa
 
@@ -362,7 +362,13 @@ As permissões `products.cost.read` e `products.cost.update` são independentes.
 
 O custo histórico de uma peça será capturado quando ela for marcada como aplicada à OS. Mudanças posteriores no custo cadastrado não alteram esse custo histórico. Essa associação ainda não existe e não é implementada nesta etapa.
 
-Produto continua sem serial obrigatório, saldo, movimento, reserva, compra, inventário, aplicação ou baixa. A futura origem oficial do saldo será o conjunto de movimentações; o estoque inicial terá um único local e permitirá saldo negativo. A fórmula definitiva de saldo e detalhes de movimentos continuam fora desta etapa. Peça defeituosa deverá receber destino próprio (por exemplo, análise, sucata, garantia ou devolução ao fornecedor) e não voltar automaticamente à disponibilidade; opções finais, transições, responsáveis e impactos contábeis permanecem para o desenho do estoque.
+O cadastro de produto continua sem serial obrigatório. O primeiro controle de estoque usa um único local implícito e um livro imutável de movimentações como fonte oficial; inclusão do produto não cria saldo nem movimento. Total, Aplicadas, Defeituosas e Disponíveis são derivados pela soma dos deltas, com `Disponíveis = Total − Aplicadas − Defeituosas`. As quantidades desta etapa são inteiras; unidade de medida e quantidades fracionárias ficam pendentes. Estoque disponível negativo é permitido.
+
+A permissão `products.stock.manage` autoriza todas as movimentações manuais. Administrador (`isAdmin`) tem acesso efetivo pela política central; a permissão não é concedida automaticamente a usuários comuns. `products.manage` permite consultar produtos, saldos e movimentações, mas não escrever estoque. `products.stock.manage` permite essas consultas e movimentações sem permitir criar ou editar o cadastro. Custos seguem protegidos pelas permissões próprias `products.cost.read` e `products.cost.update`.
+
+As operações implementadas são entrada manual positiva, ajuste manual com delta inteiro não nulo (inclusive negativo), classificação de unidades disponíveis como defeituosas, retorno de unidades defeituosas à disponibilidade e descarte definitivo. Classificação não pode exceder o disponível; retorno e descarte não podem exceder o saldo defeituoso. Ajuste negativo não pode consumir quantidades já aplicadas/defeituosas, mas pode levar o saldo a negativo quando não houver quantidade classificada. Descarte exige confirmação explícita e não exige justificativa. Movimentos não podem ser editados nem removidos.
+
+Cada operação grava movimento e Log Administrativo na mesma transação, com ator, instante do servidor, produto, tipo, quantidade e saldos antes/depois. A linha do Produto é bloqueada durante a transação para serializar operações concorrentes por produto. A etapa não aplica peças à OS, não faz baixa por encerramento, compras, inventário, reserva, devolução ao fornecedor ou controle por lote/série. Peça avulsa de orçamento continua fora do estoque. Peça defeituosa classificada pode retornar à disponibilidade ou ser descartada; garantia, análise, sucata e devolução ao fornecedor permanecem fluxos futuros.
 
 ### Peça avulsa na OS
 

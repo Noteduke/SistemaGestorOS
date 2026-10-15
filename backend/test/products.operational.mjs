@@ -70,10 +70,11 @@ try {
   process.stdout.write("DATABASE()=gestor_os_opening_test; validação operacional de Produtos inicia no banco isolado.\n");
   await app.listen(0, "127.0.0.1");
 
-  assert.equal(await prisma.permission.count(), 42, "Atualize o seed de permissões no banco isolado antes do roteiro.");
+  assert.equal(await prisma.permission.count(), 43, "Atualize o seed de permissões no banco isolado antes do roteiro.");
   const permissionRow = await prisma.permission.findUniqueOrThrow({ where: { code: "products.manage" } });
   await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.read" } });
   await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.update" } });
+  await prisma.permission.findUniqueOrThrow({ where: { code: "products.stock.manage" } });
   const suffix = randomBytes(5).toString("hex").toUpperCase();
   const password = randomBytes(24).toString("base64url");
   const user = await prisma.user.create({ data: {
@@ -125,11 +126,79 @@ try {
   assert.equal(product.salePrice, "12.50");
   assert.equal(Object.hasOwn(product, "acquisitionCost"), false);
   assert.equal(Object.hasOwn(product, "grossProfitEstimate"), false);
+  assert.equal(await prisma.productStockMovement.count({ where: { product: { publicId: product.publicId } } }), 0,
+    "produto novo começa sem movimento; a consulta de detalhe deriva saldo zero");
+  assert.deepEqual((await api(base, "GET", `/products/${product.publicId}`, { cookie: sessionCookie })).body.data.stock,
+    { total: 0, applied: 0, defective: 0, available: 0 });
   const negativeSale = await api(base, "POST", "/products", { cookie: sessionCookie, csrf, body: {
     description: "Preço negativo rejeitado", category: "PART", salePrice: "-0.01",
   } });
   assert.equal(negativeSale.status, 400);
   assert.equal(product.isActive, true);
+
+  const stockOnlySession = await createSession(base, `validacao.products.stock.${suffix.toLowerCase()}`, ["products.stock.manage"]);
+  assert.equal(stockOnlySession.identity.permissions.includes("products.manage"), false);
+  const stockOnlyProducts = await api(base, "GET", `/products?page=1&pageSize=20&search=${suffix}`, { cookie: stockOnlySession.cookie });
+  assert.equal(stockOnlyProducts.status, 200, "gestor de estoque pode consultar produtos necessários à operação");
+  assert.equal(Object.hasOwn(stockOnlyProducts.body.data[0], "acquisitionCost"), false);
+  assert.equal((await api(base, "POST", "/products", { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: {
+    description: "Estoque não administra cadastro", category: "PART",
+  } })).status, 403);
+  assert.equal((await api(base, "POST", `/products/${product.publicId}/stock/entries`, { cookie: sessionCookie, csrf, body: { quantity: 1 } })).status, 403,
+    "products.manage não concede movimentação de estoque");
+  const stockRoute = `/products/${product.publicId}/stock`;
+  const emptyStock = await api(base, "GET", stockRoute, { cookie: stockOnlySession.cookie });
+  assert.equal(emptyStock.status, 200);
+  assert.deepEqual(emptyStock.body.data.stock, { total: 0, applied: 0, defective: 0, available: 0 });
+  assert.equal((await api(base, "POST", `${stockRoute}/entries`, { cookie: stockOnlySession.cookie, body: { quantity: 1 } })).status, 403,
+    "toda mutação exige CSRF mesmo com products.stock.manage");
+
+  const entry = await api(base, "POST", `${stockRoute}/entries`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 5 } });
+  assert.equal(entry.status, 201);
+  assert.deepEqual(entry.body.data.stock, { total: 5, applied: 0, defective: 0, available: 5 });
+  const negativeAdjustment = await api(base, "POST", `${stockRoute}/adjustments`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantityDelta: -7 } });
+  assert.equal(negativeAdjustment.status, 201, "ajuste manual pode levar o disponível a negativo");
+  assert.deepEqual(negativeAdjustment.body.data.stock, { total: -2, applied: 0, defective: 0, available: -2 });
+  const recoveryEntry = await api(base, "POST", `${stockRoute}/entries`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 6 } });
+  assert.equal(recoveryEntry.status, 201);
+  assert.deepEqual(recoveryEntry.body.data.stock, { total: 4, applied: 0, defective: 0, available: 4 });
+  const classified = await api(base, "POST", `${stockRoute}/defective/classifications`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 2 } });
+  assert.equal(classified.status, 201);
+  assert.deepEqual(classified.body.data.stock, { total: 4, applied: 0, defective: 2, available: 2 });
+  const overClassified = await api(base, "POST", `${stockRoute}/defective/classifications`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 3 } });
+  assert.equal(overClassified.status, 409);
+  assert.equal(overClassified.body.error?.code ?? overClassified.body.code, "INSUFFICIENT_AVAILABLE_STOCK");
+  const returned = await api(base, "POST", `${stockRoute}/defective/returns`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 1 } });
+  assert.equal(returned.status, 201);
+  assert.deepEqual(returned.body.data.stock, { total: 4, applied: 0, defective: 1, available: 3 });
+  const unconfirmedDisposal = await api(base, "POST", `${stockRoute}/defective/disposals`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 1, confirmed: false } });
+  assert.equal(unconfirmedDisposal.status, 400);
+  const disposed = await api(base, "POST", `${stockRoute}/defective/disposals`, { cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 1, confirmed: true } });
+  assert.equal(disposed.status, 201);
+  assert.deepEqual(disposed.body.data.stock, { total: 3, applied: 0, defective: 0, available: 3 });
+
+  const concurrentEntries = await Promise.all([1, 2].map(() => api(base, "POST", `${stockRoute}/entries`, {
+    cookie: stockOnlySession.cookie, csrf: stockOnlySession.csrf, body: { quantity: 1 },
+  })));
+  assert.ok(concurrentEntries.every((result) => result.status === 201), "entradas concorrentes serializam sem perda");
+  assert.deepEqual(concurrentEntries[1].body.data.stock, { total: 5, applied: 0, defective: 0, available: 5 });
+  const stockSummary = await api(base, "GET", stockRoute, { cookie: stockOnlySession.cookie });
+  assert.deepEqual(stockSummary.body.data.stock, { total: 5, applied: 0, defective: 0, available: 5 });
+  const stockHistory = await api(base, "GET", `${stockRoute}/movements?page=1&pageSize=20`, { cookie: stockOnlySession.cookie });
+  assert.equal(stockHistory.status, 200);
+  assert.equal(stockHistory.body.data.length, 8);
+  assert.ok(stockHistory.body.data.every((movement) => movement.actor.username === stockOnlySession.user.username));
+  assert.equal(Object.hasOwn(stockHistory.body.data[0], "acquisitionCost"), false);
+  const stockAudit = await prisma.adminAuditLog.findMany({
+    where: { actorUserId: stockOnlySession.user.id, eventCode: { startsWith: "PRODUCT_STOCK_" }, detailsJson: { path: "$.productPublicId", equals: product.publicId } },
+    orderBy: { id: "asc" },
+  });
+  assert.equal(stockAudit.length, 8);
+  assert.ok(stockAudit.every((log) => log.occurredAt instanceof Date && log.detailsJson?.before && log.detailsJson?.after));
+  assert.equal(stockAudit[0].eventCode, "PRODUCT_STOCK_MANUAL_ENTRY");
+  assert.equal(stockAudit[0].detailsJson.after.available, 5);
+  const stockOnlyMovements = await api(base, "GET", `${stockRoute}/movements?page=1&pageSize=20`, { cookie: sessionCookie });
+  assert.equal(stockOnlyMovements.status, 200, "products.manage pode consultar histórico de movimentos sem permissão de escrita");
 
   assert.equal((await api(base, "GET", `/products/${product.publicId}`, { cookie: sessionCookie })).body.data.publicId, product.publicId);
   const byCode = await api(base, "GET", `/products?page=1&pageSize=20&search=${encodeURIComponent(suffix)}`, { cookie: sessionCookie });
@@ -236,6 +305,8 @@ try {
   const adminIdentity = await api(base, "GET", "/auth/me", { cookie: adminSessionCookie });
   const adminCsrf = adminIdentity.body.data.csrfToken;
   assert.equal(adminIdentity.body.data.isAdmin, true);
+  assert.equal((await api(base, "POST", `${stockRoute}/entries`, { cookie: adminSessionCookie, csrf: adminCsrf, body: { quantity: 1 } })).status, 201,
+    "Administrador tem permissão efetiva de gestão de estoque sem concessão explícita individual");
   assert.ok(adminIdentity.body.data.permissions.includes("products.cost.read"));
   assert.ok(adminIdentity.body.data.permissions.includes("products.cost.update"));
   const adminCreated = await api(base, "POST", "/products", { cookie: adminSessionCookie, csrf: adminCsrf, body: {
@@ -281,10 +352,11 @@ try {
 
   const logout = await api(base, "POST", "/auth/logout", { cookie: sessionCookie, csrf });
   assert.equal(logout.status, 204);
-  process.stdout.write("Produtos: autorização, CSRF, CRUD permitido, busca, categoria, versão, inativação e Log Administrativo passaram.\n");
+  process.stdout.write("Produtos/estoque: autorização independente, CSRF, CRUD, busca, entrada, ajuste negativo, classificação/retorno/descarte, concorrência, saldos derivados, histórico e Log Administrativo passaram.\n");
 } finally {
   if (userId !== undefined) {
     await prisma.adminAuditLog.deleteMany({ where: { actorUserId: userId } });
+    await prisma.productStockMovement.deleteMany({ where: { product: { publicId: { in: productIds } } } });
     await prisma.product.deleteMany({ where: { publicId: { in: productIds } } });
     await prisma.userSession.deleteMany({ where: { userId } });
     await prisma.userPermission.deleteMany({ where: { userId } });
@@ -299,6 +371,7 @@ try {
   }
   for (const additionalUserId of additionalUserIds) {
     await prisma.adminAuditLog.deleteMany({ where: { actorUserId: additionalUserId } });
+    await prisma.productStockMovement.deleteMany({ where: { product: { publicId: { in: productIds } } } });
     await prisma.userSession.deleteMany({ where: { userId: additionalUserId } });
     await prisma.userPermission.deleteMany({ where: { userId: additionalUserId } });
     await prisma.user.update({ where: { id: additionalUserId }, data: { isActive: false } });

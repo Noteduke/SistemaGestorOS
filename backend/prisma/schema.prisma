@@ -32,6 +32,18 @@ enum ProductCategory {
   RESALE_GOOD
 }
 
+enum ProductStockMovementType {
+  MANUAL_ENTRY
+  MANUAL_ADJUSTMENT
+  DEFECTIVE_CLASSIFIED
+  DEFECTIVE_RETURNED
+  DEFECTIVE_DISCARDED
+}
+
+enum ProductStockMovementOrigin {
+  MANUAL
+}
+
 model Person {
   id                           Int                    @id @default(autoincrement())
   publicId                     String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
@@ -156,6 +168,7 @@ model User {
   updatedCatalogServices        ServiceCatalog[]          @relation("ServiceCatalogUpdater")
   createdProducts               Product[]                 @relation("ProductCreator")
   updatedProducts               Product[]                 @relation("ProductUpdater")
+  productStockMovements         ProductStockMovement[]
   createdBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemCreator")
   updatedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemUpdater")
   removedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemRemover")
@@ -270,27 +283,47 @@ model ServiceCatalog {
 }
 
 model Product {
-  id              Int             @id @default(autoincrement())
-  publicId        String          @unique @default(uuid()) @map("public_id") @db.Char(36)
-  internalCode    String?         @unique @map("internal_code") @db.VarChar(64)
-  description     String          @db.VarChar(255)
+  id              Int                    @id @default(autoincrement())
+  publicId        String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
+  internalCode    String?                @unique @map("internal_code") @db.VarChar(64)
+  description     String                 @db.VarChar(255)
   category        ProductCategory
-  salePrice       Decimal?        @map("sale_price") @db.Decimal(15, 2)
-  acquisitionCost Decimal?        @map("acquisition_cost") @db.Decimal(15, 2)
-  isActive        Boolean         @default(true) @map("is_active")
-  version         Int             @default(1)
-  createdAt       DateTime        @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime        @updatedAt @map("updated_at") @db.DateTime(3)
-  createdByUserId Int             @map("created_by_user_id")
-  updatedByUserId Int             @map("updated_by_user_id")
-  createdBy       User            @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  updatedBy       User            @relation("ProductUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  salePrice       Decimal?               @map("sale_price") @db.Decimal(15, 2)
+  acquisitionCost Decimal?               @map("acquisition_cost") @db.Decimal(15, 2)
+  isActive        Boolean                @default(true) @map("is_active")
+  version         Int                    @default(1)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
+  createdByUserId Int                    @map("created_by_user_id")
+  updatedByUserId Int                    @map("updated_by_user_id")
+  createdBy       User                   @relation("ProductCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy       User                   @relation("ProductUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  stockMovements  ProductStockMovement[]
 
   @@index([isActive, category, description, id])
   @@index([description, id])
   @@index([createdByUserId])
   @@index([updatedByUserId])
   @@map("products")
+}
+
+model ProductStockMovement {
+  id             Int                        @id @default(autoincrement())
+  publicId       String                     @unique @default(uuid()) @map("public_id") @db.Char(36)
+  productId      Int                        @map("product_id")
+  type           ProductStockMovementType
+  origin         ProductStockMovementOrigin @default(MANUAL)
+  totalDelta     Int                        @default(0) @map("total_delta")
+  appliedDelta   Int                        @default(0) @map("applied_delta")
+  defectiveDelta Int                        @default(0) @map("defective_delta")
+  actorUserId    Int                        @map("actor_user_id")
+  occurredAt     DateTime                   @default(now()) @map("occurred_at") @db.DateTime(3)
+  product        Product                    @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor          User                       @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([productId, occurredAt, id])
+  @@index([actorUserId, occurredAt])
+  @@map("product_stock_movements")
 }
 
 // Technical mutex rows serialize cross-table name checks through the surrounding transaction.

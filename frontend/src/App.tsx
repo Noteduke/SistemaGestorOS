@@ -170,6 +170,8 @@ export function App() {
 
   const canManageServices = session.identity.isAdmin || session.identity.permissions.includes("services.manage");
   const canManageProducts = session.identity.isAdmin || session.identity.permissions.includes("products.manage");
+  const canManageStock = session.identity.isAdmin || session.identity.permissions.includes("products.stock.manage");
+  const canAccessProducts = canManageProducts || canManageStock;
 
   return (
     <div className="app-shell">
@@ -180,7 +182,7 @@ export function App() {
         </a>
         <div className="topbar-meta">
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
-          {canManageProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos</a>}
+          {canAccessProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos / Estoque</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
           {logoutMessage && <span role="status">{logoutMessage}</span>}
@@ -189,11 +191,13 @@ export function App() {
       </header>
       <main className="content">
         {route.view === "products" ? (
-          canManageProducts ? <ProductCatalogPage
+          canAccessProducts ? <ProductCatalogPage
             csrfToken={session.identity.csrfToken}
+            canManageProducts={canManageProducts}
+            canManageStock={canManageStock}
             canReadCosts={session.identity.isAdmin || session.identity.permissions.includes("products.cost.read")}
             canUpdateCosts={session.identity.isAdmin || session.identity.permissions.includes("products.cost.update")}
-          /> : <section className="state-card">Você não tem permissão para administrar Produtos.</section>
+          /> : <section className="state-card">Você não tem permissão para consultar Produtos ou Estoque.</section>
         ) : route.view === "services" ? (
           canManageServices ? <ServiceCatalogPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Você não tem permissão para administrar Serviços.</section>
         ) : route.view === "list" ? (

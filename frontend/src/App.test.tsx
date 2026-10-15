@@ -35,10 +35,31 @@ it("restringe o Cadastro de Produtos a Administrador ou products.manage", async 
   const fetchMock = vi.fn().mockResolvedValue(response({ data: identity }));
   vi.stubGlobal("fetch", withEditControl(fetchMock));
   render(<App />);
-  expect(await screen.findByText("Você não tem permissão para administrar Produtos.")).toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Produtos" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Você não tem permissão para consultar Produtos ou Estoque.")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Produtos / Estoque" })).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock).toHaveBeenCalledWith("/api/v1/auth/me", expect.any(Object));
+});
+
+it("permite acesso de consulta/movimentação ao usuário com products.stock.manage sem liberar cadastro", async () => {
+  window.location.hash = "#/products";
+  const identity = {
+    publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd",
+    username: "estoquista.teste",
+    isAdmin: false,
+    permissions: ["products.stock.manage"],
+    csrfToken: "csrf-session",
+    session: { expiresAt: "2026-10-20T20:00:00.000Z" },
+  };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response({ data: identity }))
+    .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }));
+  vi.stubGlobal("fetch", withEditControl(fetchMock));
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Produtos / Estoque" })).toBeInTheDocument();
+  expect(await screen.findByText("Nenhum produto encontrado neste filtro.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Cadastrar produto" })).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/products?page=1&pageSize=20&status=active", expect.any(Object));
 });
 
 const order = {

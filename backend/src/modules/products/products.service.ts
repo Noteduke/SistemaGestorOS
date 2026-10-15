@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, HttpException, Injectable, NotF
 import { Prisma, type Product } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { AuthPolicyService } from "../auth/auth-policy.service.js";
+import { ProductStockService } from "./product-stock.service.js";
 import type { CreateProductInput, ProductListQuery, UpdateProductInput } from "./dto/product.dto.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 
@@ -69,7 +70,7 @@ async function lockProduct(tx: Tx, publicId: string): Promise<Product> {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService, private readonly policy: AuthPolicyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly policy: AuthPolicyService, private readonly stock: ProductStockService) {}
 
   private async canReadCosts(actor: AuthenticatedUser): Promise<boolean> {
     return this.policy.hasPermission(actor, "products.cost.read");
@@ -99,8 +100,12 @@ export class ProductsService {
       }),
       this.prisma.product.count({ where }),
     ]);
+    const balances = await this.stock.summariesForProducts(products.map((product) => product.id));
     return {
-      data: products.map((product) => view(product, canReadCosts)),
+      data: products.map((product) => ({
+        ...view(product, canReadCosts),
+        stock: balances.get(product.id) ?? { total: 0, applied: 0, defective: 0, available: 0 },
+      })),
       pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
     };
   }
@@ -110,7 +115,9 @@ export class ProductsService {
     const canReadCosts = await this.canReadCosts(actor);
     const product = await this.prisma.product.findUnique({ where: { publicId } });
     if (!product) throw notFound();
-    return { data: view(product, canReadCosts) };
+    const stock = (await this.stock.summariesForProducts([product.id])).get(product.id)
+      ?? { total: 0, applied: 0, defective: 0, available: 0 };
+    return { data: { ...view(product, canReadCosts), stock } };
   }
 
   async create(input: CreateProductInput, actor: AuthenticatedUser) {

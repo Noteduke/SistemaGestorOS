@@ -59,3 +59,7 @@ Não implementar quantidade/saldo, movimentações, reserva, compra, inventário
 ## Risco/decisão ainda não modelada
 
 A composição e a reconciliação física dos saldos, os tipos de movimentação, correção/estorno de movimento, inventário e política de custo por estoque permanecem para desenho próprio. Nenhum desses pontos deve ser deduzido desta tabela de catálogo.
+
+## Atualização posterior — Recorte 4 de controle inicial de Estoque
+
+O escopo deste documento descreve o Recorte 3 de catálogo e não é mais o estado atual de todo o projeto. O controle manual inicial foi implementado separadamente em `docs/planejamento/Recorte-4-Estoque-Desenho-Tecnico.md`: `ProductStockMovement` append-only, saldo derivado, único local implícito, entrada, ajuste, classificação/retorno/descarte de defeituosas e `products.stock.manage`. A migration foi aplicada exclusivamente em `gestor_os_opening_test`. Aplicação e baixa de peças na OS, compras, inventário, lotes/seriais e múltiplos locais continuam fora do Recorte 4.

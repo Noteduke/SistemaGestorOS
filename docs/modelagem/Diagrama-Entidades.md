@@ -395,4 +395,24 @@ erDiagram
     }
 ```
 
-O cadastro não se relaciona ainda com orçamento ou estoque. As migrations `20261015130000_product_catalog` e `20261015140000_product_pricing` foram aplicadas somente no banco isolado `gestor_os_opening_test`; permanecem pendentes no principal. As permissões `products.cost.read` e `products.cost.update` são registros no catálogo existente e não requerem novas tabelas ou migration; alteração também exige `products.manage`.
+O modelo de catálogo/preços e a relação com o livro de estoque estão implementados. As migrations `20261015130000_product_catalog`, `20261015140000_product_pricing` e `20261015150000_product_stock` foram aplicadas somente em `gestor_os_opening_test`; permanecem pendentes no principal. `products.cost.read`, `products.cost.update` e `products.stock.manage` são registros no catálogo existente, sem tabela de permissão nova; movimentação exige `products.stock.manage`, enquanto consulta admite `products.manage` ou `products.stock.manage`.
+
+```mermaid
+erDiagram
+    Product ||--o{ ProductStockMovement : recebe
+    User ||--o{ ProductStockMovement : registra
+    ProductStockMovement {
+        int id PK
+        char36 public_id UK
+        int product_id FK
+        enum type
+        enum origin
+        int total_delta
+        int applied_delta
+        int defective_delta
+        int actor_user_id FK
+        datetime3 occurred_at
+    }
+```
+
+`ProductStockMovement` é um ledger append-only. Não existe tabela de saldo/local; um único local é implícito, e os saldos são somas de deltas. `applied_delta` permanece zero enquanto não houver integração com OS. A migration foi aplicada somente ao banco isolado `gestor_os_opening_test` e não foi aplicada ao principal.

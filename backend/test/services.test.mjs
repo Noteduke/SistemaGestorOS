@@ -10,6 +10,8 @@ import { sanitizeServiceOrderEventPayload } from "../dist/modules/service-orders
 import { cleanProductCode, cleanProductDescription } from "../dist/modules/products/domain/product-input.js";
 import { parseCreateProduct, parseProductListQuery, parseUpdateProduct } from "../dist/modules/products/dto/product.dto.js";
 import { ProductsService } from "../dist/modules/products/products.service.js";
+import { parseProductStockMovementsQuery, parseStockAdjustmentBody, parseStockDisposalBody, parseStockQuantityBody } from "../dist/modules/products/dto/product-stock.dto.js";
+import { movementDeltas, stockBalanceFromDeltas, stockMovementViolation } from "../dist/modules/products/domain/product-stock-ledger.js";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
@@ -267,6 +269,14 @@ function fakeProductPolicy() {
   };
 }
 
+function fakeProductStockService() {
+  return {
+    async summariesForProducts(ids) {
+      return new Map(ids.map((id) => [id, { total: 0, applied: 0, defective: 0, available: 0 }]));
+    },
+  };
+}
+
 function matchProduct(row, where) {
   const search = !where.OR || where.OR.some((condition) => Object.entries(condition).some(([field, filter]) => row[field]?.includes(filter.contains)));
   return (where.isActive === undefined || row.isActive === where.isActive)
@@ -276,7 +286,7 @@ function matchProduct(row, where) {
 
 test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão", async () => {
   const prisma = fakeProductsPrisma();
-  const service = new ProductsService(prisma, fakeProductPolicy());
+  const service = new ProductsService(prisma, fakeProductPolicy(), fakeProductStockService());
   const actor = { id: 7, isAdmin: false, permissions: ["products.manage"] };
   const readOnly = { id: 9, isAdmin: false, permissions: ["products.manage", "products.cost.read"] };
   const updateOnly = { id: 10, isAdmin: false, permissions: ["products.manage", "products.cost.update"] };
@@ -332,4 +342,36 @@ test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão",
   await assert.rejects(() => service.update(created.publicId, { expectedVersion: 1, isActive: true }, actor), (error) => codeOf(error) === "PRODUCT_VERSION_CONFLICT");
   await assert.rejects(() => service.create(parseCreateProduct({ internalCode: "P-1", description: "Duplicado", category: "PART" }), actor), (error) => codeOf(error) === "DUPLICATE_PRODUCT_CODE");
   assert.deepEqual(prisma.audits.filter((entry) => entry.detailsJson?.productPublicId === created.publicId).map((entry) => entry.eventCode), ["PRODUCT_CREATED", "PRODUCT_UPDATED", "PRODUCT_UPDATED"]);
+});
+
+test("DTOs de estoque aceitam unidades inteiras e exigem confirmação de descarte", () => {
+  assert.deepEqual(parseStockQuantityBody({ quantity: 3 }), { quantity: 3 });
+  assert.deepEqual(parseStockAdjustmentBody({ quantityDelta: -2 }), { quantityDelta: -2 });
+  assert.deepEqual(parseStockDisposalBody({ quantity: "1", confirmed: true }), { quantity: 1, confirmed: true });
+  assert.deepEqual(parseProductStockMovementsQuery({ page: "1", pageSize: "20" }), { page: 1, pageSize: 20 });
+  for (const value of [0, -1, 1.5, "1.5", "1e2", 2_147_483_648]) {
+    assert.throws(() => parseStockQuantityBody({ quantity: value }));
+  }
+  assert.throws(() => parseStockAdjustmentBody({ quantityDelta: 0 }));
+  assert.throws(() => parseStockDisposalBody({ quantity: 1, confirmed: false }));
+  assert.throws(() => parseProductStockMovementsQuery({ page: "1", pageSize: "101" }));
+});
+
+test("razão de estoque deriva os saldos e protege quantidades classificadas", () => {
+  const initial = stockBalanceFromDeltas({ total: 0, applied: 0, defective: 0 });
+  assert.deepEqual(initial, { total: 0, applied: 0, defective: 0, available: 0 });
+  const negative = stockBalanceFromDeltas(movementDeltas("MANUAL_ADJUSTMENT", -2));
+  assert.deepEqual(negative, { total: -2, applied: 0, defective: 0, available: -2 });
+  assert.equal(stockMovementViolation("MANUAL_ADJUSTMENT", -2, initial), undefined,
+    "ajuste pode levar saldo total/disponível a negativo quando não há quantidades classificadas");
+
+  const before = stockBalanceFromDeltas({ total: 5, applied: 1, defective: 1 });
+  assert.equal(before.available, 3);
+  assert.equal(stockMovementViolation("DEFECTIVE_CLASSIFIED", 3, before), undefined);
+  assert.equal(stockMovementViolation("DEFECTIVE_CLASSIFIED", 4, before), "INSUFFICIENT_AVAILABLE_STOCK");
+  assert.equal(stockMovementViolation("DEFECTIVE_RETURNED", 2, before), "INSUFFICIENT_DEFECTIVE_STOCK");
+  assert.equal(stockMovementViolation("DEFECTIVE_DISCARDED", 2, before), "INSUFFICIENT_DEFECTIVE_STOCK");
+  assert.equal(stockMovementViolation("MANUAL_ADJUSTMENT", -4, before), "CLASSIFIED_STOCK_PROTECTED");
+  assert.equal(stockMovementViolation("MANUAL_ADJUSTMENT", -3, before), undefined);
+  assert.deepEqual(movementDeltas("DEFECTIVE_DISCARDED", 1), { total: -1, applied: 0, defective: -1 });
 });

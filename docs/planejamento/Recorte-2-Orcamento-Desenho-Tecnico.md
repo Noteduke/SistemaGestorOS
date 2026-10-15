@@ -26,7 +26,7 @@ OS ABERTA aceita inclusão/edição/retirada mesmo após autorização, com hist
 
 Consulta estática, sem banco nem execução funcional:
 
-- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. `ServiceCatalog` e `ServiceOrderBudgetItem` estão no schema; o modelo de produto/estoque permanece futuro.
+- Prisma: id interno inteiro e publicId UUID em CHAR(36), timestamps DATETIME(3), FKs restritivas e modelos mapeados para snake_case. `ServiceCatalog`, `ServiceOrderBudgetItem` e o controle manual do estoque estão no schema; a associação do Produto/estoque aos itens da OS permanece futura.
 - EquipmentLookupService e DTOs de Pessoas: consulta paginada, filtro de ativos quando aplicável, ordenação estável com id interno como desempate e projeção pública sem expor id.
 - normalizeGeneralText em Pessoas: trim, colapso de espaços e caixa alta pt-BR. A comparação exata de orçamento requer chave normalizada própria; não pressupor que a collation global tenha a mesma semântica.
 - AuthPolicyService/guards: sessão, permissão explícita, Administrador e CSRF em mutações. `services.manage` protege o catálogo e as permissões de orçamento/custo protegem consulta, edição e custo.

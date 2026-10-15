@@ -1,5 +1,18 @@
 export type ProductCategory = "PART" | "RESALE_GOOD";
 export type ProductStatus = "active" | "inactive" | "all";
+export interface ProductStockBalance { total: number; applied: number; defective: number; available: number }
+export type ProductStockMovementType = "MANUAL_ENTRY" | "MANUAL_ADJUSTMENT" | "DEFECTIVE_CLASSIFIED" | "DEFECTIVE_RETURNED" | "DEFECTIVE_DISCARDED";
+export interface ProductStockMovement {
+  publicId: string;
+  type: ProductStockMovementType;
+  origin: string;
+  quantity: number;
+  totalDelta: number;
+  appliedDelta: number;
+  defectiveDelta: number;
+  occurredAt: string;
+  actor: { username: string };
+}
 export interface CatalogProduct {
   publicId: string;
   internalCode: string | null;
@@ -12,9 +25,14 @@ export interface CatalogProduct {
   version: number;
   createdAt: string;
   updatedAt: string;
+  stock?: ProductStockBalance;
 }
 export interface ProductPage {
   data: CatalogProduct[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+export interface ProductStockMovementPage {
+  data: ProductStockMovement[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
@@ -84,4 +102,29 @@ export function changeProductActivity(product: CatalogProduct, isActive: boolean
     isActive,
     expectedVersion: product.version,
   });
+}
+
+export function listProductStockMovements(publicId: string, page: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ page: String(page), pageSize: "20" });
+  return request<ProductStockMovementPage>(`/api/v1/products/${encodeURIComponent(publicId)}/stock/movements?${query}`, "GET", undefined, undefined, signal);
+}
+
+export function getProductStockSummary(publicId: string, signal?: AbortSignal) {
+  return request<{ data: { productPublicId: string; stock: ProductStockBalance } }>(
+    `/api/v1/products/${encodeURIComponent(publicId)}/stock`, "GET", undefined, undefined, signal,
+  );
+}
+
+export type ProductStockAction = "entry" | "adjustment" | "defective/classifications" | "defective/returns" | "defective/disposals";
+
+export function createProductStockMovement(publicId: string, action: ProductStockAction, quantity: number, csrfToken: string, confirmed = false) {
+  const body = action === "adjustment"
+    ? { quantityDelta: quantity }
+    : action === "defective/disposals"
+      ? { quantity, confirmed }
+      : { quantity };
+  return request<{ data: { movement: ProductStockMovement; stock: ProductStockBalance } }>(
+    `/api/v1/products/${encodeURIComponent(publicId)}/stock/${action === "entry" ? "entries" : action}`,
+    "POST", csrfToken, body,
+  );
 }

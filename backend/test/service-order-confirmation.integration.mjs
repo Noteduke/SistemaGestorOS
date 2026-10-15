@@ -27,7 +27,7 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 42);
+  assert.equal(await db.permission.count(), 43);
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });

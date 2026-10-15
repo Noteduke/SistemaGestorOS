@@ -27,6 +27,7 @@ export const PERMISSION_CATALOG = [
   ["products.manage", "Consultar e administrar o Cadastro de Produtos."],
   ["products.cost.read", "Visualizar o custo de aquisição e os dados derivados de custo dos Produtos."],
   ["products.cost.update", "Alterar o custo de aquisição dos Produtos."],
+  ["products.stock.manage", "Consultar e movimentar o estoque de Produtos."],
   ["service_orders.opening.create", "Iniciar e gerenciar a própria abertura de OS."],
   ["service_orders.opening.read", "Consultar a própria abertura de OS."],
   ["service_orders.opening.manage", "Gerenciar aberturas de OS de outros usuários."],

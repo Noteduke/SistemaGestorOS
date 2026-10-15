@@ -6,6 +6,18 @@ import type { AuthenticatedUser } from "./auth.types.js";
 export class AuthPolicyService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async assertAnyAllowed(user: AuthenticatedUser, permissionCodes: string[]): Promise<void> {
+    if (permissionCodes.length === 0) {
+      throw new ForbiddenException({ code: "AUTHORIZATION_POLICY_MISSING", message: "A rota protegida não declarou política de autorização." });
+    }
+    if (user.isAdmin) return;
+    const grant = await this.prisma.userPermission.findFirst({
+      where: { userId: user.id, permission: { code: { in: permissionCodes } } },
+      select: { userId: true },
+    });
+    if (!grant) throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Você não tem permissão para esta operação." });
+  }
+
   async hasPermission(user: Pick<AuthenticatedUser, "id" | "isAdmin">, permissionCode: string): Promise<boolean> {
     if (user.isAdmin) return true;
     return Boolean(await this.prisma.userPermission.findFirst({
