@@ -225,7 +225,9 @@ export function App() {
             publicId={route.publicId}
             csrfToken={session.identity.csrfToken}
             canCreateNote={session.identity.isAdmin || session.identity.permissions.includes("service_orders.update")}
-            canManageEdit={session.identity.isAdmin || ["service_orders.update", "service_orders.situation.update", "service_orders.assignment.manage", "service_orders.budget.update"].some((permission) => session.identity.permissions.includes(permission))}
+            canManageEdit={session.identity.isAdmin || ["service_orders.update", "service_orders.situation.update", "service_orders.assignment.manage", "service_orders.budget.update", "os.close", "os.cancel"].some((permission) => session.identity.permissions.includes(permission))}
+            canClose={session.identity.isAdmin || session.identity.permissions.includes("os.close")}
+            canCancel={session.identity.isAdmin || session.identity.permissions.includes("os.cancel")}
             canTakeoverEdit={session.identity.isAdmin || session.identity.permissions.includes("service_orders.edit.takeover")}
             canUpdateSituation={session.identity.isAdmin || session.identity.permissions.includes("service_orders.situation.update")}
             canManageAssignments={session.identity.isAdmin || session.identity.permissions.includes("service_orders.assignment.manage")}

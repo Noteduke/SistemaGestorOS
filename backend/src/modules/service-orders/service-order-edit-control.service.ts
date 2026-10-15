@@ -8,7 +8,7 @@ export const EDIT_CONTROL_TTL_MS = 10 * 60 * 1000;
 export const EDIT_CONTROL_HEARTBEAT_SECONDS = 60;
 const TX_OPTIONS = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5_000, timeout: 10_000 } as const;
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const EDIT_CAPABILITIES = ["service_orders.update", "service_orders.situation.update", "service_orders.assignment.manage", "service_orders.budget.update"];
+const EDIT_CAPABILITIES = ["service_orders.update", "service_orders.situation.update", "service_orders.assignment.manage", "service_orders.budget.update", "os.close", "os.cancel"];
 type Tx = Prisma.TransactionClient;
 
 function invalidPublicId(): BadRequestException { return new BadRequestException({ code: "INVALID_PUBLIC_ID", message: "Identificador público inválido." }); }

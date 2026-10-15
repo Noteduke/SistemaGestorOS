@@ -18,6 +18,8 @@ import { parseCreateManualLabor, parseCreateManualPart, parseCreateRegisteredLab
 import { ServiceOrderEditControlService } from "./service-order-edit-control.service.js";
 import { ServiceOrderStockApplicationsService } from "./service-order-stock-applications.service.js";
 import { parseApplyStockPart, parseRemoveBudgetItem, parseReverseStockPart } from "./dto/service-order-stock-application.dto.js";
+import { parseCancelServiceOrder, parseCloseServiceOrder } from "./dto/service-order-closure.dto.js";
+import { ServiceOrderClosureService } from "./service-order-closure.service.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
@@ -31,6 +33,7 @@ export class ServiceOrdersController {
     private readonly budgetItems: ServiceOrderBudgetItemsService,
     private readonly editControl: ServiceOrderEditControlService,
     private readonly stockApplications: ServiceOrderStockApplicationsService,
+    private readonly closure: ServiceOrderClosureService,
   ) {}
 
   @Get()
@@ -49,6 +52,18 @@ export class ServiceOrdersController {
   @RequirePermissions("service_orders.read")
   editControlState(@Param("publicId") publicId: string, @Req() request: AuthRequest) {
     return this.editControl.state(publicId, request.auth!, editToken(request));
+  }
+
+  @Post(":publicId/close")
+  @RequirePermissions("os.close")
+  close(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.closure.close(publicId, parseCloseServiceOrder(body), request.auth!, editToken(request), serviceOrderRevision(request));
+  }
+
+  @Post(":publicId/cancel")
+  @RequirePermissions("os.cancel")
+  cancel(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.closure.cancel(publicId, parseCancelServiceOrder(body), request.auth!, editToken(request), serviceOrderRevision(request));
   }
 
   @Post(":publicId/edit-control")

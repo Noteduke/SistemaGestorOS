@@ -61,6 +61,8 @@ interface ServiceOrderDetailPageProps {
   canReadBudget?: boolean;
   canEditBudget?: boolean;
   canManageStock?: boolean;
+  canClose?: boolean;
+  canCancel?: boolean;
   canReadBudgetCosts?: boolean;
   canUpdateBudgetCosts?: boolean;
   canManageEdit?: boolean;
@@ -91,7 +93,7 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canManageStock = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canManageStock = false, canClose = false, canCancel = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -764,11 +766,23 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 editToken={editToken}
                 expectedRevision={editRevision}
                 canEdit={canEditBudget && isEditing && !dataConflict}
+                hasEditControl={isEditing && !dataConflict}
                 canManageStock={canManageStock}
+                canClose={canClose}
+                canCancel={canCancel}
                 canReadCosts={canReadBudgetCosts}
                 canUpdateCosts={canUpdateBudgetCosts}
                 onEditControlLost={markEditControlLost}
                 onRevisionChange={(revision) => { baseRevisionRef.current = revision; setEditRevision(revision); setOrder((current) => current ? { ...current, updatedAt: revision } : current); }}
+                onFinalized={(macroStatus, revision) => {
+                  baseRevisionRef.current = revision;
+                  isEditingRef.current = false;
+                  setIsEditing(false);
+                  setOrder((current) => current ? { ...current, macroStatus, updatedAt: revision } : current);
+                  setEditControl((current) => ({ held: false, holder: null, isSameUser: false, expiresAt: null, isCurrentContext: false, orderEditable: false, generation: (current?.generation ?? 0) + 1, heartbeatIntervalSeconds: current?.heartbeatIntervalSeconds ?? 60 }));
+                  setEditControlMessage("A OS foi finalizada e permanece em somente leitura.");
+                  setEventsReload((value) => value + 1);
+                }}
                 onDirtyChange={setBudgetDirty}
                 onDataConflict={() => void reportDataConflict()}
                 isOpen={order.macroStatus === "ABERTA"}

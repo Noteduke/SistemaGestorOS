@@ -26,6 +26,9 @@ const movementLabels = {
   DEFECTIVE_CLASSIFIED: "Classificada como defeituosa",
   DEFECTIVE_RETURNED: "Devolvida à disponibilidade",
   DEFECTIVE_DISCARDED: "Descarte definitivo",
+  SERVICE_ORDER_APPLIED: "Aplicada em Ordem de Serviço",
+  SERVICE_ORDER_REVERSED: "Aplicação revertida da Ordem de Serviço",
+  SERVICE_ORDER_CONSUMED: "Baixada no encerramento da Ordem de Serviço",
 } as const;
 
 function actionMessage(error: unknown): string {

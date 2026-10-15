@@ -35,10 +35,13 @@ const payloadKeys: Record<string, readonly string[]> = {
   ORCAMENTO_RETIRADO: ["items", "total", "itemCount"],
   PECA_ESTOQUE_APLICADA: ["itemPublicId", "productPublicId", "movementPublicId", "description", "quantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "unitCostSnapshot"],
   PECA_ESTOQUE_APLICACAO_REVERTIDA: ["itemPublicId", "productPublicId", "description", "quantity", "defectiveQuantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "defectiveBefore", "defectiveAfter", "reversals"],
+  OS_ENCERRADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
+  OS_CANCELADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
 };
 
 const booleanPayloadKeys = new Set(["numberReleased"]);
 const arrayPayloadKeys = new Set(["previousUserPublicIds", "newUserPublicIds", "addedUserPublicIds", "removedUserPublicIds"]);
+const closurePayloadKeys = new Set(["stockOperations"]);
 const publicIdPayloadKeys = new Set([
   "initiatingUserPublicId", "canceledByUserPublicId", "openingPublicId", "serviceOrderPublicId", "equipmentPublicId",
   "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId", "itemPublicId", "movementPublicId",
@@ -79,6 +82,18 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
           || typeof entry.quantity !== "number" || typeof entry.defectiveQuantity !== "number") return [];
         return [{ sourceApplicationPublicId: entry.sourceApplicationPublicId, quantity: entry.quantity, defectiveQuantity: entry.defectiveQuantity,
           ...(includeProductCosts && (typeof entry.unitCostSnapshot === "string" || entry.unitCostSnapshot === null) ? { unitCostSnapshot: entry.unitCostSnapshot } : {}) }];
+      });
+      continue;
+    }
+    if (closurePayloadKeys.has(key)) {
+      if (Array.isArray(candidate)) sanitized[key] = candidate.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.itemPublicId !== "string" || !publicIdPattern.test(entry.itemPublicId)
+          || typeof entry.productPublicId !== "string" || !publicIdPattern.test(entry.productPublicId)
+          || typeof entry.description !== "string" || typeof entry.quantity !== "number"
+          || (entry.defectiveQuantity !== undefined && typeof entry.defectiveQuantity !== "number")
+          || !["CONSUMED", "RETURNED"].includes(String(entry.operation))) return [];
+        return [{ itemPublicId: entry.itemPublicId, productPublicId: entry.productPublicId, description: entry.description, quantity: entry.quantity,
+          ...(typeof entry.defectiveQuantity === "number" ? { defectiveQuantity: entry.defectiveQuantity } : {}), operation: entry.operation }];
       });
       continue;
     }

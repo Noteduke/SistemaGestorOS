@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
-  addManualLaborBudgetItem, addManualPartBudgetItem, addRegisteredBudgetService, addStockPartBudgetItem, applyStockPartToServiceOrder, reverseStockPartApplication,
+  addManualLaborBudgetItem, addManualPartBudgetItem, addRegisteredBudgetService, addStockPartBudgetItem, applyStockPartToServiceOrder, reverseStockPartApplication, closeServiceOrder, cancelServiceOrder,
   getServiceOrderBudget, listAvailableCatalogProducts, listAvailableCatalogServices, removeBudgetItem, updateBudgetItem,
   ApiError, type AvailableCatalogProduct, type AvailableCatalogService, type ServiceOrderBudget, type ServiceOrderBudgetItem,
 } from "../../api/serviceOrders";
 
-type Props = { publicId: string; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; canManageStock?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
+type Props = { publicId: string; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; hasEditControl?: boolean; canManageStock?: boolean; canClose?: boolean; canCancel?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onFinalized?: (macroStatus: "FECHADA" | "CANCELADA", revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
 type Mode = "service" | "labor" | "part" | "stock-part";
 
 function errorText(error: unknown): string {
@@ -23,7 +23,7 @@ function errorText(error: unknown): string {
   return "Não foi possível concluir a operação do orçamento.";
 }
 
-export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expectedRevision, canEdit, canManageStock = false, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onDirtyChange, onDataConflict }: Props) {
+export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expectedRevision, canEdit, hasEditControl = canEdit, canManageStock = false, canClose = false, canCancel = false, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onFinalized, onDirtyChange, onDataConflict }: Props) {
   const [budget, setBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudget, setConflictBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudgetLoading, setConflictBudgetLoading] = useState(false);
@@ -50,6 +50,12 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
   const [defectiveQuantities, setDefectiveQuantities] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [closureMode, setClosureMode] = useState<"WITHOUT_REPAIR" | "CANCEL" | null>(null);
+  const [physicalRemovalConfirmed, setPhysicalRemovalConfirmed] = useState(false);
+  const [closureDefects, setClosureDefects] = useState<Record<string, string>>({});
+  const [closureBusy, setClosureBusy] = useState(false);
+  const [closureError, setClosureError] = useState<string | null>(null);
+  const [closureDiscrepancies, setClosureDiscrepancies] = useState<Array<{ itemPublicId: string; description: string; budgetedQuantity: number; appliedQuantity: number }>>([]);
 
   async function reload(signal?: AbortSignal) {
     const current = await getServiceOrderBudget(publicId, signal);
@@ -90,7 +96,9 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
   }, [canEdit, mode, productSearch, publicId]);
 
   const activeItems = budget?.data ?? [];
+  const appliedStockItems = activeItems.filter((item) => item.itemType === "STOCK_PART" && (item.appliedQuantity ?? 0) > 0);
   const canEditCurrent = canEdit && !revisionConflict;
+  const canOperateClosure = hasEditControl && !revisionConflict;
   const editingItem = activeItems.find((item) => item.publicId === editing);
   const dirty = mode !== "service" || Boolean(selectedService) || Boolean(selectedProduct) || Boolean(description.trim()) || Boolean(unitPrice.trim()) || Boolean(unitCost.trim()) || quantity !== "1"
     || Boolean(editingItem && (editQuantity !== String(editingItem.quantity) || editPrice !== editingItem.unitPrice
@@ -107,6 +115,53 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
     }
     setError(errorText(reason));
   }
+
+  async function finishRepairedClosure() {
+    if (!canOperateClosure || !isOpen || !canClose || closureBusy || dirty) return;
+    if (!window.confirm("Encerrar esta OS com reparo? As quantidades de cada peça aplicada precisam corresponder ao orçamento. As peças serão baixadas do estoque.")) return;
+    setClosureBusy(true); setClosureError(null); setClosureDiscrepancies([]);
+    try {
+      const result = await closeServiceOrder(publicId, { outcome: "REPAIRED" }, csrfToken, editToken, expectedRevision);
+      onRevisionChange?.(result.serviceOrderRevision);
+      onFinalized?.(result.data.macroStatus, result.serviceOrderRevision);
+      setMessage("OS encerrada com reparo; peças aplicadas baixadas do estoque.");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") onEditControlLost?.();
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_DATA_CONFLICT") onDataConflict?.();
+      const items = reason instanceof ApiError && Array.isArray(reason.details?.items) ? reason.details.items : [];
+      setClosureDiscrepancies(items.flatMap((value) => isRecord(value) && typeof value.itemPublicId === "string" && typeof value.description === "string" && typeof value.budgetedQuantity === "number" && typeof value.appliedQuantity === "number"
+        ? [{ itemPublicId: value.itemPublicId, description: value.description, budgetedQuantity: value.budgetedQuantity, appliedQuantity: value.appliedQuantity }] : []));
+      setClosureError(errorText(reason));
+    } finally { setClosureBusy(false); }
+  }
+
+  async function submitClosure() {
+    if (!canOperateClosure || !isOpen || closureBusy || !closureMode) return;
+    if (appliedStockItems.length && !physicalRemovalConfirmed) { setClosureError("Confirme que as peças aplicadas foram retiradas do equipamento."); return; }
+    const defectiveItems = appliedStockItems.flatMap((item) => {
+      const quantity = closureDefects[item.publicId] ?? "0";
+      if (!/^\d+$/u.test(quantity) || Number(quantity) > (item.appliedQuantity ?? 0)) return [{ itemPublicId: item.publicId, quantity: Number.NaN }];
+      return Number(quantity) > 0 ? [{ itemPublicId: item.publicId, quantity: Number(quantity) }] : [];
+    });
+    if (defectiveItems.some(({ quantity }) => !Number.isSafeInteger(quantity))) { setClosureError("Informe quantidades defeituosas inteiras entre zero e o total aplicado."); return; }
+    setClosureBusy(true); setClosureError(null);
+    try {
+      const body = { confirmPhysicalRemoval: physicalRemovalConfirmed, defectiveItems };
+      const result = closureMode === "CANCEL"
+        ? await cancelServiceOrder(publicId, body, csrfToken, editToken, expectedRevision)
+        : await closeServiceOrder(publicId, { outcome: "WITHOUT_REPAIR", ...body }, csrfToken, editToken, expectedRevision);
+      onRevisionChange?.(result.serviceOrderRevision);
+      onFinalized?.(result.data.macroStatus, result.serviceOrderRevision);
+      setMessage(closureMode === "CANCEL" ? "OS cancelada e aplicações tratadas no estoque." : "OS encerrada sem reparo e aplicações tratadas no estoque.");
+      setClosureMode(null);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_EDIT_CONTROL_LOST") onEditControlLost?.();
+      if (reason instanceof ApiError && reason.code === "SERVICE_ORDER_DATA_CONFLICT") onDataConflict?.();
+      setClosureError(errorText(reason));
+    } finally { setClosureBusy(false); }
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -238,6 +293,32 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
         </table></div>
       )}
       <p className="budget-total"><strong>{conflictBudget ? "Total da composição lida antes do conflito" : "Total atual"}: R$ {budget?.total ?? "0.00"}</strong></p>
+      {isOpen && (canClose || canCancel) && <section className="service-order-closure" aria-labelledby="service-order-closure-title">
+        <h3 id="service-order-closure-title">Encerramento e cancelamento</h3>
+        {closureError && <p className="form-message form-message--error" role="alert">{closureError}</p>}
+        {closureDiscrepancies.length > 0 && <section aria-label="Divergências entre orçamento e aplicações">
+          <p>O Backend recusou o encerramento. Corrija manualmente os itens e tente novamente; nenhuma quantidade foi ajustada automaticamente.</p>
+          <ul>{closureDiscrepancies.map((item) => <li key={item.itemPublicId}>{item.description}: orçada {item.budgetedQuantity}, aplicada {item.appliedQuantity}.</li>)}</ul>
+        </section>}
+        {canOperateClosure && <div className="service-order-closure__actions">
+          {canClose && <button className="button button--primary" type="button" disabled={closureBusy || dirty} onClick={() => void finishRepairedClosure()}>{closureBusy ? "Processando…" : "Encerrar com reparo"}</button>}
+          {canClose && <button className="button button--secondary" type="button" disabled={closureBusy || dirty} onClick={() => { setClosureMode("WITHOUT_REPAIR"); setClosureError(null); setClosureDiscrepancies([]); setPhysicalRemovalConfirmed(false); setClosureDefects({}); }}>Encerrar sem reparo</button>}
+          {canCancel && <button className="button button--secondary" type="button" disabled={closureBusy || dirty} onClick={() => { setClosureMode("CANCEL"); setClosureError(null); setClosureDiscrepancies([]); setPhysicalRemovalConfirmed(false); setClosureDefects({}); }}>Cancelar OS</button>}
+        </div>}
+        {closureMode && <form className="service-order-closure__form" onSubmit={(event) => { event.preventDefault(); void submitClosure(); }}>
+          <h4>{closureMode === "CANCEL" ? "Confirmar cancelamento" : "Confirmar encerramento sem reparo"}</h4>
+          {appliedStockItems.length > 0 ? <>
+            <p>Esta OS possui peças aplicadas. Confirme que foram retiradas do equipamento e podem retornar ao estoque. Informe, por item, quantas unidades estão defeituosas.</p>
+            <label><input type="checkbox" checked={physicalRemovalConfirmed} onChange={(event) => setPhysicalRemovalConfirmed(event.target.checked)} /> Confirmo a retirada física das peças aplicadas.</label>
+            <ul>{appliedStockItems.map((item) => <li key={item.publicId}>
+              {item.description} — aplicadas: {item.appliedQuantity}
+              <label>Unidades defeituosas <input aria-label={`Unidades defeituosas ${item.description}`} type="number" min="0" max={item.appliedQuantity} step="1" value={closureDefects[item.publicId] ?? "0"} onChange={(event) => setClosureDefects((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
+            </li>)}</ul>
+          </> : <p>Não há aplicações ativas de peças do estoque.</p>}
+          <button className="button button--primary" type="submit" disabled={closureBusy || (appliedStockItems.length > 0 && !physicalRemovalConfirmed)}>{closureBusy ? "Processando…" : "Confirmar operação"}</button>
+          <button className="button button--secondary" type="button" disabled={closureBusy} onClick={() => setClosureMode(null)}>Voltar</button>
+        </form>}
+      </section>}
       {(canEditCurrent || dirty) && isOpen && <form className="budget-form" aria-label={conflictBudget || revisionConflict ? "Rascunho local do orçamento não salvo" : "Editar orçamento"} onSubmit={(event) => void submit(event)}>
         <h3>Adicionar item</h3>
         <label htmlFor="budget-item-type">Tipo</label>

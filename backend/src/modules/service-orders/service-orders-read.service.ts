@@ -43,7 +43,7 @@ export const serviceOrderDetailSelect = {
 type SummaryOrder = Prisma.ServiceOrderGetPayload<{ select: typeof summarySelect }>;
 type DetailOrder = Prisma.ServiceOrderGetPayload<{ select: typeof serviceOrderDetailSelect }>;
 
-const macroLabels: Record<ServiceOrderMacroStatus, string> = { OPEN: "ABERTA" };
+const macroLabels: Record<ServiceOrderMacroStatus, string> = { OPEN: "ABERTA", CLOSED: "FECHADA", CANCELED: "CANCELADA" };
 const situationLabels: Record<ServiceOrderOperationalSituation, string> = {
   TRIAGE: "TRIAGEM",
   AWAITING_EVALUATION_BUDGET: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO",

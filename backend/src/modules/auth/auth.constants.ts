@@ -34,6 +34,8 @@ export const PERMISSION_CATALOG = [
   ["service_orders.create", "Confirmar abertura e criar OS."],
   ["service_orders.read", "Consultar ordens de serviço confirmadas."],
   ["service_orders.update", "Trabalhar e editar ordens de serviço confirmadas."],
+  ["os.close", "Encerrar ordens de serviço."],
+  ["os.cancel", "Cancelar ordens de serviço."],
   ["service_orders.budget.update", "Incluir, alterar e remover itens do orçamento da OS."],
   ["service_orders.budget.costs.read", "Visualizar custos internos dos itens do orçamento."],
   ["service_orders.budget.costs.update", "Alterar custos internos dos itens do orçamento."],

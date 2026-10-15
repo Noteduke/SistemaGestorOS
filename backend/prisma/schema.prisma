@@ -40,6 +40,7 @@ enum ProductStockMovementType {
   DEFECTIVE_DISCARDED
   SERVICE_ORDER_APPLIED
   SERVICE_ORDER_REVERSED
+  SERVICE_ORDER_CONSUMED
 }
 
 enum ProductStockMovementOrigin {
@@ -455,7 +456,9 @@ enum ServiceOrderNumberAllocationStatus {
 }
 
 enum ServiceOrderMacroStatus {
-  OPEN @map("ABERTA")
+  OPEN     @map("ABERTA")
+  CLOSED   @map("FECHADA")
+  CANCELED @map("CANCELADA")
 
   @@map("service_order_macro_status")
 }

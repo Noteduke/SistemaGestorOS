@@ -11,7 +11,7 @@
 - Cada aplicação cria movimento `SERVICE_ORDER_APPLIED` com origem `SERVICE_ORDER`, vínculo ao Produto, OS e item, ator, instante do servidor e snapshot do custo de aquisição atual, preservando `NULL` quando desconhecido. O total não muda; aplicadas aumentam e disponíveis diminuem. Disponibilidade negativa continua permitida.
 - Reversões criam movimentos `SERVICE_ORDER_REVERSED` relacionados ao movimento original. A distribuição técnica é FIFO por data/ID da aplicação, para preservar a origem e o custo de cada lote aplicado; não representa cálculo de custo médio ou regra contábil. Reverter unidades normais reduz aplicadas e restaura disponíveis. Classificar parte da reversão como defeituosa reduz aplicadas e aumenta defeituosas, sem restaurar disponíveis. Uma unidade nunca permanece simultaneamente aplicada e defeituosa.
 - A remoção individual de item com aplicações exige confirmação e informa quantas unidades serão classificadas como defeituosas. Reversão, classificação, remoção lógica, evento da OS e Log Administrativo ocorrem na mesma transação. Falha em qualquer etapa desfaz toda a operação.
-- A retirada integral do orçamento no fluxo existente de situação NÃO AUTORIZADO também desfaz aplicações ainda ativas, retornando-as à disponibilidade e preservando os movimentos. A OS não possui, neste recorte, endpoints de encerramento/cancelamento; qualquer transição macro diferente de ABERTA continuará bloqueada pelas validações de serviço até existir fluxo próprio que regularize as aplicações.
+- A retirada integral do orçamento no fluxo existente de situação NÃO AUTORIZADO também desfaz aplicações ainda ativas, retornando-as à disponibilidade e preservando os movimentos. O encerramento/cancelamento foi implementado posteriormente no Recorte 6, documentado em `docs/planejamento/Recorte-6-Encerramento-e-Estoque.md`.
 
 ## API e histórico
 
@@ -23,7 +23,7 @@
 
 ## Encerramento e itens futuros
 
-Aplicação não dá baixa definitiva. O custo capturado não muda quando o custo cadastral do Produto mudar. Baixa no encerramento com reparo, reconciliação de quantidade orçada/aplicada e tratamento completo de encerramento/cancelamento permanecem para etapa futura. Até lá, nenhum fluxo de encerramento/cancelamento é implementado e escritas transacionais existentes recusam OS cujo status macro não seja ABERTA.
+Aplicação não dá baixa definitiva; a baixa com reparo, reconciliação orçada/aplicada e devolução física sem reparo/cancelamento são responsabilidade do Recorte 6. O custo capturado não muda quando o custo cadastral do Produto mudar.
 
 ## Validação concluída
 

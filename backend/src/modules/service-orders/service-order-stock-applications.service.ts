@@ -39,14 +39,14 @@ function mapWriteError(error: unknown): never {
   throw error;
 }
 
-async function assertOperationPermissions(tx: Tx, actor: AuthenticatedUser): Promise<void> {
+async function assertOperationPermissions(tx: Tx, actor: AuthenticatedUser, closureOperation = false): Promise<void> {
   if (actor.isAdmin) return;
   const grants = await tx.userPermission.findMany({
-    where: { userId: actor.id, permission: { code: { in: ["service_orders.budget.update", "products.stock.manage"] } } },
+    where: { userId: actor.id, permission: { code: { in: closureOperation ? ["products.stock.manage"] : ["service_orders.budget.update", "products.stock.manage"] } } },
     select: { permission: { select: { code: true } } },
   });
   const codes = new Set(grants.map(({ permission }) => permission.code));
-  if (!codes.has("service_orders.budget.update") || !codes.has("products.stock.manage")) {
+  if ((!closureOperation && !codes.has("service_orders.budget.update")) || !codes.has("products.stock.manage")) {
     throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "É necessário ter autorização para editar o orçamento e movimentar o estoque." });
   }
 }
@@ -108,13 +108,14 @@ function assertQuantity(quantity: number): void {
   }
 }
 
-function applyView(row: ProductStockMovement, reversedQuantity: number, canReadCosts: boolean) {
+function applyView(row: ProductStockMovement, reversedQuantity: number, consumedQuantity: number, canReadCosts: boolean) {
   const quantity = row.appliedDelta;
   return {
     publicId: row.publicId,
     quantity,
     reversedQuantity,
-    remainingQuantity: quantity - reversedQuantity,
+    consumedQuantity,
+    remainingQuantity: quantity - reversedQuantity - consumedQuantity,
     occurredAt: row.occurredAt,
     ...(canReadCosts ? { unitCostSnapshot: row.unitCostSnapshot?.toFixed(2) ?? null } : {}),
   };
@@ -134,12 +135,15 @@ export class ServiceOrderStockApplicationsService {
     });
     const applications = rows.filter((row) => row.type === "SERVICE_ORDER_APPLIED");
     const reversals = rows.filter((row) => row.type === "SERVICE_ORDER_REVERSED");
+    const consumptions = rows.filter((row) => row.type === "SERVICE_ORDER_CONSUMED");
     const reversedBySource = new Map<number, number>();
     for (const row of reversals) if (row.sourceMovementId !== null) reversedBySource.set(row.sourceMovementId, (reversedBySource.get(row.sourceMovementId) ?? 0) - row.appliedDelta);
+    const consumedBySource = new Map<number, number>();
+    for (const row of consumptions) if (row.sourceMovementId !== null) consumedBySource.set(row.sourceMovementId, (consumedBySource.get(row.sourceMovementId) ?? 0) - row.appliedDelta);
     const result = new Map<number, { appliedQuantity: number; applications: ReturnType<typeof applyView>[] }>();
     for (const item of stockItems) {
       const itemApplications = applications.filter((row) => row.budgetItemId === item.id);
-      const views = itemApplications.map((row) => applyView(row, reversedBySource.get(row.id) ?? 0, canReadCosts));
+      const views = itemApplications.map((row) => applyView(row, reversedBySource.get(row.id) ?? 0, consumedBySource.get(row.id) ?? 0, canReadCosts));
       const appliedQuantity = views.reduce((sum, row) => sum + row.remainingQuantity, 0);
       if (!Number.isSafeInteger(appliedQuantity)) throw conflict("STOCK_BALANCE_OUT_OF_RANGE", "A quantidade aplicada excede o intervalo numérico seguro.");
       result.set(item.id, { appliedQuantity, applications: views });
@@ -208,7 +212,7 @@ export class ServiceOrderStockApplicationsService {
 
   async reverseAllInTransaction(tx: Tx, order: LockedOrder | { id: number; publicId?: string; numberValue: bigint }, item: StockItem, actor: AuthenticatedUser) {
     const applicationRows = await tx.productStockMovement.findMany({ where: { serviceOrderId: order.id, budgetItemId: item.id, type: "SERVICE_ORDER_APPLIED" }, select: { appliedDelta: true } });
-    const reversalRows = await tx.productStockMovement.findMany({ where: { serviceOrderId: order.id, budgetItemId: item.id, type: "SERVICE_ORDER_REVERSED" }, select: { appliedDelta: true } });
+    const reversalRows = await tx.productStockMovement.findMany({ where: { serviceOrderId: order.id, budgetItemId: item.id, type: { in: ["SERVICE_ORDER_REVERSED", "SERVICE_ORDER_CONSUMED"] } }, select: { appliedDelta: true } });
     const remaining = applicationRows.reduce((sum, row) => sum + row.appliedDelta, 0) + reversalRows.reduce((sum, row) => sum + row.appliedDelta, 0);
     if (remaining <= 0) return null;
     return this.reverseInTransaction(tx, order, item, actor, remaining, 0, false);
@@ -222,16 +226,17 @@ export class ServiceOrderStockApplicationsService {
     quantity: number,
     defectiveQuantity: number,
     createEvent: boolean,
+    closureOperation = false,
   ) {
     if (quantity < 1) return { quantity: 0, defectiveQuantity: 0, reversals: [] as Array<Record<string, unknown>> };
-    await assertOperationPermissions(tx, actor);
+    await assertOperationPermissions(tx, actor, closureOperation);
     const product = await lockProduct(tx, item.productId!);
     const applications = await tx.productStockMovement.findMany({
       where: { serviceOrderId: order.id, budgetItemId: item.id, type: "SERVICE_ORDER_APPLIED" },
       orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
     });
     const appIds = applications.map(({ id }) => id);
-    const reversalRows = appIds.length ? await tx.productStockMovement.findMany({ where: { sourceMovementId: { in: appIds }, type: "SERVICE_ORDER_REVERSED" }, select: { sourceMovementId: true, appliedDelta: true } }) : [];
+    const reversalRows = appIds.length ? await tx.productStockMovement.findMany({ where: { sourceMovementId: { in: appIds }, type: { in: ["SERVICE_ORDER_REVERSED", "SERVICE_ORDER_CONSUMED"] } }, select: { sourceMovementId: true, appliedDelta: true } }) : [];
     const reversedBySource = new Map<number, number>();
     for (const reversal of reversalRows) if (reversal.sourceMovementId !== null) reversedBySource.set(reversal.sourceMovementId, (reversedBySource.get(reversal.sourceMovementId) ?? 0) - reversal.appliedDelta);
     const batches = applications.map((application) => ({ application, remaining: application.appliedDelta - (reversedBySource.get(application.id) ?? 0) }));

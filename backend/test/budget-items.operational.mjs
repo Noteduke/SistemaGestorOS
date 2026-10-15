@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
 import dotenv from "dotenv";
+import mariadb from "mariadb";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { Prisma, PrismaClient } from "../dist/generated/prisma/client.js";
 import { balanceForProduct } from "../dist/modules/service-orders/service-order-stock-applications.service.js";
@@ -34,6 +35,7 @@ const normalizedNames = [catalogName, inactiveName, `Diagnóstico ${nonce}`, `Di
 let userId;
 let order;
 let previousSituation;
+let previousMacroStatus;
 let server;
 let cookie;
 let csrfToken;
@@ -60,7 +62,7 @@ async function api(pathname, { method = "GET", body, auth = true, csrf = true, e
     if (csrf) headers["X-CSRF-Token"] = csrfToken;
   }
   if (editToken) headers["X-Service-Order-Edit-Token"] = editToken;
-  const revisionTarget = pathname.match(/^\/service-orders\/([0-9a-f-]+)\/(?:assignments|operational-situation|budget-items(?:\/|$))/iu);
+  const revisionTarget = pathname.match(/^\/service-orders\/([0-9a-f-]+)\/(?:assignments|operational-situation|close|cancel|budget-items(?:\/|$))/iu);
   if (revisionTarget && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     const current = await prisma.serviceOrder.findUnique({ where: { publicId: revisionTarget[1] }, select: { updatedAt: true } });
     if (current) headers["X-Service-Order-Revision"] = expectedRevision ?? current.updatedAt.toISOString();
@@ -81,6 +83,22 @@ async function expectFailure(pathname, method, body, status, code, options = {})
   assert.equal(result.status, status, JSON.stringify(result.body));
   if (code) assert.equal(errorCode(result), code, JSON.stringify(result.body));
   return result;
+}
+
+async function executeIsolatedDdl(sql) {
+  assert.equal(databaseUrl.pathname, "/gestor_os_opening_test", "DDL só pode ser executada no banco isolado.");
+  const connection = await mariadb.createConnection({
+    host: databaseUrl.hostname, port: Number(databaseUrl.port || 3306),
+    user: decodeURIComponent(databaseUrl.username), password: decodeURIComponent(databaseUrl.password),
+    database: "gestor_os_opening_test",
+  });
+  try {
+    const [selected] = await connection.query("SELECT DATABASE() AS db");
+    assert.equal(selected.db, "gestor_os_opening_test", "A conexão DDL precisa permanecer no banco isolado.");
+    await connection.query(sql);
+  } finally {
+    await connection.end();
+  }
 }
 
 async function waitForServer() {
@@ -106,6 +124,7 @@ try {
   });
   assert.ok(order, "O banco de teste precisa conter ao menos uma OS confirmada.");
   assert.equal(order.macroStatus, "OPEN", "A OS de teste precisa estar aberta.");
+  previousMacroStatus = order.macroStatus;
   previousSituation = order.operationalSituation;
 
   const hash = await argon2.hash(password, { type: argon2.argon2id });
@@ -113,7 +132,7 @@ try {
   userId = user.id;
   const permissionCodes = [
     "service_orders.read", "service_orders.events.read", "service_orders.update", "service_orders.situation.update",
-    "service_orders.budget.update", "service_orders.budget.costs.read", "service_orders.budget.costs.update", "services.manage", "products.manage", "products.stock.manage", "products.cost.read",
+    "service_orders.budget.update", "service_orders.budget.costs.read", "service_orders.budget.costs.update", "services.manage", "products.manage", "products.stock.manage", "products.cost.read", "os.close", "os.cancel",
   ];
   const permissionRows = await prisma.permission.findMany({ where: { code: { in: permissionCodes } }, select: { id: true, code: true } });
   assert.equal(permissionRows.length, permissionCodes.length, "Execute seed-permissions no banco de teste antes deste roteiro.");
@@ -581,6 +600,119 @@ try {
   assert.equal(restored.status, 200, JSON.stringify(restored.body));
   const clean = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(clean.body.data.length, 0);
+
+  async function reopenForClosureTest() {
+    await prisma.serviceOrder.update({ where: { id: order.id }, data: { macroStatus: "OPEN", updatedAt: new Date() } });
+    const control = await api(`/service-orders/${order.publicId}/edit-control`, { method: "POST" });
+    assert.equal(control.status, 201, JSON.stringify(control.body));
+    const composition = await api(`/service-orders/${order.publicId}/budget-items`);
+    assert.equal(composition.status, 200, JSON.stringify(composition.body));
+    for (const item of composition.body.data) {
+      const removed = await api(`/service-orders/${order.publicId}/budget-items/${item.publicId}`, { method: "DELETE", body: { confirmed: true } });
+      assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    }
+  }
+
+  const closureProduct = await prisma.product.create({ data: {
+    internalCode: `CLOSE-${nonce}`, description: `PEÇA ENCERRAMENTO ${nonce}`, category: "PART", salePrice: new Prisma.Decimal("10.00"), acquisitionCost: new Prisma.Decimal("7.10"), createdByUserId: userId, updatedByUserId: userId,
+  } });
+  createdProductIds.push(closureProduct.publicId);
+  assert.equal((await api(`/products/${closureProduct.publicId}/stock/entries`, { method: "POST", body: { quantity: 1 } })).status, 201);
+  const closureItem = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, { method: "POST", body: { productPublicId: closureProduct.publicId, quantity: 2 } });
+  assert.equal(closureItem.status, 201, JSON.stringify(closureItem.body));
+  createdItemIds.push(closureItem.body.data.publicId);
+  const closureItemId = closureItem.body.data.publicId;
+  assert.equal((await api(`/service-orders/${order.publicId}/budget-items/${closureItemId}/applications`, { method: "POST", body: { quantity: 1 } })).status, 201);
+  await expectFailure(`/service-orders/${order.publicId}/close`, "POST", { outcome: "REPAIRED" }, 409, "SERVICE_ORDER_STOCK_RECONCILIATION_REQUIRED");
+  assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "OPEN");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, type: "SERVICE_ORDER_CONSUMED" } }), 0);
+  const manuallyRegularized = await api(`/service-orders/${order.publicId}/budget-items/${closureItemId}/applications`, { method: "POST", body: { quantity: 1 } });
+  assert.equal(manuallyRegularized.status, 201, JSON.stringify(manuallyRegularized.body));
+  const secondClosureProduct = await prisma.product.create({ data: {
+    internalCode: `CLOSE-2-${nonce}`, description: `SEGUNDA PEÇA ENCERRAMENTO ${nonce}`, category: "PART", salePrice: new Prisma.Decimal("5.00"), acquisitionCost: null, createdByUserId: userId, updatedByUserId: userId,
+  } });
+  createdProductIds.push(secondClosureProduct.publicId);
+  await api(`/products/${secondClosureProduct.publicId}/stock/entries`, { method: "POST", body: { quantity: 2 } });
+  const secondClosureItem = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, { method: "POST", body: { productPublicId: secondClosureProduct.publicId, quantity: 1 } });
+  assert.equal(secondClosureItem.status, 201, JSON.stringify(secondClosureItem.body));
+  createdItemIds.push(secondClosureItem.body.data.publicId);
+  await api(`/service-orders/${order.publicId}/budget-items/${secondClosureItem.body.data.publicId}/applications`, { method: "POST", body: { quantity: 1 } });
+
+  const unavailableAuditTable = `admin_audit_log_test_fail_${nonce}`;
+  await executeIsolatedDdl(`RENAME TABLE \`admin_audit_log\` TO \`${unavailableAuditTable}\``);
+  try {
+    const beforeFailure = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+    const failedClosure = await api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "REPAIRED" } });
+    assert.equal(failedClosure.status, 500, JSON.stringify(failedClosure.body));
+    assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "OPEN", "falha no Log Administrativo reverte o status");
+    assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, type: "SERVICE_ORDER_CONSUMED" } }), 0, "falha no Log Administrativo reverte as baixas");
+    const afterFailure = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+    assert.deepEqual(afterFailure._sum, beforeFailure._sum, "falha no fechamento não deixa movimento parcial");
+  } finally {
+    await executeIsolatedDdl(`RENAME TABLE \`${unavailableAuditTable}\` TO \`admin_audit_log\``);
+  }
+  const repairedClose = await api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "REPAIRED" } });
+  assert.equal(repairedClose.status, 201, JSON.stringify(repairedClose.body));
+  assert.equal(repairedClose.body.data.macroStatus, "FECHADA");
+  const consumedRows = await prisma.productStockMovement.findMany({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: closureItemId } }, type: "SERVICE_ORDER_CONSUMED" } });
+  assert.equal(consumedRows.reduce((sum, movement) => sum + movement.totalDelta, 0), -2);
+  assert.equal(consumedRows.reduce((sum, movement) => sum + movement.appliedDelta, 0), -2);
+  assert.ok(consumedRows.every((movement) => movement.unitCostSnapshot?.toFixed(2) === "7.10"), "cada movimento de baixa preserva o snapshot histórico da aplicação de origem");
+  const repairedBalance = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+  assert.deepEqual(repairedBalance._sum, { totalDelta: -1, appliedDelta: 0, defectiveDelta: 0 }, "a baixa aceita estoque negativo e reduz total/aplicado igualmente, preservando disponibilidade");
+  const secondConsumed = await prisma.productStockMovement.findFirstOrThrow({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: secondClosureItem.body.data.publicId } }, type: "SERVICE_ORDER_CONSUMED" } });
+  assert.equal(secondConsumed.totalDelta, -1, "baixa itens diferentes dentro da mesma operação");
+  const closedEvent = await prisma.serviceOrderEvent.findFirstOrThrow({ where: { serviceOrderId: order.id, eventType: "OS_ENCERRADA", actorUserId: userId }, orderBy: { id: "desc" } });
+  assert.equal(JSON.stringify(closedEvent.payload).includes("unitCostSnapshot"), false, "o evento não expõe o custo histórico");
+  results.push("Encerramento reparado reconcilia quantidades, preserva disponibilidade e custo histórico e reverte integralmente sob falha no Log Administrativo");
+
+  await reopenForClosureTest();
+  const noRepairProduct = await prisma.product.create({ data: { internalCode: `NO-REPAIR-${nonce}`, description: `DEVOLUÇÃO ${nonce}`, category: "PART", createdByUserId: userId, updatedByUserId: userId } });
+  createdProductIds.push(noRepairProduct.publicId);
+  await api(`/products/${noRepairProduct.publicId}/stock/entries`, { method: "POST", body: { quantity: 4 } });
+  const noRepairItem = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, { method: "POST", body: { productPublicId: noRepairProduct.publicId, quantity: 2, unitPrice: "4.00" } });
+  assert.equal(noRepairItem.status, 201, JSON.stringify(noRepairItem.body));
+  createdItemIds.push(noRepairItem.body.data.publicId);
+  await api(`/service-orders/${order.publicId}/budget-items/${noRepairItem.body.data.publicId}/applications`, { method: "POST", body: { quantity: 2 } });
+  await expectFailure(`/service-orders/${order.publicId}/close`, "POST", { outcome: "WITHOUT_REPAIR" }, 409, "PHYSICAL_REMOVAL_CONFIRMATION_REQUIRED");
+  const noRepairClose = await api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "WITHOUT_REPAIR", confirmPhysicalRemoval: true, defectiveItems: [{ itemPublicId: noRepairItem.body.data.publicId, quantity: 1 }] } });
+  assert.equal(noRepairClose.status, 201, JSON.stringify(noRepairClose.body));
+  const returnedBalance = await prisma.productStockMovement.aggregate({ where: { productId: noRepairProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+  assert.deepEqual(returnedBalance._sum, { totalDelta: 4, appliedDelta: 0, defectiveDelta: 1 }, "uma unidade normal volta à disponibilidade e a defeituosa permanece separada");
+  results.push("Encerramento sem reparo exige confirmação de retirada e devolve unidades normais, mantendo defeituosas indisponíveis");
+
+  await reopenForClosureTest();
+  const cancelProduct = await prisma.product.create({ data: { internalCode: `CANCEL-${nonce}`, description: `CANCELAMENTO ${nonce}`, category: "PART", createdByUserId: userId, updatedByUserId: userId } });
+  createdProductIds.push(cancelProduct.publicId);
+  await api(`/products/${cancelProduct.publicId}/stock/entries`, { method: "POST", body: { quantity: 2 } });
+  const cancelItem = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, { method: "POST", body: { productPublicId: cancelProduct.publicId, quantity: 1, unitPrice: "3.00" } });
+  assert.equal(cancelItem.status, 201, JSON.stringify(cancelItem.body));
+  createdItemIds.push(cancelItem.body.data.publicId);
+  await api(`/service-orders/${order.publicId}/budget-items/${cancelItem.body.data.publicId}/applications`, { method: "POST", body: { quantity: 1 } });
+  const cancelPermission = permissionRows.find(({ code }) => code === "os.cancel");
+  await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: cancelPermission.id } } });
+  await expectFailure(`/service-orders/${order.publicId}/cancel`, "POST", { confirmPhysicalRemoval: true, defectiveItems: [] }, 403, "PERMISSION_DENIED");
+  await prisma.userPermission.create({ data: { userId, permissionId: cancelPermission.id } });
+  await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: stockManagePermission.id } } });
+  await expectFailure(`/service-orders/${order.publicId}/cancel`, "POST", { confirmPhysicalRemoval: true, defectiveItems: [] }, 403, "PERMISSION_DENIED");
+  assert.equal((await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: cancelItem.body.data.publicId } }, type: "SERVICE_ORDER_REVERSED" } })), 0, "sem products.stock.manage não há reversão parcial");
+  await prisma.userPermission.create({ data: { userId, permissionId: stockManagePermission.id } });
+  const cancelRevision = (await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { updatedAt: true } })).updatedAt.toISOString();
+  const concurrentCancel = await Promise.all([0, 1].map(() => api(`/service-orders/${order.publicId}/cancel`, {
+    method: "POST", body: { confirmPhysicalRemoval: true, defectiveItems: [{ itemPublicId: cancelItem.body.data.publicId, quantity: 1 }] }, expectedRevision: cancelRevision,
+  })));
+  assert.equal(concurrentCancel.filter(({ status }) => status === 201).length, 1, JSON.stringify(concurrentCancel));
+  assert.equal(concurrentCancel.filter(({ status }) => status === 409).length, 1, JSON.stringify(concurrentCancel));
+  assert.equal((await prisma.productStockMovement.aggregate({ where: { productId: cancelProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } }))._sum.defectiveDelta, 1, "tentativas concorrentes não duplicam a classificação ou reversão");
+  assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "CANCELED");
+  results.push("Cancelamento com peças exige retirada, classifica defeito e duas solicitações simultâneas não duplicam movimentos");
+
+  await reopenForClosureTest();
+  await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: stockManagePermission.id } } });
+  const noPartsClose = await api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "REPAIRED" } });
+  assert.equal(noPartsClose.status, 201, JSON.stringify(noPartsClose.body), "OS sem peças aplicadas pode ser encerrada sem permissão de estoque");
+  await prisma.userPermission.create({ data: { userId, permissionId: stockManagePermission.id } });
+  results.push("OS sem aplicações fecha sem exigir privilégio de movimentar estoque");
 } finally {
   if (server && server.exitCode === null && editToken && cookie && order) {
     await api(`/service-orders/${order.publicId}/edit-control`, { method: "DELETE" }).catch(() => undefined);
@@ -594,6 +726,7 @@ try {
     if (userId && order) {
       await prisma.$transaction(async (tx) => {
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_REVERSED" } });
+        await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_CONSUMED" } });
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_APPLIED" } });
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId } });
         await tx.serviceOrderEvent.deleteMany({ where: { serviceOrderId: order.id, actorUserId: userId } });
@@ -604,7 +737,7 @@ try {
         await tx.userSession.deleteMany({ where: { userId } });
         await tx.userPermission.deleteMany({ where: { userId } });
         await tx.user.deleteMany({ where: { id: userId } });
-        if (previousSituation !== undefined) await tx.serviceOrder.update({ where: { id: order.id }, data: { operationalSituation: previousSituation, updatedAt: order.updatedAt } });
+        if (previousSituation !== undefined) await tx.serviceOrder.update({ where: { id: order.id }, data: { macroStatus: previousMacroStatus ?? "OPEN", operationalSituation: previousSituation, updatedAt: order.updatedAt } });
         await tx.serviceOrderBudgetNameLock.deleteMany({ where: { normalizedName: { in: normalizedNames } } });
       });
     }

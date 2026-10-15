@@ -59,12 +59,13 @@ export interface ServiceOrderBudgetItem {
   version: number;
   createdAt: string;
   appliedQuantity?: number;
-  applications?: Array<{ publicId: string; quantity: number; reversedQuantity: number; remainingQuantity: number; occurredAt: string; unitCostSnapshot?: string | null }>;
+  applications?: Array<{ publicId: string; quantity: number; reversedQuantity: number; consumedQuantity?: number; remainingQuantity: number; occurredAt: string; unitCostSnapshot?: string | null }>;
 }
 
 export interface AvailableCatalogService { publicId: string; name: string; defaultPrice: string }
 export interface AvailableCatalogProduct { publicId: string; internalCode: string | null; description: string; defaultPrice: string | null }
 export interface ServiceOrderBudget { data: ServiceOrderBudgetItem[]; total: string; canReadCosts: boolean }
+export interface ServiceOrderClosureResponse { data: { publicId: string; macroStatus: "FECHADA" | "CANCELADA"; outcome: "REPAIRED" | "WITHOUT_REPAIR" | "CANCELED"; stockOperations: Array<{ itemPublicId: string; productPublicId: string; description: string; quantity: number; defectiveQuantity?: number; operation: "CONSUMED" | "RETURNED" }> }; serviceOrderRevision: string }
 
 export interface ServiceOrderOpeningConfirmation {
   publicId: string;
@@ -301,6 +302,12 @@ export function reverseStockPartApplication(publicId: string, itemPublicId: stri
 }
 export function removeBudgetItem(publicId: string, itemPublicId: string, csrfToken: string, editToken?: string, expectedRevision?: string, body?: { confirmed: true; defectiveQuantity: number }) {
   return mutateBudget<{ data: { removed: boolean; publicId: string; total: string }; serviceOrderRevision: string }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/budget-items/${encodeURIComponent(itemPublicId)}`, "DELETE", csrfToken, body, editToken, expectedRevision);
+}
+export function closeServiceOrder(publicId: string, body: { outcome: "REPAIRED" } | { outcome: "WITHOUT_REPAIR"; confirmPhysicalRemoval: boolean; defectiveItems: Array<{ itemPublicId: string; quantity: number }> }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+  return mutateBudget<ServiceOrderClosureResponse>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/close`, "POST", csrfToken, body, editToken, expectedRevision);
+}
+export function cancelServiceOrder(publicId: string, body: { confirmPhysicalRemoval: boolean; defectiveItems: Array<{ itemPublicId: string; quantity: number }> }, csrfToken: string, editToken?: string, expectedRevision?: string) {
+  return mutateBudget<ServiceOrderClosureResponse>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/cancel`, "POST", csrfToken, body, editToken, expectedRevision);
 }
 
 async function mutateEditControl<T>(publicId: string, action: "acquire" | "heartbeat" | "release" | "takeover", csrfToken: string, editToken: string): Promise<T> {

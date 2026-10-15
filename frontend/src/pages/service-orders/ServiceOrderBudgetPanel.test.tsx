@@ -204,3 +204,47 @@ it("separa composição atual e rascunho local após rejeição por revisão des
   expect(fetchMock.mock.calls.filter(([, init]) => ["POST", "PATCH", "DELETE"].includes(init?.method ?? ""))).toHaveLength(1);
   view.unmount();
 });
+
+it("pede confirmação física, classifica defeituosas e envia encerramento sem reparo com revisão", async () => {
+  const stockItem = { ...item, publicId: "5a5ccbc1-a7cc-4a12-8f71-65b9f379d910", itemType: "STOCK_PART", origin: "PRODUCT_CATALOG", description: "Display", unitCost: undefined, totalCost: undefined, appliedQuantity: 2 };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith(`/service-orders/${orderId}/budget-items`)) return response({ data: [stockItem], total: "20.00", canReadCosts: false });
+    if (url.endsWith("/services/available-for-order")) return response({ data: [] });
+    if (url.endsWith(`/service-orders/${orderId}/close`) && init?.method === "POST") return response({ data: { publicId: orderId, macroStatus: "FECHADA", outcome: "WITHOUT_REPAIR", stockOperations: [] }, serviceOrderRevision: "2026-10-14T12:01:00.000Z" });
+    throw new Error(`Fetch inesperado: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const onFinalized = vi.fn();
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canClose canCancel canReadCosts={false} canUpdateCosts={false} isOpen onFinalized={onFinalized} />);
+  await screen.findByText("Display");
+  await userEvent.click(screen.getByRole("button", { name: "Encerrar sem reparo" }));
+  expect(screen.getByText(/retiradas do equipamento/)).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText("Confirmo a retirada física das peças aplicadas."));
+  fireEvent.change(screen.getByLabelText("Unidades defeituosas Display"), { target: { value: "1" } });
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar operação" }));
+  const closeCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith(`/service-orders/${orderId}/close`) && init?.method === "POST");
+  expect(closeCall?.[1]).toEqual(expect.objectContaining({
+    method: "POST", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token", "X-Service-Order-Edit-Token": "00000000-0000-4000-8000-000000000001", "X-Service-Order-Revision": "2026-10-14T12:00:00.000Z" }),
+    body: JSON.stringify({ outcome: "WITHOUT_REPAIR", confirmPhysicalRemoval: true, defectiveItems: [{ itemPublicId: stockItem.publicId, quantity: 1 }] }),
+  }));
+  expect(onFinalized).toHaveBeenCalledWith("FECHADA", "2026-10-14T12:01:00.000Z");
+});
+
+it("exibe as quantidades divergentes devolvidas pelo Backend e não ajusta automaticamente", async () => {
+  const stockItem = { ...item, publicId: "5a5ccbc1-a7cc-4a12-8f71-65b9f379d910", itemType: "STOCK_PART", origin: "PRODUCT_CATALOG", description: "Display", unitCost: undefined, totalCost: undefined, appliedQuantity: 1 };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith(`/service-orders/${orderId}/budget-items`)) return response({ data: [stockItem], total: "20.00", canReadCosts: false });
+    if (url.endsWith("/services/available-for-order")) return response({ data: [] });
+    if (url.endsWith(`/service-orders/${orderId}/close`)) return { ok: false, status: 409, json: async () => ({ code: "SERVICE_ORDER_STOCK_RECONCILIATION_REQUIRED", message: "Corrija manualmente.", details: { items: [{ itemPublicId: stockItem.publicId, description: "Display", budgetedQuantity: 2, appliedQuantity: 1 }] } }) };
+    throw new Error(`Fetch inesperado: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf-token" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canClose canReadCosts={false} canUpdateCosts={false} isOpen />);
+  await screen.findByText("Display");
+  await userEvent.click(screen.getByRole("button", { name: "Encerrar com reparo" }));
+  expect(await screen.findByText("Display: orçada 2, aplicada 1.")).toBeInTheDocument();
+  expect(screen.getByText(/nenhuma quantidade foi ajustada automaticamente/)).toBeInTheDocument();
+});
