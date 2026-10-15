@@ -25,6 +25,8 @@ export const PERMISSION_CATALOG = [
   ["equipment.transfer_ownership", "Transferir titularidade de equipamentos."],
   ["services.manage", "Administrar o Cadastro de Serviços."],
   ["products.manage", "Consultar e administrar o Cadastro de Produtos."],
+  ["products.cost.read", "Visualizar o custo de aquisição e os dados derivados de custo dos Produtos."],
+  ["products.cost.update", "Alterar o custo de aquisição dos Produtos."],
   ["service_orders.opening.create", "Iniciar e gerenciar a própria abertura de OS."],
   ["service_orders.opening.read", "Consultar a própria abertura de OS."],
   ["service_orders.opening.manage", "Gerenciar aberturas de OS de outros usuários."],

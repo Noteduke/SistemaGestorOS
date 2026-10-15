@@ -21,7 +21,7 @@ app.setGlobalPrefix("api/v1");
 const prisma = app.get(PrismaService);
 let userId;
 let adminUserId;
-let createdPermission = false;
+const additionalUserIds = [];
 const productIds = [];
 
 function cookie(response, name) {
@@ -45,18 +45,35 @@ async function api(base, method, path, options = {}) {
   return { status: response.status, body, response };
 }
 
+async function createSession(base, username, permissionCodes = [], isAdmin = false) {
+  const password = randomBytes(24).toString("base64url");
+  const user = await prisma.user.create({ data: { username, passwordHash: await argon2.hash(password), isAdmin } });
+  additionalUserIds.push(user.id);
+  for (const code of permissionCodes) {
+    const permission = await prisma.permission.findUniqueOrThrow({ where: { code } });
+    await prisma.userPermission.create({ data: { userId: user.id, permissionId: permission.id } });
+  }
+  const csrfContext = await api(base, "GET", "/auth/csrf");
+  assert.equal(csrfContext.status, 200);
+  const preCookie = cookie(csrfContext.response, "gos_pre_auth");
+  const login = await api(base, "POST", "/auth/login", { cookie: preCookie, csrf: csrfContext.body.data.csrfToken, body: { username, password } });
+  assert.ok([200, 201].includes(login.status));
+  const sessionCookie = cookie(login.response, "gos_session");
+  const identity = await api(base, "GET", "/auth/me", { cookie: sessionCookie });
+  assert.equal(identity.status, 200);
+  return { user, cookie: sessionCookie, csrf: identity.body.data.csrfToken, identity: identity.body.data };
+}
+
 try {
   const selected = await prisma.$queryRaw`SELECT DATABASE() AS selected_database`;
   assert.equal(selected[0]?.selected_database, "gestor_os_opening_test", "Nenhuma escrita pode ocorrer fora do banco isolado.");
   process.stdout.write("DATABASE()=gestor_os_opening_test; validação operacional de Produtos inicia no banco isolado.\n");
   await app.listen(0, "127.0.0.1");
 
-  const permission = await prisma.permission.findUnique({ where: { code: "products.manage" } });
-  if (!permission) {
-    await prisma.permission.create({ data: { code: "products.manage", description: "Consultar e administrar o Cadastro de Produtos." } });
-    createdPermission = true;
-  }
-  const permissionRow = permission ?? await prisma.permission.findUniqueOrThrow({ where: { code: "products.manage" } });
+  assert.equal(await prisma.permission.count(), 42, "Atualize o seed de permissões no banco isolado antes do roteiro.");
+  const permissionRow = await prisma.permission.findUniqueOrThrow({ where: { code: "products.manage" } });
+  await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.read" } });
+  await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.update" } });
   const suffix = randomBytes(5).toString("hex").toUpperCase();
   const password = randomBytes(24).toString("base64url");
   const user = await prisma.user.create({ data: {
@@ -65,6 +82,13 @@ try {
   } });
   userId = user.id;
   const base = `http://127.0.0.1:${app.getHttpServer().address().port}`;
+  const readSession = await createSession(base, `validacao.products.read.${suffix.toLowerCase()}`, ["products.manage", "products.cost.read"]);
+  const updateSession = await createSession(base, `validacao.products.update.${suffix.toLowerCase()}`, ["products.manage", "products.cost.update"]);
+  const costOnlySession = await createSession(base, `validacao.products.costonly.${suffix.toLowerCase()}`, ["products.cost.update"]);
+  assert.ok(readSession.identity.permissions.includes("products.cost.read"));
+  assert.equal(readSession.identity.permissions.includes("products.cost.update"), false);
+  assert.ok(updateSession.identity.permissions.includes("products.cost.update"));
+  assert.equal(updateSession.identity.permissions.includes("products.cost.read"), false);
 
   const csrfContext = await api(base, "GET", "/auth/csrf");
   assert.equal(csrfContext.status, 200);
@@ -148,6 +172,53 @@ try {
   assert.equal(Object.hasOwn(nonAdminProduct, "acquisitionCost"), false);
   assert.equal(Object.hasOwn(nonAdminProduct, "grossProfitEstimate"), false);
 
+  const costCreated = await api(base, "POST", "/products", { cookie: updateSession.cookie, csrf: updateSession.csrf, body: {
+    description: "Produto com custo protegido", category: "PART", salePrice: "12.00", acquisitionCost: "4.25",
+  } });
+  assert.equal(costCreated.status, 201);
+  const costProduct = costCreated.body.data;
+  productIds.push(costProduct.publicId);
+  assert.equal(Object.hasOwn(costProduct, "acquisitionCost"), false, "alterar custo não revela seu valor na resposta");
+  assert.equal(Object.hasOwn(costProduct, "grossProfitEstimate"), false);
+  assert.equal((await api(base, "GET", `/products?page=1&pageSize=20&search=Produto com custo protegido`, { cookie: sessionCookie })).status, 200);
+  const readProduct = await api(base, "GET", `/products/${costProduct.publicId}`, { cookie: readSession.cookie });
+  assert.equal(readProduct.status, 200);
+  assert.equal(readProduct.body.data.acquisitionCost, "4.25");
+  assert.equal(readProduct.body.data.grossProfitEstimate, "7.75");
+  const readList = await api(base, "GET", `/products?page=1&pageSize=20&search=${encodeURIComponent("Produto com custo protegido")}`, { cookie: readSession.cookie });
+  assert.equal(readList.body.data[0].acquisitionCost, "4.25");
+  const readCannotWrite = await api(base, "PATCH", `/products/${costProduct.publicId}`, { cookie: readSession.cookie, csrf: readSession.csrf, body: {
+    acquisitionCost: "3.00", expectedVersion: costProduct.version,
+  } });
+  assert.equal(readCannotWrite.status, 403, "leitura não concede alteração");
+  const noManageWrite = await api(base, "PATCH", `/products/${costProduct.publicId}`, { cookie: costOnlySession.cookie, csrf: costOnlySession.csrf, body: {
+    acquisitionCost: "3.00", expectedVersion: costProduct.version,
+  } });
+  assert.equal(noManageWrite.status, 403, "alteração de custo também exige products.manage");
+  const hiddenHistory = await api(base, "GET", `/products/${costProduct.publicId}/history`, { cookie: sessionCookie });
+  assert.equal(hiddenHistory.status, 404, "este recorte não expõe histórico administrativo por endpoint");
+  const otherFieldUpdate = await api(base, "PATCH", `/products/${costProduct.publicId}`, { cookie: sessionCookie, csrf, body: {
+    description: "Descrição sem custo", expectedVersion: costProduct.version,
+  } });
+  assert.equal(otherFieldUpdate.status, 200);
+  assert.equal(Object.hasOwn(otherFieldUpdate.body.data, "acquisitionCost"), false);
+  assert.equal((await prisma.product.findUnique({ where: { publicId: costProduct.publicId } })).acquisitionCost.toFixed(2), "4.25", "alterar outros campos preserva custo");
+  const writeWithoutRead = await api(base, "PATCH", `/products/${costProduct.publicId}`, { cookie: updateSession.cookie, csrf: updateSession.csrf, body: {
+    acquisitionCost: "3.00", expectedVersion: otherFieldUpdate.body.data.version,
+  } });
+  assert.equal(writeWithoutRead.status, 200);
+  assert.equal(Object.hasOwn(writeWithoutRead.body.data, "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(writeWithoutRead.body.data, "grossProfitEstimate"), false);
+  assert.equal((await prisma.product.findUnique({ where: { publicId: costProduct.publicId } })).acquisitionCost.toFixed(2), "3.00");
+  const updateOnlyList = await api(base, "GET", `/products?page=1&pageSize=20&search=${encodeURIComponent("Descrição sem custo")}`, { cookie: updateSession.cookie });
+  assert.equal(Object.hasOwn(updateOnlyList.body.data[0], "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(updateOnlyList.body.data[0], "grossProfitEstimate"), false);
+  const costAudit = await prisma.adminAuditLog.findFirst({ where: { actorUserId: updateSession.user.id, eventCode: "PRODUCT_UPDATED", detailsJson: { path: "$.productPublicId", equals: costProduct.publicId } }, orderBy: { id: "desc" } });
+  assert.ok(costAudit.occurredAt instanceof Date, "auditoria usa data/hora do servidor");
+  assert.equal(costAudit.actorUserId, updateSession.user.id);
+  assert.deepEqual(costAudit.detailsJson.before, { acquisitionCost: "4.25" });
+  assert.deepEqual(costAudit.detailsJson.after, { acquisitionCost: "3.00" });
+
   const adminPassword = randomBytes(24).toString("base64url");
   const adminUser = await prisma.user.create({ data: {
     username: `validacao.products.admin.${suffix.toLowerCase()}`,
@@ -165,6 +236,8 @@ try {
   const adminIdentity = await api(base, "GET", "/auth/me", { cookie: adminSessionCookie });
   const adminCsrf = adminIdentity.body.data.csrfToken;
   assert.equal(adminIdentity.body.data.isAdmin, true);
+  assert.ok(adminIdentity.body.data.permissions.includes("products.cost.read"));
+  assert.ok(adminIdentity.body.data.permissions.includes("products.cost.update"));
   const adminCreated = await api(base, "POST", "/products", { cookie: adminSessionCookie, csrf: adminCsrf, body: {
     internalCode: `CUSTO-${suffix}`, description: "Produto custo teste", category: "PART", salePrice: "10.00", acquisitionCost: "2.50",
   } });
@@ -224,9 +297,12 @@ try {
     await prisma.user.update({ where: { id: adminUserId }, data: { isActive: false } });
     await prisma.user.delete({ where: { id: adminUserId } });
   }
-  if (createdPermission) {
-    const remainingUsers = await prisma.userPermission.count({ where: { permission: { code: "products.manage" } } });
-    if (remainingUsers === 0) await prisma.permission.delete({ where: { code: "products.manage" } });
+  for (const additionalUserId of additionalUserIds) {
+    await prisma.adminAuditLog.deleteMany({ where: { actorUserId: additionalUserId } });
+    await prisma.userSession.deleteMany({ where: { userId: additionalUserId } });
+    await prisma.userPermission.deleteMany({ where: { userId: additionalUserId } });
+    await prisma.user.update({ where: { id: additionalUserId }, data: { isActive: false } });
+    await prisma.user.delete({ where: { id: additionalUserId } });
   }
   await app.close();
 }

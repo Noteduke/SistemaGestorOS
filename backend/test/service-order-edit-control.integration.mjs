@@ -36,7 +36,7 @@ try {
     create: { code: "service_orders.edit.takeover", description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
     update: { description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
   });
-  assert.equal(await db.permission.count(), 39, "catálogo local com a permissão específica de takeover");
+  assert.equal(await db.permission.count(), 42, "catálogo local com a permissão específica de takeover");
   const admin = await db.user.create({ data: { username: `edit_control_admin_${suffix}`, passwordHash, isActive: true, isAdmin: true } });
   const basePermissions = ["service_orders.read", "service_orders.opening.create", "service_orders.create", "service_orders.update", "service_orders.assignment.manage", "service_orders.situation.update", "service_orders.budget.update"];
 

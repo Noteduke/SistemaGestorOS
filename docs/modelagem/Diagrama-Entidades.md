@@ -395,4 +395,4 @@ erDiagram
     }
 ```
 
-O cadastro não se relaciona ainda com orçamento ou estoque. As migrations `20261015130000_product_catalog` e `20261015140000_product_pricing` foram aplicadas somente no banco isolado `gestor_os_opening_test`; permanecem pendentes no principal.
+O cadastro não se relaciona ainda com orçamento ou estoque. As migrations `20261015130000_product_catalog` e `20261015140000_product_pricing` foram aplicadas somente no banco isolado `gestor_os_opening_test`; permanecem pendentes no principal. As permissões `products.cost.read` e `products.cost.update` são registros no catálogo existente e não requerem novas tabelas ou migration; alteração também exige `products.manage`.

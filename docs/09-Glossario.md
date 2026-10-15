@@ -188,7 +188,7 @@ O cadastro possui preço de venda padrão e custo de aquisição opcionais; `NUL
 
 ## Custo de aquisição do Produto
 
-Referência cadastral opcional e não negativa. `NULL` significa desconhecido e não pode ser substituído automaticamente por zero. Até decisão específica de permissão de Produto, somente Administrador visualiza ou altera esse campo; permissões de custos do orçamento não se aplicam.
+Referência cadastral opcional e não negativa. `NULL` significa desconhecido e não pode ser substituído automaticamente por zero. `products.cost.read` libera leitura; `products.cost.update` libera alteração, sempre junto com `products.manage`. Administrador (`isAdmin`) recebe acesso efetivo; permissões de custos do orçamento não se aplicam.
 
 ## Preço de venda padrão do Produto
 

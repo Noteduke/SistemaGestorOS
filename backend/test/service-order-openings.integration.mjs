@@ -31,7 +31,7 @@ try {
   const database = await prisma.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(database[0]?.name, "gestor_os_opening_test", "Banco de teste não selecionado");
   const permissionCount = await prisma.permission.count();
-  assert.equal(permissionCount, 39, "Seed de permissões ausente no banco isolado");
+  assert.equal(permissionCount, 42, "Seed de permissões ausente no banco isolado");
   const initialOrders = await prisma.serviceOrder.count();
   const initialUnspecifiedEquipment = await prisma.equipment.count({ where: { model: "NÃO INFORMADO" } });
 

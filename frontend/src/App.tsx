@@ -189,7 +189,11 @@ export function App() {
       </header>
       <main className="content">
         {route.view === "products" ? (
-          canManageProducts ? <ProductCatalogPage csrfToken={session.identity.csrfToken} canManageCosts={session.identity.isAdmin} /> : <section className="state-card">Você não tem permissão para administrar Produtos.</section>
+          canManageProducts ? <ProductCatalogPage
+            csrfToken={session.identity.csrfToken}
+            canReadCosts={session.identity.isAdmin || session.identity.permissions.includes("products.cost.read")}
+            canUpdateCosts={session.identity.isAdmin || session.identity.permissions.includes("products.cost.update")}
+          /> : <section className="state-card">Você não tem permissão para administrar Produtos.</section>
         ) : route.view === "services" ? (
           canManageServices ? <ServiceCatalogPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Você não tem permissão para administrar Serviços.</section>
         ) : route.view === "list" ? (

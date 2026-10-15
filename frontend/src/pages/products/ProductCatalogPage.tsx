@@ -6,7 +6,7 @@ import {
 import { AsyncState } from "../../components/AsyncState";
 import { PaginationControls } from "../../components/PaginationControls";
 
-interface Props { csrfToken: string; canManageCosts?: boolean }
+interface Props { csrfToken: string; canReadCosts?: boolean; canUpdateCosts?: boolean }
 type CategoryFilter = ProductCategory | "all";
 
 const categoryLabels: Record<ProductCategory, string> = { PART: "Peça", RESALE_GOOD: "Mercadoria para revenda" };
@@ -25,7 +25,7 @@ function actionMessage(error: unknown): string {
 function inputMoney(value: string | null | undefined): string { return value?.replace(".", ",") ?? ""; }
 function displayMoney(value: string | null | undefined): string { return value === null || value === undefined ? "Não informado" : `R$ ${value.replace(".", ",")}`; }
 
-export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props) {
+export function ProductCatalogPage({ csrfToken, canReadCosts = false, canUpdateCosts = false }: Props) {
   const [status, setStatus] = useState<ProductStatus>("active");
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [page, setPage] = useState(1);
@@ -40,6 +40,7 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
   const [formCategory, setFormCategory] = useState<ProductCategory>("PART");
   const [salePrice, setSalePrice] = useState("");
   const [acquisitionCost, setAcquisitionCost] = useState("");
+  const [clearAcquisitionCost, setClearAcquisitionCost] = useState(false);
   const [editTarget, setEditTarget] = useState<CatalogProduct | null>(null);
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -81,7 +82,7 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
 
   function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void run(() => createProduct({ internalCode: code, description, category: formCategory, salePrice, ...(canManageCosts ? { acquisitionCost } : {}) }, csrfToken), "Produto cadastrado.", () => {
+    void run(() => createProduct({ internalCode: code, description, category: formCategory, salePrice, ...(canUpdateCosts ? { acquisitionCost } : {}) }, csrfToken), "Produto cadastrado.", () => {
       setCode(""); setDescription(""); setFormCategory("PART"); setSalePrice(""); setAcquisitionCost(""); setPage(1);
     });
   }
@@ -92,14 +93,24 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
     setDescription(product.description);
     setFormCategory(product.category);
     setSalePrice(inputMoney(product.salePrice));
-    setAcquisitionCost(inputMoney(product.acquisitionCost));
+    setAcquisitionCost(canReadCosts && canUpdateCosts ? inputMoney(product.acquisitionCost) : "");
+    setClearAcquisitionCost(false);
     setActionError(""); setSuccess("");
   }
 
   function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editTarget) return;
-    void run(() => updateProduct(editTarget, { internalCode: code, description, category: formCategory, salePrice, ...(canManageCosts ? { acquisitionCost } : {}) }, csrfToken), "Produto atualizado.", () => setEditTarget(null));
+    const costChange = canUpdateCosts
+      ? canReadCosts
+        ? { acquisitionCost }
+        : clearAcquisitionCost
+          ? { acquisitionCost: "" }
+          : acquisitionCost.trim()
+            ? { acquisitionCost }
+            : {}
+      : {};
+    void run(() => updateProduct(editTarget, { internalCode: code, description, category: formCategory, salePrice, ...costChange }, csrfToken), "Produto atualizado.", () => setEditTarget(null));
   }
 
   return (
@@ -118,7 +129,7 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
             <option value="PART">Peça</option><option value="RESALE_GOOD">Mercadoria para revenda</option>
           </select></label>
           <label>Preço de venda padrão (opcional)<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} disabled={pending} /></label>
-          {canManageCosts && <label>Custo de aquisição (opcional)<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={acquisitionCost} onChange={(event) => setAcquisitionCost(event.target.value)} disabled={pending} /></label>}
+          {canUpdateCosts && <label>Custo de aquisição (opcional)<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={acquisitionCost} onChange={(event) => setAcquisitionCost(event.target.value)} disabled={pending} /></label>}
           <button className="button button--primary" type="submit" disabled={pending}>Cadastrar produto</button>
         </div>
         <p className="muted">Código interno é único quando informado. A inclusão não registra saldo nem movimentação.</p>
@@ -148,10 +159,10 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
 
       {!!result?.data.length && !loading && !loadError && <>
         <div className="table-card"><div className="table-scroll"><table>
-          <thead><tr><th>Código</th><th>Descrição</th><th>Categoria</th><th>Preço de venda</th>{canManageCosts && <><th>Custo de aquisição</th><th>Lucro bruto estimado</th></>}<th>Situação</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Código</th><th>Descrição</th><th>Categoria</th><th>Preço de venda</th>{canReadCosts && <><th>Custo de aquisição</th><th>Lucro bruto estimado</th></>}<th>Situação</th><th>Ações</th></tr></thead>
           <tbody>{result.data.map((product) => <tr key={product.publicId}>
             <td>{product.internalCode ?? "—"}</td><td><strong>{product.description}</strong></td><td>{categoryLabels[product.category]}</td><td>{displayMoney(product.salePrice)}</td>
-            {canManageCosts && <><td>{displayMoney(product.acquisitionCost)}</td><td>{product.grossProfitEstimate === null || product.grossProfitEstimate === undefined ? "Não calculável" : displayMoney(product.grossProfitEstimate)}</td></>}
+            {canReadCosts && <><td>{displayMoney(product.acquisitionCost)}</td><td>{product.grossProfitEstimate === null || product.grossProfitEstimate === undefined ? "Não calculável" : displayMoney(product.grossProfitEstimate)}</td></>}
             <td><span className="status-badge">{product.isActive ? "Ativo" : "Inativo"}</span></td>
             <td><div className="service-actions">
               <button className="text-button" type="button" disabled={pending} onClick={() => beginEdit(product)}>Alterar</button>
@@ -173,7 +184,10 @@ export function ProductCatalogPage({ csrfToken, canManageCosts = false }: Props)
             <option value="PART">Peça</option><option value="RESALE_GOOD">Mercadoria para revenda</option>
           </select></label>
           <label>Preço de venda padrão (opcional)<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} disabled={pending} /></label>
-          {canManageCosts && <label>Custo de aquisição (opcional)<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={acquisitionCost} onChange={(event) => setAcquisitionCost(event.target.value)} disabled={pending} /></label>}
+          {canUpdateCosts && <>
+            <label>{canReadCosts ? "Custo de aquisição (opcional)" : "Novo custo de aquisição (opcional; em branco mantém o atual)"}<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?" placeholder="0,00" value={acquisitionCost} onChange={(event) => { setAcquisitionCost(event.target.value); setClearAcquisitionCost(false); }} disabled={pending || clearAcquisitionCost} /></label>
+            {!canReadCosts && <label className="checkbox-label"><input type="checkbox" checked={clearAcquisitionCost} onChange={(event) => { setClearAcquisitionCost(event.target.checked); setAcquisitionCost(""); }} disabled={pending} /> Definir custo como desconhecido (NULL)</label>}
+          </>}
           <button className="button button--primary" type="submit" disabled={pending}>Salvar alterações</button>
           <button className="button button--secondary" type="button" disabled={pending} onClick={() => setEditTarget(null)}>Cancelar</button>
         </div>

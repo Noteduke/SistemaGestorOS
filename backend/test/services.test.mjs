@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ForbiddenException } from "@nestjs/common";
 import { Prisma } from "../dist/generated/prisma/client.js";
 import { cleanServiceName, normalizeServiceName } from "../dist/modules/services/domain/service-name.js";
 import { parseCreateServiceDto, parseDeleteServiceQuery, parseServiceListQuery, parseServicePrice, parseUpdateServiceDto } from "../dist/modules/services/dto/service.dto.js";
@@ -256,6 +257,16 @@ function fakeProductsPrisma() {
   return { rows, audits, product, async $transaction(input) { return typeof input === "function" ? input(tx) : Promise.all(input); } };
 }
 
+function fakeProductPolicy() {
+  return {
+    async hasPermission(user, code) { return user.isAdmin || user.permissions?.includes(code) === true; },
+    async assertAllowed(user, required) {
+      if (user.isAdmin || required.every((code) => user.permissions?.includes(code))) return;
+      throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Você não tem permissão para esta operação." });
+    },
+  };
+}
+
 function matchProduct(row, where) {
   const search = !where.OR || where.OR.some((condition) => Object.entries(condition).some(([field, filter]) => row[field]?.includes(filter.contains)));
   return (where.isActive === undefined || row.isActive === where.isActive)
@@ -265,8 +276,10 @@ function matchProduct(row, where) {
 
 test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão", async () => {
   const prisma = fakeProductsPrisma();
-  const service = new ProductsService(prisma);
-  const actor = { id: 7, isAdmin: false };
+  const service = new ProductsService(prisma, fakeProductPolicy());
+  const actor = { id: 7, isAdmin: false, permissions: ["products.manage"] };
+  const readOnly = { id: 9, isAdmin: false, permissions: ["products.manage", "products.cost.read"] };
+  const updateOnly = { id: 10, isAdmin: false, permissions: ["products.manage", "products.cost.update"] };
   const admin = { id: 8, isAdmin: true };
   const created = (await service.create(parseCreateProduct({ internalCode: "P-1", description: "Placa", category: "PART", salePrice: "10.00" }), actor)).data;
   assert.equal(created.description, "PLACA");
@@ -282,6 +295,26 @@ test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão",
   assert.deepEqual(prisma.audits[2].detailsJson.before, { acquisitionCost: "0.00" });
   assert.deepEqual(prisma.audits[2].detailsJson.after, { acquisitionCost: null });
   assert.equal(prisma.audits[0].eventCode, "PRODUCT_CREATED");
+  const privateCostProduct = (await service.create(parseCreateProduct({ description: "Produto confidencial", category: "PART", salePrice: "12", acquisitionCost: "4.25" }), admin)).data;
+  const hiddenCost = (await service.get(privateCostProduct.publicId, actor)).data;
+  assert.equal(Object.hasOwn(hiddenCost, "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(hiddenCost, "grossProfitEstimate"), false);
+  const visibleCost = (await service.get(privateCostProduct.publicId, readOnly)).data;
+  assert.equal(visibleCost.acquisitionCost, "4.25");
+  assert.equal(visibleCost.grossProfitEstimate, "7.75");
+  await assert.rejects(() => service.update(privateCostProduct.publicId, parseUpdateProduct({ expectedVersion: 1, acquisitionCost: "3.00" }), readOnly), (error) => codeOf(error) === "PERMISSION_DENIED");
+  const updatedWithoutRead = (await service.update(privateCostProduct.publicId, parseUpdateProduct({ expectedVersion: 1, acquisitionCost: "3.00" }), updateOnly)).data;
+  assert.equal(Object.hasOwn(updatedWithoutRead, "acquisitionCost"), false);
+  assert.equal(Object.hasOwn(updatedWithoutRead, "grossProfitEstimate"), false);
+  const privateCostRow = [...prisma.rows.values()].find((row) => row.publicId === privateCostProduct.publicId);
+  assert.equal(privateCostRow.acquisitionCost.toFixed(2), "3.00");
+  const updatedOtherField = (await service.update(privateCostProduct.publicId, parseUpdateProduct({ expectedVersion: 2, description: "Descrição atualizada" }), actor)).data;
+  assert.equal(privateCostRow.acquisitionCost.toFixed(2), "3.00", "outros campos não substituem o custo existente");
+  assert.equal(Object.hasOwn(updatedOtherField, "acquisitionCost"), false);
+  const costAudit = prisma.audits.find((entry) => entry.detailsJson?.productPublicId === privateCostProduct.publicId && entry.detailsJson?.before?.acquisitionCost);
+  assert.equal(costAudit.actorUserId, updateOnly.id);
+  assert.deepEqual(costAudit.detailsJson.before, { acquisitionCost: "4.25" });
+  assert.deepEqual(costAudit.detailsJson.after, { acquisitionCost: "3.00" });
   const found = await service.list(parseProductListQuery({ page: "1", pageSize: "20", search: "p-1" }), actor);
   assert.equal(found.pagination.total, 1);
   const updated = (await service.update(created.publicId, parseUpdateProduct({ expectedVersion: 1, description: "Placa mãe", category: "RESALE_GOOD" }), actor)).data;
@@ -294,7 +327,7 @@ test("serviço cria, pesquisa, edita, inativa e registra auditoria com versão",
   });
   const inactive = (await service.update(created.publicId, { expectedVersion: 2, isActive: false }, actor)).data;
   assert.equal(inactive.isActive, false);
-  assert.equal((await service.list({ page: 1, pageSize: 20, status: "active" }, actor)).pagination.total, 1);
+  assert.equal((await service.list({ page: 1, pageSize: 20, status: "active" }, actor)).pagination.total, 2);
   assert.equal((await service.list({ page: 1, pageSize: 20, status: "inactive" }, actor)).pagination.total, 1);
   await assert.rejects(() => service.update(created.publicId, { expectedVersion: 1, isActive: true }, actor), (error) => codeOf(error) === "PRODUCT_VERSION_CONFLICT");
   await assert.rejects(() => service.create(parseCreateProduct({ internalCode: "P-1", description: "Duplicado", category: "PART" }), actor), (error) => codeOf(error) === "DUPLICATE_PRODUCT_CODE");

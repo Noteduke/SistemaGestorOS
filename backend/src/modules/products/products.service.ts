@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type Product } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { AuthPolicyService } from "../auth/auth-policy.service.js";
 import type { CreateProductInput, ProductListQuery, UpdateProductInput } from "./dto/product.dto.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 
@@ -33,12 +34,6 @@ function view(product: Product, canReadCost: boolean) {
       ? product.salePrice.sub(product.acquisitionCost).toFixed(2)
       : null,
   };
-}
-
-function assertCostAccess(actor: AuthenticatedUser, input: UpdateProductInput | CreateProductInput): void {
-  if (input.acquisitionCost !== undefined && !actor.isAdmin) {
-    throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Somente Administrador pode alterar o custo de aquisição de Produto nesta etapa." });
-  }
 }
 
 function notFound(): NotFoundException {
@@ -74,9 +69,18 @@ async function lockProduct(tx: Tx, publicId: string): Promise<Product> {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly policy: AuthPolicyService) {}
+
+  private async canReadCosts(actor: AuthenticatedUser): Promise<boolean> {
+    return this.policy.hasPermission(actor, "products.cost.read");
+  }
+
+  private async assertCanUpdateCost(actor: AuthenticatedUser, input: UpdateProductInput | CreateProductInput): Promise<void> {
+    if (input.acquisitionCost !== undefined) await this.policy.assertAllowed(actor, ["products.cost.update"]);
+  }
 
   async list(query: ProductListQuery, actor: AuthenticatedUser) {
+    const canReadCosts = await this.canReadCosts(actor);
     const where: Prisma.ProductWhereInput = {
       ...(query.status === "active" ? { isActive: true } : {}),
       ...(query.status === "inactive" ? { isActive: false } : {}),
@@ -96,20 +100,21 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
     return {
-      data: products.map((product) => view(product, actor.isAdmin)),
+      data: products.map((product) => view(product, canReadCosts)),
       pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
     };
   }
 
   async get(publicId: string, actor: AuthenticatedUser) {
     assertPublicId(publicId);
+    const canReadCosts = await this.canReadCosts(actor);
     const product = await this.prisma.product.findUnique({ where: { publicId } });
     if (!product) throw notFound();
-    return { data: view(product, actor.isAdmin) };
+    return { data: view(product, canReadCosts) };
   }
 
   async create(input: CreateProductInput, actor: AuthenticatedUser) {
-    assertCostAccess(actor, input);
+    await this.assertCanUpdateCost(actor, input);
     try {
       const product = await this.prisma.$transaction(async (tx) => {
         const created = await tx.product.create({
@@ -135,14 +140,14 @@ export class ProductsService {
         });
         return created;
       }, TX_OPTIONS);
-      return { data: view(product, actor.isAdmin) };
+      return { data: view(product, await this.canReadCosts(actor)) };
     } catch (error) {
       return mapWriteError(error);
     }
   }
 
   async update(publicId: string, input: UpdateProductInput, actor: AuthenticatedUser) {
-    assertCostAccess(actor, input);
+    await this.assertCanUpdateCost(actor, input);
     assertPublicId(publicId);
     try {
       const product = await this.prisma.$transaction(async (tx) => {
@@ -186,7 +191,7 @@ export class ProductsService {
         });
         return updated;
       }, TX_OPTIONS);
-      return { data: view(product, actor.isAdmin) };
+      return { data: view(product, await this.canReadCosts(actor)) };
     } catch (error) {
       return mapWriteError(error);
     }

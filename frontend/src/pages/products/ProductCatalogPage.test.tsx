@@ -82,7 +82,7 @@ describe("ProductCatalogPage", () => {
     })));
   });
 
-  it("não apresenta custo para products.manage e mostra custo/lucro somente no modo Administrador", async () => {
+  it("mostra custo/lucro somente com leitura e oferece edição independente", async () => {
     const priced = { ...product, salePrice: "0.00", acquisitionCost: "0.00", grossProfitEstimate: "0.00" };
     const fetchMock = vi.fn().mockResolvedValue(response(listing([priced])));
     vi.stubGlobal("fetch", fetchMock);
@@ -92,10 +92,61 @@ describe("ProductCatalogPage", () => {
     expect(screen.queryByRole("columnheader", { name: "Lucro bruto estimado" })).not.toBeInTheDocument();
     unmount();
 
-    render(<ProductCatalogPage csrfToken="csrf-test" canManageCosts />);
+    render(<ProductCatalogPage csrfToken="csrf-test" canReadCosts canUpdateCosts />);
     expect(await screen.findByText("PLACA MÃE")).toBeInTheDocument();
     expect(screen.getByLabelText("Custo de aquisição (opcional)")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Lucro bruto estimado" })).toBeInTheDocument();
     expect(screen.getAllByText("R$ 0,00").length).toBeGreaterThan(0);
+  });
+
+  it("usuário somente de leitura vê custo, mas não recebe campo para alterá-lo", async () => {
+    const priced = { ...product, salePrice: "10.00", acquisitionCost: "4.00", grossProfitEstimate: "6.00" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(listing([priced]))));
+    render(<ProductCatalogPage csrfToken="csrf-test" canReadCosts />);
+    await screen.findByText("PLACA MÃE");
+    expect(screen.getByText("R$ 4,00")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Alterar" }));
+    expect(screen.queryByLabelText("Custo de aquisição (opcional)")).not.toBeInTheDocument();
+  });
+
+  it("usuário somente de alteração não vê o custo atual e pode enviar custo sem recebê-lo", async () => {
+    const priced = { ...product, salePrice: "10.00", acquisitionCost: "4.00", grossProfitEstimate: "6.00" };
+    const fetchMock = vi.fn().mockImplementation((_path: string, options: RequestInit) => {
+      if (options.method === "PATCH") return Promise.resolve(response({ data: { ...priced, version: 2 } }));
+      return Promise.resolve(response(listing([priced])));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProductCatalogPage csrfToken="csrf-test" canUpdateCosts />);
+    await screen.findByText("PLACA MÃE");
+    expect(screen.queryByText("R$ 4,00")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Alterar" }));
+    const costInput = screen.getByLabelText("Novo custo de aquisição (opcional; em branco mantém o atual)");
+    expect(costInput).toHaveValue("");
+    fireEvent.change(costInput, { target: { value: "3,25" } });
+    fireEvent.change(screen.getAllByLabelText("Descrição")[1], { target: { value: "Descrição revisada" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ internalCode: "P-1", description: "Descrição revisada", category: "PART", salePrice: "10.00", acquisitionCost: "3.25", expectedVersion: 1 }),
+    })));
+    expect(screen.queryByText("R$ 4,00")).not.toBeInTheDocument();
+  });
+
+  it("usuário somente de alteração limpa o custo por ação explícita", async () => {
+    const priced = { ...product, salePrice: "10.00", acquisitionCost: "4.00", grossProfitEstimate: "6.00" };
+    const fetchMock = vi.fn().mockImplementation((_path: string, options: RequestInit) => {
+      if (options.method === "PATCH") return Promise.resolve(response({ data: { ...priced, version: 2 } }));
+      return Promise.resolve(response(listing([priced])));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProductCatalogPage csrfToken="csrf-test" canUpdateCosts />);
+    await screen.findByText("PLACA MÃE");
+    fireEvent.click(screen.getByRole("button", { name: "Alterar" }));
+    fireEvent.click(screen.getByLabelText("Definir custo como desconhecido (NULL)"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ internalCode: "P-1", description: "PLACA MÃE", category: "PART", salePrice: "10.00", acquisitionCost: null, expectedVersion: 1 }),
+    })));
   });
 });

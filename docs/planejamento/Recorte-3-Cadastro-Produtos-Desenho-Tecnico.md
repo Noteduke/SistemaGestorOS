@@ -6,7 +6,7 @@
 
 O cadastro mantém `sale_price DECIMAL(15,2) NULL` e `acquisition_cost DECIMAL(15,2) NULL`. Ambos são opcionais, aceitam `0.00` e rejeitam negativos. Strings decimais são usadas na API. `NULL` de custo significa desconhecido; não calcular média ou substituir por zero. Não integrar preço ao orçamento nesta etapa.
 
-Até decisão de permissão específica para custo de Produto, apenas Administrador recebe custo e lucro bruto estimado e pode alterar custo. Usuários com `products.manage` continuam podendo gerir os demais campos e preço de venda. Permissões de custos do orçamento não se aplicam. A estimativa de lucro é preço de venda menos custo e só existe quando ambos são conhecidos; margem não é exibida. Toda alteração é registrada em `admin_audit_log` com valores anterior/novo e ator na mesma transação. Uma futura projeção de auditoria deverá remover os campos de custo para não autorizados.
+As permissões `products.cost.read` e `products.cost.update` são independentes. Visualizar custos exige a primeira; alterar custo exige `products.manage` e a segunda. Usuários sem leitura não recebem custo/lucro, inclusive na resposta de alteração; usuário com atualização sem leitura pode substituir ou limpar custo sem ver o valor existente. `products.manage` continua cobrindo os demais campos e o preço de venda. Permissões de custos do orçamento não se aplicam. A estimativa de lucro é preço de venda menos custo e só existe quando ambos são conhecidos; margem não é exibida. Toda alteração é registrada em `admin_audit_log` com valores anterior/novo, produto, ator e instante do servidor na mesma transação. O Log Administrativo não tem rota de leitura neste recorte; projeções futuras devem filtrar campos de custo por `products.cost.read`. Administrador tem acesso efetivo por `isAdmin`; não foi criado papel Master.
 
 O custo histórico de uma peça será capturado quando ela for marcada como aplicada à OS; alterações posteriores do custo do cadastro não mudam o snapshot da aplicação. Essa associação não integra este recorte.
 
@@ -36,7 +36,7 @@ Criar apenas `Product`, sem tabelas de saldo, local, movimento, lote, série, cu
 | `isActive` | Boolean, default `true` | Inativar impede seleção futura; consulta histórica continua possível |
 | `version` | INT positivo | Concorrência otimista em alterações |
 | `salePrice` | `DECIMAL(15,2)` nullable | Opcional, não negativo, zero válido; preço padrão para possível sugestão futura |
-| `acquisitionCost` | `DECIMAL(15,2)` nullable | Opcional, não negativo; NULL desconhecido; acesso restrito temporariamente a Administrador |
+| `acquisitionCost` | `DECIMAL(15,2)` nullable | Opcional, não negativo; NULL desconhecido; `products.cost.read` controla leitura e `products.cost.update` controla alteração, sempre junto com `products.manage` |
 | autoria | `createdByUserId`, `updatedByUserId` obrigatórios | Usuário autenticado responsável |
 | timestamps | `createdAt`, `updatedAt` DATETIME(3) | Gerados pelo servidor |
 
@@ -48,8 +48,8 @@ As alterações de criação, edição e situação registram snapshots anterior
 
 - `GET /api/v1/products?page=1&pageSize=20&status=active&search=...&category=PART`: consulta paginada, pesquisa por código ou descrição e filtro de situação/categoria; ativos por padrão.
 - `GET /api/v1/products/:publicId`: consulta por identificador público, inclusive inativo.
-- `POST /api/v1/products`: cria código interno opcional, descrição, categoria e preço; somente Administrador pode enviar custo.
-- `PATCH /api/v1/products/:publicId`: altera um ou mais campos permitidos e exige `expectedVersion`; situação pode ser inativada/reativada. Somente Administrador altera custo. Não existe DELETE.
+- `POST /api/v1/products`: cria código interno opcional, descrição, categoria e preço; informar custo exige `products.manage` e `products.cost.update`.
+- `PATCH /api/v1/products/:publicId`: altera um ou mais campos permitidos e exige `expectedVersion`; situação pode ser inativada/reativada. Alterar custo exige `products.manage` e `products.cost.update`. Não existe DELETE.
 - `products.manage` protege as rotas administrativas. Administrador segue a política central existente.
 
 ## Exclusões explícitas desta etapa
