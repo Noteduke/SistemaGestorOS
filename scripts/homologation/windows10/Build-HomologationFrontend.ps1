@@ -2,6 +2,7 @@
 param([string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path,
       [string]$ArtifactDirectory = (Join-Path $PSScriptRoot 'artifacts/frontend'))
 $ErrorActionPreference = 'Stop'
+$rules = Import-PowerShellDataFile (Join-Path $PSScriptRoot '../../../tools/gestoros-diagnostico/Homologation.Rules.psd1')
 $frontend = Join-Path $RepositoryRoot 'frontend'
 Push-Location $frontend
 try {
@@ -9,7 +10,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Build homologation do Frontend falhou.' }
   $dist = Join-Path $frontend 'dist'
   $bundles = @(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object Extension -in @('.js', '.css'))
-  $marker = 'DOCUMENTO DE TESTE — HOMOLOGAÇÃO'
+  $marker = $rules.Marker
   $markerFound = $false
   foreach ($bundle in $bundles) {
     if (Select-String -LiteralPath $bundle.FullName -SimpleMatch -Pattern $marker -Quiet) { $markerFound = $true; break }

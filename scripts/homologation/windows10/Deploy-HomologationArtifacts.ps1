@@ -3,6 +3,7 @@ param([string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..
       [string]$InstallRoot = 'C:\ProgramData\GestorOS\homologation',
       [string]$ArtifactDirectory = (Join-Path $PSScriptRoot 'artifacts/frontend'))
 $ErrorActionPreference = 'Stop'
+$rules = Import-PowerShellDataFile (Join-Path $PSScriptRoot '../../../tools/gestoros-diagnostico/Homologation.Rules.psd1')
 $backend = Join-Path $RepositoryRoot 'backend'
 if (-not (Test-Path (Join-Path $backend 'dist/main.js'))) { throw 'Compile o Backend (npm run build) antes do staging.' }
 $backendTarget = Join-Path $InstallRoot 'backend'
@@ -18,7 +19,7 @@ if ($manifest.environment -ne 'homologation' -or -not $manifest.homologationMark
 $frontendBundles = @(Get-ChildItem -LiteralPath $frontendSource -Recurse -File | Where-Object Extension -in @('.js', '.css'))
 $markerFound = $false
 foreach ($bundle in $frontendBundles) {
-  if (Select-String -LiteralPath $bundle.FullName -SimpleMatch -Pattern 'DOCUMENTO DE TESTE — HOMOLOGAÇÃO' -Quiet) { $markerFound = $true; break }
+  if (Select-String -LiteralPath $bundle.FullName -SimpleMatch -Pattern $rules.Marker -Quiet) { $markerFound = $true; break }
 }
 if (-not $markerFound) {
   throw 'Artefato não contém a identificação obrigatória de homologação; deploy recusado.'

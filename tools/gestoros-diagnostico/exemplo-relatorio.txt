@@ -1,0 +1,270 @@
+﻿Gestor OS — Diagnóstico de Ambiente
+Versão: 1.0.0
+Computador: EXEMPLO-SIMULADO
+Sistema: Windows 10
+Data: 2026-10-16T12:00:00-03:00
+Somente leitura. Nenhum banco conectado ou alterado. Não substitui os testes funcionais da Homologação 1.
+
+[OK] Sistema operacional — Verificado
+Encontrado: Windows 10
+Esperado: Windows 10
+Como corrigir: Confirme o host Windows 10 de homologação.
+Exige administrador: True
+
+[OK] Arquitetura — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Use o sistema e binários x64 previstos.
+Exige administrador: True
+
+[OK] PowerShell — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Use Windows PowerShell 5.1 ou superior.
+Exige administrador: False
+
+[OK] Rede IPv4 — Verificado
+Encontrado: 192.168.1.10
+Esperado: IPv4 ativo na rede interna
+Como corrigir: Confira o adaptador, DHCP/IP e DNS. IP ativo não comprova acesso dos clientes.
+Exige administrador: False
+
+[OK] node — Verificado
+Encontrado: Versão compatível
+Esperado: Node.js 24.x
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] git — Verificado
+Encontrado: Versão compatível
+Esperado: Git instalado (sem versão mínima definida)
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] mysqld — Verificado
+Encontrado: Versão compatível
+Esperado: 8.0.46
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] npm disponível — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Provisione npm junto ao Node.js 24.
+Exige administrador: False
+
+[OK] Versão npm — Verificado
+Encontrado: 11.19.0
+Esperado: npm distribuído com Node.js 24; sem versão fixa definida
+Como corrigir: Confira a procedência do pacote; a compatibilidade funcional exige testes de build.
+Exige administrador: False
+
+[OK] caddy — Verificado
+Encontrado: Versão compatível
+Esperado: Caddy instalado
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] GestorOSBackend — Verificado
+Encontrado: Versão compatível
+Esperado: WinSW instalado (wrapper)
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] GestorOSCaddy — Verificado
+Encontrado: Versão compatível
+Esperado: WinSW instalado (wrapper)
+Como corrigir: Nenhuma ação.
+Exige administrador: False
+
+[OK] Serviço MySQL80 — Verificado
+Encontrado: Running
+Esperado: Running
+Como corrigir: Administrador: revise instalação, logs e início do serviço correto.
+Exige administrador: True
+
+[OK] Início MySQL80 — Verificado
+Encontrado: Auto
+Esperado: Auto
+Como corrigir: Administrador: configure início automático no procedimento aprovado.
+Exige administrador: True
+
+[OK] Serviço GestorOSBackendHomologation — Verificado
+Encontrado: Running
+Esperado: Running
+Como corrigir: Administrador: revise instalação, logs e início do serviço correto.
+Exige administrador: True
+
+[OK] Início GestorOSBackendHomologation — Verificado
+Encontrado: Auto
+Esperado: Auto
+Como corrigir: Administrador: configure início automático no procedimento aprovado.
+Exige administrador: True
+
+[OK] Serviço GestorOSCaddyHomologation — Verificado
+Encontrado: Running
+Esperado: Running
+Como corrigir: Administrador: revise instalação, logs e início do serviço correto.
+Exige administrador: True
+
+[OK] Início GestorOSCaddyHomologation — Verificado
+Encontrado: Auto
+Esperado: Auto
+Como corrigir: Administrador: configure início automático no procedimento aprovado.
+Exige administrador: True
+
+[OK] Porta 3306 — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.
+Exige administrador: True
+
+[OK] Interfaces 3306 — Verificado
+Encontrado: 127.0.0.1
+Esperado: Somente loopback
+Como corrigir: Revise bind e restrições do Firewall com o administrador.
+Exige administrador: True
+
+[OK] Porta 3100 — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.
+Exige administrador: True
+
+[OK] Interfaces 3100 — Verificado
+Encontrado: 127.0.0.1
+Esperado: Somente loopback
+Como corrigir: Revise bind e restrições do Firewall com o administrador.
+Exige administrador: True
+
+[OK] Porta 443 — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.
+Exige administrador: True
+
+[OK] Interfaces 443 — Verificado
+Encontrado: 127.0.0.1
+Esperado: HTTPS na rede interna
+Como corrigir: Revise bind e restrições do Firewall com o administrador.
+Exige administrador: True
+
+[OK] Firewall habilitado — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Administrador: revise os perfis do Firewall.
+Exige administrador: True
+
+[ATENÇÃO] Regras relevantes do Firewall — Verificado
+Encontrado: 0 regras de entrada potencialmente relevantes (inclui Any/faixas).
+Esperado: 443 restrita à LAN; 3100/3306 protegidas
+Como corrigir: Administrador: confira escopo remoto, perfis, regras de bloqueio, programa e portas. Contagem não certifica isolamento.
+Exige administrador: False
+
+[OK] Diretório backend — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Diretório frontend — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Diretório files — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Diretório company-assets — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Diretório config — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Diretório logs — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivo backend\dist\main.js — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivo backend\package.json — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivo frontend\dist\index.html — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivo config\.env.homologation — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivo config\Caddyfile — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Manifesto de versão — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Refaça build e deploy pelos scripts oficiais.
+Exige administrador: False
+
+[OK] Marcador de homologação — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Refaça o frontend com Build-HomologationFrontend.ps1.
+Exige administrador: False
+
+[ATENÇÃO] Configuração Backend / Frontend / banco — Não verificado
+Encontrado: Não verificado: conteúdo de .env e credenciais não são lidos; nenhuma conexão SQL é aberta.
+Esperado: Ambiente homologation; banco gestor_os_homologation; efeitos externos desativados; cookie seguro; backend loopback:3100; frontend /api/v1
+Como corrigir: Responsável deve conferir localmente a configuração usando Homologation.env.template e Caddyfile.homologation.template. Nunca usar gestor_os.
+Exige administrador: False
+
+[OK] Destino de backup — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Revise o caminho e provisione o artefato pelo procedimento de homologação.
+Exige administrador: False
+
+[OK] Arquivos de backup — Verificado
+Encontrado: True
+Esperado: True
+Como corrigir: Configure backup exclusivo da homologação; confira conclusão, integridade e retenção.
+Exige administrador: False
+
+[ATENÇÃO] Teste de restauração — Não verificado
+Encontrado: Não verificado: existência de arquivos não valida restauração.
+Esperado: Evidência operacional de restauração em banco separado
+Como corrigir: Registre data, responsável, banco de ensaio e resultado do teste por procedimento separado.
+Exige administrador: False
+
+[ATENÇÃO] HTTPS interno — Não verificado
+Encontrado: Não verificado: inspeção indisponível ou acesso insuficiente.
+Esperado: Hostname interno sem URL/credenciais
+Como corrigir: Informe somente o hostname interno para uma requisição HEAD sem credenciais.
+Exige administrador: False

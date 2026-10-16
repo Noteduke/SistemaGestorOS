@@ -1,0 +1,412 @@
+﻿{
+    "Programa":  "Gestor OS — Diagnóstico de Ambiente",
+    "Versao":  "1.0.0",
+    "Computador":  "EXEMPLO-SIMULADO",
+    "DataHora":  "2026-10-16T12:00:00-03:00",
+    "SistemaOperacional":  "Windows 10",
+    "Resultados":  [
+                       {
+                           "Item":  "Sistema operacional",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Windows 10",
+                           "Esperado":  "Windows 10",
+                           "Correcao":  "Confirme o host Windows 10 de homologação.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Arquitetura",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Use o sistema e binários x64 previstos.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "PowerShell",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Use Windows PowerShell 5.1 ou superior.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Rede IPv4",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "192.168.1.10",
+                           "Esperado":  "IPv4 ativo na rede interna",
+                           "Correcao":  "Confira o adaptador, DHCP/IP e DNS. IP ativo não comprova acesso dos clientes.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "node",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "Node.js 24.x",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "git",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "Git instalado (sem versão mínima definida)",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "mysqld",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "8.0.46",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "npm disponível",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Provisione npm junto ao Node.js 24.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Versão npm",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "11.19.0",
+                           "Esperado":  "npm distribuído com Node.js 24; sem versão fixa definida",
+                           "Correcao":  "Confira a procedência do pacote; a compatibilidade funcional exige testes de build.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "caddy",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "Caddy instalado",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "GestorOSBackend",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "WinSW instalado (wrapper)",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "GestorOSCaddy",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Versão compatível",
+                           "Esperado":  "WinSW instalado (wrapper)",
+                           "Correcao":  "Nenhuma ação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Serviço MySQL80",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Running",
+                           "Esperado":  "Running",
+                           "Correcao":  "Administrador: revise instalação, logs e início do serviço correto.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Início MySQL80",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Auto",
+                           "Esperado":  "Auto",
+                           "Correcao":  "Administrador: configure início automático no procedimento aprovado.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Serviço GestorOSBackendHomologation",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Running",
+                           "Esperado":  "Running",
+                           "Correcao":  "Administrador: revise instalação, logs e início do serviço correto.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Início GestorOSBackendHomologation",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Auto",
+                           "Esperado":  "Auto",
+                           "Correcao":  "Administrador: configure início automático no procedimento aprovado.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Serviço GestorOSCaddyHomologation",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Running",
+                           "Esperado":  "Running",
+                           "Correcao":  "Administrador: revise instalação, logs e início do serviço correto.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Início GestorOSCaddyHomologation",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "Auto",
+                           "Esperado":  "Auto",
+                           "Correcao":  "Administrador: configure início automático no procedimento aprovado.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Porta 3306",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Interfaces 3306",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "127.0.0.1",
+                           "Esperado":  "Somente loopback",
+                           "Correcao":  "Revise bind e restrições do Firewall com o administrador.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Porta 3100",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Interfaces 3100",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "127.0.0.1",
+                           "Esperado":  "Somente loopback",
+                           "Correcao":  "Revise bind e restrições do Firewall com o administrador.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Porta 443",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o serviço e a porta configurada; um listener não comprova a identidade do processo.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Interfaces 443",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "127.0.0.1",
+                           "Esperado":  "HTTPS na rede interna",
+                           "Correcao":  "Revise bind e restrições do Firewall com o administrador.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Firewall habilitado",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Administrador: revise os perfis do Firewall.",
+                           "ExigeAdministrador":  true
+                       },
+                       {
+                           "Item":  "Regras relevantes do Firewall",
+                           "Estado":  "ATENÇÃO",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "0 regras de entrada potencialmente relevantes (inclui Any/faixas).",
+                           "Esperado":  "443 restrita à LAN; 3100/3306 protegidas",
+                           "Correcao":  "Administrador: confira escopo remoto, perfis, regras de bloqueio, programa e portas. Contagem não certifica isolamento.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório backend",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório frontend",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório files",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório company-assets",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório config",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Diretório logs",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivo backend\\dist\\main.js",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivo backend\\package.json",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivo frontend\\dist\\index.html",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivo config\\.env.homologation",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivo config\\Caddyfile",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Manifesto de versão",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Refaça build e deploy pelos scripts oficiais.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Marcador de homologação",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Refaça o frontend com Build-HomologationFrontend.ps1.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Configuração Backend / Frontend / banco",
+                           "Estado":  "ATENÇÃO",
+                           "Verificacao":  "Não verificado",
+                           "Encontrado":  "Não verificado: conteúdo de .env e credenciais não são lidos; nenhuma conexão SQL é aberta.",
+                           "Esperado":  "Ambiente homologation; banco gestor_os_homologation; efeitos externos desativados; cookie seguro; backend loopback:3100; frontend /api/v1",
+                           "Correcao":  "Responsável deve conferir localmente a configuração usando Homologation.env.template e Caddyfile.homologation.template. Nunca usar gestor_os.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Destino de backup",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Revise o caminho e provisione o artefato pelo procedimento de homologação.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Arquivos de backup",
+                           "Estado":  "OK",
+                           "Verificacao":  "Verificado",
+                           "Encontrado":  "True",
+                           "Esperado":  "True",
+                           "Correcao":  "Configure backup exclusivo da homologação; confira conclusão, integridade e retenção.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "Teste de restauração",
+                           "Estado":  "ATENÇÃO",
+                           "Verificacao":  "Não verificado",
+                           "Encontrado":  "Não verificado: existência de arquivos não valida restauração.",
+                           "Esperado":  "Evidência operacional de restauração em banco separado",
+                           "Correcao":  "Registre data, responsável, banco de ensaio e resultado do teste por procedimento separado.",
+                           "ExigeAdministrador":  false
+                       },
+                       {
+                           "Item":  "HTTPS interno",
+                           "Estado":  "ATENÇÃO",
+                           "Verificacao":  "Não verificado",
+                           "Encontrado":  "Não verificado: inspeção indisponível ou acesso insuficiente.",
+                           "Esperado":  "Hostname interno sem URL/credenciais",
+                           "Correcao":  "Informe somente o hostname interno para uma requisição HEAD sem credenciais.",
+                           "ExigeAdministrador":  false
+                       }
+                   ],
+    "Problemas":  [
+                      "Regras relevantes do Firewall",
+                      "Configuração Backend / Frontend / banco",
+                      "Teste de restauração",
+                      "HTTPS interno"
+                  ],
+    "Aviso":  "Somente leitura. Nenhum banco conectado ou alterado. Não substitui os testes funcionais da Homologação 1."
+}

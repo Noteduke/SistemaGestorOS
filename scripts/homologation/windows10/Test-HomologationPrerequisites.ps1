@@ -2,11 +2,12 @@
 param([string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin')
 
 $ErrorActionPreference = 'Continue'
+$rules = Import-PowerShellDataFile (Join-Path $PSScriptRoot '../../../tools/gestoros-diagnostico/Homologation.Rules.psd1')
 $checks = [ordered]@{}
 $windows = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
 $checks.Windows = if ($windows.ProductName) { $windows.ProductName } else { 'não identificado sem acesso ao registro' }
 $checks.Node = if (Get-Command node -ErrorAction SilentlyContinue) { (& node --version | Out-String).Trim() } else { 'AUSENTE' }
-$checks.Node24 = "$($checks.Node)" -match '^v24\.'
+$checks.Node24 = "$($checks.Node)" -match ('^v' + $rules.NodeMajor + '\.')
 $checks.Git = if (Get-Command git -ErrorAction SilentlyContinue) { (& git --version | Out-String).Trim() } else { 'AUSENTE' }
 
 $mysqlServer = Join-Path $MySqlBin 'mysqld.exe'
@@ -20,7 +21,7 @@ if ($checks.MySqlServerBinary) {
   $versionMatch = [regex]::Match($versionOutput, 'Ver\s+([0-9]+\.[0-9]+\.[0-9]+)')
   if ($versionMatch.Success) {
     $checks.MySqlServerVersion = $versionMatch.Groups[1].Value
-    $checks.MySqlServerVersionIs80046 = $checks.MySqlServerVersion -eq '8.0.46'
+    $checks.MySqlServerVersionIs80046 = $checks.MySqlServerVersion -eq $rules.MySqlVersion
   } else {
     $checks.MySqlServerVersion = 'não identificada'
   }
@@ -76,7 +77,7 @@ if ($checks.MySqlListening -eq 'verificação indisponível') {
 
 $checks.Caddy = [bool](Get-Command caddy -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath 'C:\Program Files\GestorOS\caddy.exe')
 $checks.WinSW = [bool](Get-Command winsw -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath 'C:\Program Files\GestorOS\GestorOSBackend.exe')
-$checks.HomologationServices = (@(Get-Service -Name 'GestorOSBackendHomologation','GestorOSCaddyHomologation' -ErrorAction SilentlyContinue) | ForEach-Object { "$($_.Name): $($_.Status), início $($_.StartType)" }) -join '; '
+$checks.HomologationServices = (@(Get-Service -Name @($rules.Services | Where-Object { $_ -ne 'MySQL80' }) -ErrorAction SilentlyContinue) | ForEach-Object { "$($_.Name): $($_.Status), início $($_.StartType)" }) -join '; '
 if (-not $checks.HomologationServices) { $checks.HomologationServices = 'não instalados' }
 try {
   $checks.FirewallProfiles = (Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object { "$($_.Name): $($_.Enabled)" }) -join '; '
