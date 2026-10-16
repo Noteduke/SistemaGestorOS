@@ -129,6 +129,12 @@ Foi aprovada a captura única do retrato histórico cadastral parcial na confirm
 
 ---
 
+### Conclusão técnica configurável da OS — implementação local em 16/10/2026
+
+O cadastro próprio de status, seus três atributos de conclusão técnica, o registro de conclusão/retorno, as consultas e o filtro de OS aberta aguardando retirada foram implementados no Backend e Frontend. A migration preserva os dez nomes existentes e os classifica inicialmente como `NOT_COMPLETED`, sem inferência pelo nome. A validação e aplicação da migration desta etapa ocorreram somente em `gestor_os_opening_test`; segue pendente no banco principal. O fechamento administrativo continua separado; a classificação técnica não movimenta estoque nem inicia garantia. Diagnóstico e descrição do serviço executado continuam opcionais. A retirada explícita e confirmada do orçamento nos status NÃO AUTORIZADO continua sujeita ao fluxo preexistente, inclusive à reversão de aplicação quando aplicável.
+
+Alterar o atributo no catálogo não reescreve snapshots de OS existentes nem eventos anteriores. Reclassificação em massa não está definida e não foi implementada. Garantia padrão configurável está aprovada, mas os parâmetros e sua implementação permanecem pendentes; conclusão técnica não inicia a contagem.
+
 # FASE 6 — Integrações
 
 Integrações previstas:

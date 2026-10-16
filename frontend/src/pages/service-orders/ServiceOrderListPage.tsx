@@ -22,12 +22,13 @@ export function ServiceOrderListPage({ page, onPageChange, onOpen, onStartOpenin
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const [awaitingPickup, setAwaitingPickup] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    listServiceOrders(page, PAGE_SIZE, controller.signal)
+    listServiceOrders(page, PAGE_SIZE, controller.signal, awaitingPickup)
       .then(setResult)
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(reason, "list"));
@@ -36,7 +37,7 @@ export function ServiceOrderListPage({ page, onPageChange, onOpen, onStartOpenin
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [page, reload]);
+  }, [page, reload, awaitingPickup]);
 
   const hasRows = Boolean(result?.data.length);
 
@@ -49,6 +50,7 @@ export function ServiceOrderListPage({ page, onPageChange, onOpen, onStartOpenin
           <p className="muted">Consulte ordens confirmadas e seus registros.</p>
         </div>
         <div className="page-heading__actions">
+          <label className="compact-filter"><input type="checkbox" checked={awaitingPickup} onChange={(event) => setAwaitingPickup(event.target.checked)} />Aguardando retirada</label>
           <span className="count-pill">{result?.pagination.total ?? "—"} registros</span>
           <button className="button button--primary" type="button" onClick={onStartOpening}>Nova OS</button>
         </div>

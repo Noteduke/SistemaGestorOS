@@ -6,6 +6,7 @@ import type { OperationalSituationPatchInput } from "./dto/operational-situation
 import { serviceOrderDetailSelect, toServiceOrderDetailView } from "./service-orders-read.service.js";
 import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.service.js";
 import { advanceServiceOrderRevision, assertEditControlInTransaction, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
+import { classifyTechnicalCompletionTransition } from "./domain/technical-completion-transition.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "RepeatableRead" as const, maxWait: 10000, timeout: 15000 };
@@ -41,28 +42,52 @@ export class ServiceOrderOperationalSituationService {
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }
-        if (current.operationalSituation === input.operationalSituation && input.withdrawBudget) {
+        const targetStatus = await tx.serviceOrderStatus.findUnique({ where: { publicId: input.operationalStatusPublicId } });
+        if (!targetStatus) throw new NotFoundException({ code: "SERVICE_ORDER_STATUS_NOT_FOUND", message: "Status não encontrado." });
+        if (current.operationalStatusId === targetStatus.id && input.withdrawBudget) {
           throw new ConflictException({ code: "BUDGET_WITHDRAWAL_REQUIRES_SITUATION_CHANGE", message: "A retirada integral só pode acompanhar uma mudança para situação de não autorização." });
+        }
+        if (input.withdrawBudget && !targetStatus.allowsBudgetWithdrawal) {
+          throw new ConflictException({ code: "BUDGET_WITHDRAWAL_STATUS_INVALID", message: "A retirada integral não é permitida para este status." });
         }
 
         await assertSituationPermission(tx, actor, input.withdrawBudget === true);
-        if (current.operationalSituation === input.operationalSituation) {
+        if (current.operationalStatusId === targetStatus.id) {
           return { data: toServiceOrderDetailView(current) };
         }
 
         const now = new Date();
         if (input.withdrawBudget) await this.budgetItems.withdrawAllInTransaction(tx, { id: locked.id, publicId: current.publicId, numberValue: current.numberValue }, actor);
-        await advanceServiceOrderRevision(tx, locked.id, current.updatedAt, { operationalSituation: input.operationalSituation });
+        const previousCompletion = current.technicalCompletion;
+        const nextCompletion = targetStatus.technicalCompletion;
+        const transition = classifyTechnicalCompletionTransition(previousCompletion, nextCompletion);
+        const recordsConclusion = transition === "CONCLUSION";
+        const returnsToLab = transition === "RETURN_TO_SERVICE";
+        await advanceServiceOrderRevision(tx, locked.id, current.updatedAt, {
+          operationalStatus: { connect: { id: targetStatus.id } },
+          technicalCompletion: nextCompletion,
+          ...(recordsConclusion ? { technicalCompletedAt: now, technicalCompletedBy: { connect: { id: actor.id } }, technicalConclusionStatus: { connect: { id: targetStatus.id } } } : {}),
+          ...(returnsToLab ? { technicalCompletedAt: null, technicalCompletedBy: { disconnect: true }, technicalConclusionStatus: { disconnect: true } } : {}),
+        });
+        const eventType = recordsConclusion ? "CONCLUSAO_TECNICA_REGISTRADA" : returnsToLab ? "RETORNO_AO_ATENDIMENTO" : "SITUACAO_OPERACIONAL_ALTERADA";
         await tx.serviceOrderEvent.create({
           data: {
             serviceOrderId: locked.id,
             actorUserId: actor.id,
-            eventType: "SITUACAO_OPERACIONAL_ALTERADA",
+            eventType,
             numberValue: current.numberValue,
             occurredAt: now,
             payload: {
-              previousOperationalSituation: current.operationalSituation,
-              newOperationalSituation: input.operationalSituation,
+              previousOperationalStatusPublicId: current.operationalStatus.publicId,
+              previousOperationalStatus: current.operationalStatus.name,
+              newOperationalStatusPublicId: targetStatus.publicId,
+              newOperationalStatus: targetStatus.name,
+              previousTechnicalCompletion: previousCompletion,
+              newTechnicalCompletion: nextCompletion,
+              ...(recordsConclusion ? { technicalCompletedAt: now.toISOString(), technicallyCompletedByUserPublicId: actor.publicId } : {}),
+              ...(returnsToLab && current.technicalCompletedAt ? { previousTechnicalCompletedAt: current.technicalCompletedAt.toISOString(),
+                previousTechnicalCompletionStatus: current.technicalConclusionStatus?.name ?? current.operationalStatus.name,
+                previousTechnicalCompletionActorPublicId: current.technicalCompletedBy?.publicId ?? null } : {}),
             },
           },
         });

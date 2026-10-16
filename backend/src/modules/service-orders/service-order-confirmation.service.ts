@@ -158,7 +158,7 @@ export class ServiceOrderConfirmationService {
           mainIdentification: [equipmentType, equipmentBrand, equipmentModel, equipmentSerial].filter(Boolean).join(" / ") };
         const order = await tx.serviceOrder.create({ data: {
           openingId: opening.id, numberValue, customerId: customer.id, equipmentId, createdByUserId: actor.id,
-          macroStatus: "OPEN", operationalSituation: "TRIAGE", complaint: opening.complaint,
+          macroStatus: "OPEN", complaint: opening.complaint,
           intakeObservations: input.intakeObservations ?? null,
           newEquipmentSerialIdentificationStatus: serialStatus,
           customerSnapshotJson: customerSnapshot, equipmentSnapshotJson: equipmentSnapshot,
@@ -200,12 +200,13 @@ export class ServiceOrderConfirmationService {
         await tx.serviceOrderEvent.create({ data: { ...eventBase, eventType: "ABERTURA_CONFIRMADA",
           payload: { openingPublicId: publicId, serviceOrderPublicId: order.publicId, visibleNumber,
             customerPublicId: customer.publicId, equipmentPublicId, macroStatus: "ABERTA",
-            operationalSituation: "TRIAGEM", snapshotCapturedAt: capturedAt } } });
+            operationalSituation: "TRIAGEM", technicalCompletion: "NOT_COMPLETED", snapshotCapturedAt: capturedAt } } });
         if (assignedUserPublicIds.length) await tx.serviceOrderEvent.create({ data: { ...eventBase, eventType: "ATRIBUICOES_ALTERADAS",
           payload: { previousUserPublicIds: [], newUserPublicIds: assignedUserPublicIds, actorUserPublicId: actor.publicId } } });
 
         return { data: { publicId: order.publicId, openingPublicId: publicId, visibleNumber, numberValue: numberValue.toString(),
-          macroStatus: "ABERTA", operationalSituation: "TRIAGEM", customer: { publicId: customer.publicId, name: customer.name },
+          macroStatus: "ABERTA", operationalSituation: "TRIAGEM", operationalStatus: { name: "TRIAGEM", technicalCompletion: "NOT_COMPLETED" },
+          technicalCompletion: "NOT_COMPLETED", technicalCompletedAt: null, customer: { publicId: customer.publicId, name: customer.name },
           equipment: { publicId: equipmentPublicId, type: equipmentType, brand: equipmentBrand, model: equipmentModel, serialNumber: equipmentSerial },
           customerSnapshot, equipmentSnapshot, complaint: opening.complaint, intakeObservations: order.intakeObservations,
           assignedUserPublicIds, createdAt: order.createdAt, confirmedAt: now } };

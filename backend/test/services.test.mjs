@@ -13,6 +13,10 @@ import { ProductsService } from "../dist/modules/products/products.service.js";
 import { parseProductStockMovementsQuery, parseStockAdjustmentBody, parseStockDisposalBody, parseStockQuantityBody } from "../dist/modules/products/dto/product-stock.dto.js";
 import { movementDeltas, stockBalanceFromDeltas, stockMovementViolation } from "../dist/modules/products/domain/product-stock-ledger.js";
 import { parseApplyStockPart, parseRemoveBudgetItem, parseReverseStockPart } from "../dist/modules/service-orders/dto/service-order-stock-application.dto.js";
+import { parseServiceOrderStatusInput, parseServiceOrderStatusPatch } from "../dist/modules/service-orders/dto/service-order-status.dto.js";
+import { classifyTechnicalCompletionTransition } from "../dist/modules/service-orders/domain/technical-completion-transition.js";
+import { ServiceOrderStatusesService } from "../dist/modules/service-orders/service-order-statuses.service.js";
+import { parseListServiceOrdersQuery } from "../dist/modules/service-orders/dto/list-service-orders-query.dto.js";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
@@ -422,4 +426,83 @@ test("histórico de aplicação oculta custo por padrão e preserva NULL somente
   assert.equal(Object.hasOwn(hiddenReversal.reversals[0], "unitCostSnapshot"), false);
   const visibleReversal = sanitizeServiceOrderEventPayload("PECA_ESTOQUE_APLICACAO_REVERTIDA", reversed, false, true);
   assert.equal(visibleReversal.reversals[0].unitCostSnapshot, "0.00");
+});
+
+test("status técnico aceita as três classificações e valida concorrência otimista", () => {
+  assert.deepEqual(parseServiceOrderStatusInput({ name: " Pronto, avisar cliente ", technicalCompletion: "COMPLETED_WITH_REPAIR" }), {
+    name: "Pronto, avisar cliente", technicalCompletion: "COMPLETED_WITH_REPAIR",
+  });
+  assert.deepEqual(parseServiceOrderStatusPatch({ name: "Bancada", technicalCompletion: "NOT_COMPLETED", expectedVersion: 3 }), {
+    name: "Bancada", technicalCompletion: "NOT_COMPLETED", expectedVersion: 3,
+  });
+  rejectsCode(() => parseServiceOrderStatusInput({ name: "Pronto", technicalCompletion: "DONE" }), "INVALID_SERVICE_ORDER_STATUS");
+  rejectsCode(() => parseServiceOrderStatusInput({ name: "Pronto", technicalCompletion: "NOT_COMPLETED", isAdmin: true }), "INVALID_SERVICE_ORDER_STATUS");
+  rejectsCode(() => parseServiceOrderStatusPatch({ name: "Pronto", technicalCompletion: "NOT_COMPLETED", expectedVersion: 0 }), "INVALID_SERVICE_ORDER_STATUS_VERSION");
+});
+
+test("transições técnicas registram entrada, retorno e evitam conclusões repetidas", () => {
+  assert.equal(classifyTechnicalCompletionTransition("NOT_COMPLETED", "COMPLETED_WITH_REPAIR"), "CONCLUSION");
+  assert.equal(classifyTechnicalCompletionTransition("NOT_COMPLETED", "COMPLETED_WITHOUT_REPAIR"), "CONCLUSION");
+  assert.equal(classifyTechnicalCompletionTransition("COMPLETED_WITH_REPAIR", "NOT_COMPLETED"), "RETURN_TO_SERVICE");
+  assert.equal(classifyTechnicalCompletionTransition("COMPLETED_WITH_REPAIR", "COMPLETED_WITH_REPAIR"), "STATUS_ONLY");
+  assert.equal(classifyTechnicalCompletionTransition("COMPLETED_WITH_REPAIR", "COMPLETED_WITHOUT_REPAIR"), "CONCLUSION");
+});
+
+test("catálogo de status exige Administrador e audita criação e edição com versão", async () => {
+  const actor = { id: 7, publicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f", isAdmin: true };
+  let row = { id: 4, publicId: "652c6498-a270-43b2-8627-4a754bb5fdad", name: "Concluído", technicalCompletion: "COMPLETED_WITH_REPAIR",
+    allowsBudgetWithdrawal: false, version: 1, createdAt: new Date(0), updatedAt: new Date(0) };
+  const audits = [];
+  const calls = [];
+  let forceVersionConflict = false;
+  const tx = {
+    serviceOrderStatus: {
+      create: async ({ data }) => { calls.push(["create", data]); return row; },
+      findUnique: async () => row,
+      updateMany: async ({ where, data }) => { calls.push(["updateMany", where, data]); if (forceVersionConflict) return { count: 0 }; row = { ...row, ...data, version: row.version + 1 }; return { count: 1 }; },
+      findUniqueOrThrow: async () => row,
+    },
+    adminAuditLog: { create: async ({ data }) => audits.push(data) },
+  };
+  const prisma = { $transaction: async (callback) => callback(tx) };
+  const service = new ServiceOrderStatusesService(prisma);
+  await service.create({ name: "Concluído", technicalCompletion: "COMPLETED_WITH_REPAIR" }, actor);
+  assert.equal(calls[0][0], "create");
+  assert.equal(audits[0].eventCode, "SERVICE_ORDER_STATUS_CREATED");
+  await service.update(row.publicId, { name: "Pronto, avisar cliente", technicalCompletion: "COMPLETED_WITH_REPAIR", expectedVersion: 1 }, actor);
+  assert.deepEqual(calls.find(([kind]) => kind === "updateMany")[1], { id: 4, version: 1 });
+  assert.equal(audits[1].eventCode, "SERVICE_ORDER_STATUS_UPDATED");
+  assert.equal(audits[1].detailsJson.previous.name, "Concluído");
+  assert.equal(audits[1].detailsJson.next.name, "Pronto, avisar cliente");
+  forceVersionConflict = true;
+  await assert.rejects(() => service.update(row.publicId, { name: "Pronto", technicalCompletion: "COMPLETED_WITH_REPAIR", expectedVersion: 2 }, actor),
+    (error) => codeOf(error) === "SERVICE_ORDER_STATUS_VERSION_CONFLICT");
+  await assert.rejects(() => service.create({ name: "X", technicalCompletion: "NOT_COMPLETED" }, { ...actor, isAdmin: false }),
+    (error) => codeOf(error) === "PERMISSION_DENIED");
+});
+
+test("filtros de conclusão validam os três estados e OS aguardando retirada", () => {
+  assert.deepEqual(parseListServiceOrdersQuery({ page: "1", pageSize: "20", technicalCompletion: "COMPLETED_WITH_REPAIR", awaitingPickup: "true" }), {
+    page: 1, pageSize: 20, technicalCompletion: "COMPLETED_WITH_REPAIR", awaitingPickup: true,
+  });
+  rejectsCode(() => parseListServiceOrdersQuery({ page: "1", pageSize: "20", technicalCompletion: "DONE" }), "INVALID_TECHNICAL_COMPLETION");
+  rejectsCode(() => parseListServiceOrdersQuery({ page: "1", pageSize: "20", awaitingPickup: "yes" }), "INVALID_AWAITING_PICKUP");
+});
+
+test("eventos de conclusão e retorno preservam classificação, ator e status no payload público", () => {
+  const conclusion = sanitizeServiceOrderEventPayload("CONCLUSAO_TECNICA_REGISTRADA", {
+    previousOperationalStatusPublicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f", previousOperationalStatus: "Em manutenção",
+    newOperationalStatusPublicId: "652c6498-a270-43b2-8627-4a754bb5fdad", newOperationalStatus: "Pronto",
+    previousTechnicalCompletion: "NOT_COMPLETED", newTechnicalCompletion: "COMPLETED_WITH_REPAIR",
+    technicalCompletedAt: "2026-10-16T12:00:00.000Z", technicallyCompletedByUserPublicId: "2e04601f-e202-422b-8116-7af31e6347dc", internalId: 42,
+  });
+  assert.equal(conclusion.newTechnicalCompletion, "COMPLETED_WITH_REPAIR");
+  assert.equal(conclusion.technicallyCompletedByUserPublicId, "2e04601f-e202-422b-8116-7af31e6347dc");
+  assert.equal(Object.hasOwn(conclusion, "internalId"), false);
+  const returned = sanitizeServiceOrderEventPayload("RETORNO_AO_ATENDIMENTO", {
+    previousTechnicalCompletedAt: "2026-10-16T12:00:00.000Z", previousTechnicalCompletionStatus: "Pronto",
+    previousTechnicalCompletionActorPublicId: "2e04601f-e202-422b-8116-7af31e6347dc", newTechnicalCompletion: "NOT_COMPLETED",
+  });
+  assert.equal(returned.previousTechnicalCompletionStatus, "Pronto");
+  assert.equal(returned.newTechnicalCompletion, "NOT_COMPLETED");
 });

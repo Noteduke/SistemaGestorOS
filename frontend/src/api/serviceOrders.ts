@@ -17,6 +17,9 @@ export interface ServiceOrderSummary {
   numberValue: string;
   macroStatus: string;
   operationalSituation: string;
+  operationalStatus: ServiceOrderStatus;
+  technicalCompletion: TechnicalCompletion;
+  technicalCompletedAt: string | null;
   customer: { publicId: string; name: string };
   equipment: {
     publicId: string;
@@ -38,6 +41,9 @@ export interface ServiceOrderDetail extends ServiceOrderSummary {
   newEquipmentSerialIdentificationStatus: string | null;
   createdByUserPublicId: string;
   assignedUserPublicIds: string[];
+  technicalCompletedByUserPublicId?: string | null;
+  technicalCompletedByUsername?: string | null;
+  technicalConclusionStatus?: { publicId: string; name: string } | null;
   snapshotVersion: number;
   snapshotCapturedAt: string;
   customerSnapshotJson: unknown;
@@ -168,6 +174,29 @@ export const operationalSituationOptions = [
 
 export type OperationalSituation = (typeof operationalSituationOptions)[number]["value"];
 
+export type TechnicalCompletion = "NOT_COMPLETED" | "COMPLETED_WITH_REPAIR" | "COMPLETED_WITHOUT_REPAIR";
+export interface ServiceOrderStatus { publicId: string; name: string; technicalCompletion: TechnicalCompletion; allowsBudgetWithdrawal: boolean; version: number }
+
+export function listServiceOrderStatuses(signal?: AbortSignal) {
+  return get<{ data: ServiceOrderStatus[] }>("/api/v1/service-order-statuses", signal);
+}
+
+export async function saveServiceOrderStatus(input: Pick<ServiceOrderStatus, "name" | "technicalCompletion"> & { publicId?: string; version?: number }, csrfToken: string) {
+  const editing = Boolean(input.publicId);
+  const path = editing ? `/api/v1/service-order-statuses/${encodeURIComponent(input.publicId!)}` : "/api/v1/service-order-statuses";
+  const response = await fetch(path, { method: editing ? "PATCH" : "POST", credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ name: input.name, technicalCompletion: input.technicalCompletion, ...(input.version ? { expectedVersion: input.version } : {}) }) });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const responseBody = isRecord(body) ? body : undefined;
+    const errorBody = responseBody && isRecord(responseBody.error) ? responseBody.error : responseBody;
+    throw new ApiError(response.status, typeof errorBody?.code === "string" ? errorBody.code : undefined,
+      typeof errorBody?.message === "string" ? errorBody.message : "Não foi possível salvar o status.");
+  }
+  return body as { data: ServiceOrderStatus };
+}
+
 export interface ServiceOrderEditControlState {
   orderEditable?: boolean;
   held: boolean;
@@ -216,7 +245,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export async function updateServiceOrderOperationalSituation(
   publicId: string,
-  operationalSituation: OperationalSituation,
+  operationalStatusPublicId: string,
   csrfToken: string,
   withdrawBudget = false,
   editToken?: string,
@@ -232,7 +261,7 @@ export async function updateServiceOrderOperationalSituation(
       ...(editToken ? { "X-Service-Order-Edit-Token": editToken } : {}),
       ...(expectedRevision ? { "X-Service-Order-Revision": expectedRevision } : {}),
     },
-    body: JSON.stringify({ operationalSituation, ...(withdrawBudget ? { withdrawBudget: true } : {}) }),
+    body: JSON.stringify({ operationalStatusPublicId, ...(withdrawBudget ? { withdrawBudget: true } : {}) }),
   });
 
   const body: unknown = await response.json().catch(() => null);
@@ -384,8 +413,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal) {
-  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal, awaitingPickup = false) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize), ...(awaitingPickup ? { awaitingPickup: "true" } : {}) });
   return get<Paginated<ServiceOrderSummary>>(`/api/v1/service-orders?${query}`, signal);
 }
 

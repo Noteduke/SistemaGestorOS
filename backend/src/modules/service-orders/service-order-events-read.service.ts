@@ -27,7 +27,9 @@ const payloadKeys: Record<string, readonly string[]> = {
   EQUIPAMENTO_CRIADO_DURANTE_ABERTURA: ["openingPublicId", "serviceOrderPublicId", "equipmentPublicId", "customerPublicId", "visibleNumber"],
   TITULARIDADE_TRANSFERIDA_DURANTE_ABERTURA: ["openingPublicId", "serviceOrderPublicId", "equipmentPublicId", "previousOwnerPublicId", "newOwnerPublicId", "visibleNumber"],
   ABERTURA_CONFIRMADA: ["openingPublicId", "serviceOrderPublicId", "visibleNumber", "customerPublicId", "equipmentPublicId", "macroStatus", "operationalSituation", "snapshotCapturedAt"],
-  SITUACAO_OPERACIONAL_ALTERADA: ["previousOperationalSituation", "newOperationalSituation"],
+  SITUACAO_OPERACIONAL_ALTERADA: ["previousOperationalStatusPublicId", "previousOperationalStatus", "newOperationalStatusPublicId", "newOperationalStatus", "previousTechnicalCompletion", "newTechnicalCompletion"],
+  CONCLUSAO_TECNICA_REGISTRADA: ["previousOperationalStatusPublicId", "previousOperationalStatus", "newOperationalStatusPublicId", "newOperationalStatus", "previousTechnicalCompletion", "newTechnicalCompletion", "technicalCompletedAt", "technicallyCompletedByUserPublicId"],
+  RETORNO_AO_ATENDIMENTO: ["previousOperationalStatusPublicId", "previousOperationalStatus", "newOperationalStatusPublicId", "newOperationalStatus", "previousTechnicalCompletion", "newTechnicalCompletion", "previousTechnicalCompletedAt", "previousTechnicalCompletionStatus", "previousTechnicalCompletionActorPublicId"],
   ATRIBUICOES_ALTERADAS: ["previousUserPublicIds", "newUserPublicIds", "addedUserPublicIds", "removedUserPublicIds", "actorUserPublicId"],
   ITEM_ORCAMENTO_CRIADO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
   ITEM_ORCAMENTO_ALTERADO: ["itemPublicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost", "changes", "totalBefore", "totalAfter"],
@@ -46,6 +48,7 @@ const closurePayloadKeys = new Set(["stockOperations"]);
 const publicIdPayloadKeys = new Set([
   "initiatingUserPublicId", "canceledByUserPublicId", "openingPublicId", "serviceOrderPublicId", "equipmentPublicId",
   "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId", "itemPublicId", "movementPublicId", "originalMovementPublicId", "reversalMovementPublicId",
+  "previousOperationalStatusPublicId", "newOperationalStatusPublicId", "technicallyCompletedByUserPublicId", "previousTechnicalCompletionActorPublicId",
 ]);
 const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

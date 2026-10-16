@@ -7,12 +7,14 @@ import { ServiceOrderListPage } from "./pages/service-orders/ServiceOrderListPag
 import { ServiceOrderOpeningPage } from "./pages/service-orders/ServiceOrderOpeningPage";
 import { ServiceCatalogPage } from "./pages/services/ServiceCatalogPage";
 import { ProductCatalogPage } from "./pages/products/ProductCatalogPage";
+import { ServiceOrderStatusesPage } from "./pages/service-orders/ServiceOrderStatusesPage";
 
 type Route =
   | { view: "list"; page: number }
   | { view: "opening" }
   | { view: "services" }
   | { view: "products" }
+  | { view: "statuses" }
   | { view: "detail"; publicId: string; section: "details" | "events" };
 
 function positivePage(value: string | null): number {
@@ -30,6 +32,7 @@ function readRoute(): Route {
   const query = new URLSearchParams(queryString);
   if (segments.length === 1 && segments[0] === "services") return { view: "services" };
   if (segments.length === 1 && segments[0] === "products") return { view: "products" };
+  if (segments.length === 1 && segments[0] === "service-order-statuses") return { view: "statuses" };
   if (segments.length === 2 && segments[0] === "service-orders" && segments[1] === "opening") {
     return { view: "opening" };
   }
@@ -183,6 +186,7 @@ export function App() {
         <div className="topbar-meta">
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
           {canAccessProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos / Estoque</a>}
+          {session.identity.isAdmin && <a className="topbar-link" href="#/service-order-statuses" onClick={(event) => { event.preventDefault(); navigateSafely("/service-order-statuses"); }}>Status de OS</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
           {logoutMessage && <span role="status">{logoutMessage}</span>}
@@ -200,6 +204,8 @@ export function App() {
           /> : <section className="state-card">Você não tem permissão para consultar Produtos ou Estoque.</section>
         ) : route.view === "services" ? (
           canManageServices ? <ServiceCatalogPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Você não tem permissão para administrar Serviços.</section>
+        ) : route.view === "statuses" ? (
+          session.identity.isAdmin ? <ServiceOrderStatusesPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Somente Administradores podem configurar status de OS.</section>
         ) : route.view === "list" ? (
           <ServiceOrderListPage
             page={route.page}

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { App } from "./App";
+import { operationalSituationOptions } from "./api/serviceOrders";
 
 it("restringe a tela de Serviços a Administrador ou services.manage", async () => {
   window.location.hash = "#/services";
@@ -69,6 +70,9 @@ const order = {
   numberValue: "128",
   macroStatus: "ABERTA",
   operationalSituation: "TRIAGEM",
+  operationalStatus: { publicId: "00000000-0000-4000-8000-000000000001", name: "TRIAGEM", technicalCompletion: "NOT_COMPLETED", isActive: true },
+  technicalCompletion: "NOT_COMPLETED",
+  technicalCompletedAt: null,
   customer: { publicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf", name: "Marina Costa" },
   equipment: { publicId: "a23a7f29-8a4c-4704-9ce4-593c3ba013a0", type: "Notebook", brand: "Lenovo", model: "ThinkPad", serialNumber: "SN-45", ownerPublicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf" },
   openedAt: "2026-10-10T13:00:00.000Z",
@@ -95,7 +99,11 @@ function unauthorized() {
 }
 
 function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>) {
-  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
+  const statuses = operationalSituationOptions.map((option, index) => ({ publicId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: option.label,
+    technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: index >= 8, isActive: true, version: 1 }));
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/v1/service-order-statuses"
+    ? Promise.resolve(response({ data: statuses }))
+    : String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
     ? Promise.resolve(response({ data: { held: true, holder: { publicId: "current-user", username: "usuario.teste" }, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 } }))
     : fetchMock(input, init));
 }

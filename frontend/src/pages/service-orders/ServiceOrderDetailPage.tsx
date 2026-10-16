@@ -11,6 +11,7 @@ import {
   heartbeatServiceOrderEditControl,
   listAssignableUsers,
   listServiceOrderHistory,
+  listServiceOrderStatuses,
   operationalSituationErrorMessage,
   operationalSituationOptions,
   replaceServiceOrderAssignments,
@@ -21,10 +22,10 @@ import {
   type ServiceOrderEditControlState,
   updateServiceOrderOperationalSituation,
   type AssignableUser,
-  type OperationalSituation,
   type Paginated,
   type ServiceOrderDetail,
   type ServiceOrderHistoryPage,
+  type ServiceOrderStatus,
 } from "../../api/serviceOrders";
 import { AsyncState } from "../../components/AsyncState";
 import { SnapshotCard } from "../../components/SnapshotCard";
@@ -123,7 +124,8 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [noteDeleting, setNoteDeleting] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [moreLoading, setMoreLoading] = useState(false);
-  const [selectedSituation, setSelectedSituation] = useState<OperationalSituation | "">("");
+  const [selectedSituation, setSelectedSituation] = useState<string>("");
+  const [operationalStatuses, setOperationalStatuses] = useState<ServiceOrderStatus[]>([]);
   const [updatingSituation, setUpdatingSituation] = useState(false);
   const [situationMessage, setSituationMessage] = useState<string | null>(null);
   const [situationError, setSituationError] = useState<string | null>(null);
@@ -171,6 +173,21 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const lastDiscardChangesVersionRef = useRef(discardChangesVersion);
   const orderLoaded = Boolean(order);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    listServiceOrderStatuses(controller.signal).then((result) => setOperationalStatuses(result.data)).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  function currentStatusId(value: ServiceOrderDetail | null | undefined): string {
+    return value?.operationalStatus?.publicId ?? operationalSituationOptions.find(({ label }) => label === value?.operationalSituation)?.value ?? "";
+  }
+
+  function selectedStatusLabel(publicId: string): string {
+    return operationalStatuses.find((status) => status.publicId === publicId)?.name
+      ?? operationalSituationOptions.find(({ value }) => value === publicId)?.label ?? "Nenhuma alteração selecionada";
+  }
+
   function markEditControlLost(message = "O controle desta OS foi transferido para outro contexto. Seus valores locais foram preservados em somente leitura.") {
     invalidatedRef.current = true;
     isEditingRef.current = false;
@@ -203,8 +220,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setLatestConflictOrder(null);
     setDataConflict(false);
     if (!hasDraft) {
-      const current = operationalSituationOptions.find(({ label }) => label === latest.operationalSituation)?.value;
-      setSelectedSituation(current ?? "");
+      setSelectedSituation(currentStatusId(latest));
       setSelectedUserPublicIds(latest.assignedUserPublicIds);
     }
   }
@@ -325,7 +341,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setAssignmentLabels(assignmentLabelsRef.current);
   }
 
-  const currentSituation = operationalSituationOptions.find(({ label }) => label === order?.operationalSituation)?.value;
+  const currentSituation = currentStatusId(order);
 
   const unsaved = Boolean(order && currentSituation && selectedSituation !== currentSituation)
     || Boolean(order && editingAssignments && !sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds))
@@ -354,8 +370,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     lastDiscardChangesVersionRef.current = discardChangesVersion;
     const currentOrder = orderRef.current;
     if (currentOrder) {
-      const current = operationalSituationOptions.find(({ label }) => label === currentOrder.operationalSituation)?.value;
-      setSelectedSituation(current ?? "");
+      setSelectedSituation(currentStatusId(currentOrder));
       setSelectedUserPublicIds(currentOrder.assignedUserPublicIds);
     }
     setEditingAssignments(false);
@@ -382,8 +397,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       setOrder(latest);
       baseRevisionRef.current = latest.updatedAt;
       setEditRevision(latest.updatedAt);
-      const current = operationalSituationOptions.find(({ label }) => label === latest.operationalSituation)?.value;
-      setSelectedSituation(current ?? "");
+      setSelectedSituation(currentStatusId(latest));
       setSelectedUserPublicIds(latest.assignedUserPublicIds);
       setEditingAssignments(false);
       setLatestConflictOrder(null);
@@ -405,8 +419,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
         setOrder(response.data);
         baseRevisionRef.current = response.data.updatedAt;
         setEditRevision(response.data.updatedAt);
-        const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
-        setSelectedSituation(current ?? "");
+        setSelectedSituation(currentStatusId(response.data));
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(reason, "detail"));
@@ -563,14 +576,13 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     setSituationMessage(null);
     setSituationError(null);
     try {
-      const notAuthorized = selectedSituation === "NOT_AUTHORIZED_REASSEMBLE" || selectedSituation === "NOT_AUTHORIZED_READY_DELIVERY";
-      const withdrawBudget = notAuthorized && budgetItemCount > 0 && window.confirm("Deseja retirar todos os itens atuais do orçamento? Esta ação será registrada no histórico e não poderá ser desfeita.");
+      const targetStatus = operationalStatuses.find((status) => status.publicId === selectedSituation);
+      const withdrawBudget = Boolean(targetStatus?.allowsBudgetWithdrawal && budgetItemCount > 0 && window.confirm("Deseja retirar todos os itens atuais do orçamento? Esta ação será registrada no histórico e não poderá ser desfeita."));
       const response = await updateServiceOrderOperationalSituation(publicId, selectedSituation, csrfToken, withdrawBudget, editToken, editRevision);
       setOrder(response.data);
       baseRevisionRef.current = response.data.updatedAt;
       setEditRevision(response.data.updatedAt);
-      const current = operationalSituationOptions.find(({ label }) => label === response.data.operationalSituation)?.value;
-      setSelectedSituation(current ?? "");
+      setSelectedSituation(currentStatusId(response.data));
       setSituationMessage("Situação operacional atualizada.");
       if (section === "events") setEventsReload((value) => value + 1);
     } catch (reason) {
@@ -664,7 +676,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 </section>
                 <section aria-label="Rascunho local não salvo">
                   <h3>Seu rascunho local não salvo</h3>
-                  <p>Situação desejada: {operationalSituationOptions.find(({ value }) => value === selectedSituation)?.label ?? "Nenhuma alteração selecionada"}</p>
+                  <p>Situação desejada: {selectedStatusLabel(selectedSituation)}</p>
                   <p>Responsáveis selecionados: {selectedUserPublicIds.map((id) => assignmentLabels[id] ?? "Usuário indisponível").join(", ") || "Nenhum"}</p>
                 </section>
               </div>}
@@ -697,6 +709,8 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                   <div><dt>Número</dt><dd>{order.visibleNumber}</dd></div>
                   <div><dt>Valor numérico</dt><dd>{order.numberValue}</dd></div>
                   <div><dt>Situação operacional</dt><dd>{order.operationalSituation}</dd></div>
+                  <div><dt>Situação técnica</dt><dd>{order.technicalCompletion === "COMPLETED_WITH_REPAIR" ? "Concluída com reparo" : order.technicalCompletion === "COMPLETED_WITHOUT_REPAIR" ? "Concluída sem reparo" : "Não concluída"}</dd></div>
+                  <div><dt>Conclusão técnica mais recente</dt><dd>{dateLabel(order.technicalCompletedAt)}{order.technicalCompletedByUsername ? ` · ${order.technicalCompletedByUsername}` : ""}</dd></div>
                   <div><dt>Cliente</dt><dd>{order.customer.name}</dd></div>
                   <div><dt>Equipamento</dt><dd>{[order.equipment.type, order.equipment.brand, order.equipment.model].filter(Boolean).join(" · ")}</dd></div>
                   <div><dt>Número de série</dt><dd>{order.equipment.serialNumber || "Não identificado"}</dd></div>
@@ -715,10 +729,10 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                   <select
                     id="operational-situation"
                     value={selectedSituation}
-                    onChange={(event) => { setSelectedSituation(event.target.value as OperationalSituation); setSituationMessage(null); setSituationError(null); }}
+                    onChange={(event) => { setSelectedSituation(event.target.value); setSituationMessage(null); setSituationError(null); }}
                     disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || updatingSituation}
                   >
-                    {operationalSituationOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+                    {(operationalStatuses.length ? operationalStatuses : operationalSituationOptions.map((option) => ({ publicId: option.value, name: option.label, technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, version: 1 } as ServiceOrderStatus))).map((status) => <option key={status.publicId} value={status.publicId}>{status.name}</option>)}
                   </select>
                   <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
                     {updatingSituation ? "Salvando…" : "Salvar situação"}

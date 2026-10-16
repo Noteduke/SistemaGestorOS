@@ -86,6 +86,14 @@ Os resultados/status-motivos finais aprovados são **Devolvido sem Reparo**, **D
 
 Mudanças de situação e atribuições geram histórico com usuário, data/hora, OS e situação anterior/nova; registrar funcionários antes/depois quando aplicável. A decisão de remover ou manter orçamento nas duas situações NÃO AUTORIZADO também é registrada. A lista e as propriedades iniciais estão aprovadas; grafo completo de transições, regras técnicas de encerramento e modelagem persistente seguem futuros.
 
+#### Catálogo configurável e conclusão técnica
+
+O catálogo inicial mantém os dez nomes aprovados, mas situação operacional é cadastro próprio com atributo explícito `NÃO CONCLUÍDO`, `CONCLUÍDO COM REPARO` ou `CONCLUÍDO SEM REPARO`. O nome não define o atributo. A migração preserva os registros legados e classifica todos inicialmente como `NÃO CONCLUÍDO`, sem inferir pelo texto; o Administrador configura o atributo. Criar/editar catálogo e alterar situação de OS são operações distintas e mantêm suas permissões e auditorias.
+
+Ao transitar de não concluído para concluído, uma OS ABERTA registra evento de conclusão com instante do servidor, funcionário e status. Uma troca entre situações com o mesmo atributo não gera nova conclusão. O retorno para uma situação não concluída registra retorno ao atendimento, limpa a conclusão atualmente válida e preserva o evento anterior; concluir novamente gera novo evento. Conclusão técnica não fecha a OS, não baixa estoque nem inicia contagem da garantia. OS FECHADA/CANCELADA não aceita mudança operacional normal. A classificação técnica não movimenta estoque; a ação separada e confirmada de retirada de orçamento preserva a regra já aprovada para os status NÃO AUTORIZADO. O detalhe e as consultas identificam a classificação técnica, a conclusão válida mais recente e o histórico, e a listagem permite filtrar OS abertas tecnicamente concluídas que aguardam retirada.
+
+A OS guarda snapshot do atributo aplicável, e a mudança do catálogo não reescreve eventos históricos nem snapshots existentes. Reclassificação em massa das OS existentes não foi definida e não ocorre nesta etapa. Diagnóstico técnico e descrição do serviço executado continuam opcionais; sua obrigatoriedade não foi aprovada.
+
 ### 2.3 Abertura e dados
 
 Ao iniciar a abertura, o sistema gera o número visível `OS-000001` (prefixo `OS-` e seis dígitos), sequencial global, crescente, único e imutável. O número é apresentado antes da confirmação final para identificar a máquina e permitir etiqueta durante o atendimento. A abertura em andamento fica registrada no banco, mas ainda não é OS ativa de atendimento, não exige cliente/equipamento e não possui retrato histórico definitivo. Ela sobrevive a fechamento do sistema, queda do navegador ou reinício do computador e pode ser retomada ou cancelada ao retornar. Cada usuário pode ter no máximo uma abertura em andamento; antes de iniciar outra, deve retomar ou desistir da existente. Ao confirmar cliente e equipamento, nasce a OS oficialmente como ABERTA/TRIAGEM com número definido. Defeito/reclamação não é obrigatório e começa vazio. Identificadores técnicos internos podem existir, mas o usuário usa o número visível.
@@ -252,7 +260,7 @@ O Cadastro de Serviços está implementado no Backend e Frontend, com nome obrig
 
 O retorno de equipamento para atendimento em garantia deve ser identificado como tal e relacionado à OS/atendimento original. A garantia pertence ao atendimento/serviço executado, e a nova OS de retorno mantém sua própria identidade e histórico. O sistema deve destacar visualmente OS em garantia.
 
-Existe garantia padrão configurável pela empresa e indicação expressa da garantia no documento de saída. O sistema deve apoiar a identificação/fluxo de retorno, sem presumir aprovação automática ou encerramento automático da garantia. Prazo, cobertura por tipo de serviço/peça, exceções, início da contagem e procedimento de garantia permanecem pendentes quando não explicitados.
+Existe garantia padrão configurável pela empresa e indicação expressa da garantia no documento de saída. A configuração e a indicação são decisões aprovadas, mas não foram implementadas nesta fatia. O sistema deve apoiar a identificação/fluxo de retorno, sem presumir aprovação automática ou encerramento automático da garantia. Prazo, cobertura por tipo de serviço/peça, exceções, início da contagem e procedimento de garantia permanecem pendentes quando não explicitados. Cobrança zero é permitida e pode representar cortesia, garantia ou serviço sem cobrança; a conclusão técnica não inicia a garantia.
 
 ## 5. Estoque, produtos e compras
 

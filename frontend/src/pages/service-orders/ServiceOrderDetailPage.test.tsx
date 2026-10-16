@@ -11,6 +11,9 @@ const detail = {
   numberValue: "128",
   macroStatus: "ABERTA",
   operationalSituation: "TRIAGEM",
+  operationalStatus: { publicId: "00000000-0000-4000-8000-000000000001", name: "TRIAGEM", technicalCompletion: "NOT_COMPLETED", isActive: true },
+  technicalCompletion: "NOT_COMPLETED",
+  technicalCompletedAt: null,
   customer: { publicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf", name: "Marina Costa" },
   equipment: { publicId: "a23a7f29-8a4c-4704-9ce4-593c3ba013a0", type: "Notebook", brand: "Lenovo", model: "ThinkPad", serialNumber: "SN-45", ownerPublicId: "d7d60964-4c5d-4d4e-9362-c56c2c08b4cf" },
   openedAt: "2026-10-10T13:00:00.000Z",
@@ -41,7 +44,11 @@ function response(body: unknown, status = 200) {
 }
 
 function withEditControl(fetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<any>, state: ServiceOrderEditControlState = { held: true, holder: { publicId: "current-user", username: "marina.admin" }, isSameUser: true, expiresAt: "2026-10-14T16:00:00.000Z", isCurrentContext: true, generation: 1, heartbeatIntervalSeconds: 60 }) {
-  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
+  const statuses = operationalSituationOptions.map((option, index) => ({ publicId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: option.label,
+    technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: index >= 8, isActive: true, version: 1 }));
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/v1/service-order-statuses"
+    ? Promise.resolve(response({ data: statuses }))
+    : String(input).endsWith("/edit-control") && (init?.method ?? "GET") === "GET"
     ? Promise.resolve(response({ data: state }))
     : fetchMock(input, init));
 }
@@ -331,15 +338,20 @@ describe("ServiceOrderDetailPage", () => {
     const reversalOne = makeReversalEvent("c3000000-0000-4000-8000-000000000003", 1, "AVAILABLE");
     const reversalTwo = makeReversalEvent("c3000000-0000-4000-8000-000000000004", 1, "DEFECTIVE");
     const reversalThree = makeReversalEvent("c3000000-0000-4000-8000-000000000005", 1, "AVAILABLE");
+    const reversalEvents: Array<typeof closureEvent | ReturnType<typeof makeReversalEvent>> = [closureEvent];
+    let reversalCount = 0;
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: { ...detail, macroStatus: "FECHADA" } }))
-      .mockResolvedValueOnce(response({ data: [closureEvent], nextCursor: null, hasMore: false }))
-      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 2, destination: "AVAILABLE", macroStatus: "FECHADA" } }, 201))
-      .mockResolvedValueOnce(response({ data: [reversalOne, closureEvent], nextCursor: null, hasMore: false }))
-      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 1, destination: "DEFECTIVE", macroStatus: "FECHADA" } }, 201))
-      .mockResolvedValueOnce(response({ data: [reversalTwo, reversalOne, closureEvent], nextCursor: null, hasMore: false }))
-      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 0, destination: "AVAILABLE", macroStatus: "FECHADA" } }, 201))
-      .mockResolvedValueOnce(response({ data: [reversalThree, reversalTwo, reversalOne, closureEvent], nextCursor: null, hasMore: false }));
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/history?")) return Promise.resolve(response({ data: [...reversalEvents].reverse(), nextCursor: null, hasMore: false }));
+      if (init?.method === "POST" && url.includes("/stock-consumptions/")) {
+        reversalCount += 1;
+        reversalEvents.push([reversalOne, reversalTwo, reversalThree][reversalCount - 1]);
+        return Promise.resolve(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3,
+          remainingReversible: 3 - reversalCount, destination: reversalCount === 2 ? "DEFECTIVE" : "AVAILABLE", macroStatus: "FECHADA" } }, 201));
+      }
+      return Promise.resolve(response({ data: { ...detail, macroStatus: "FECHADA" } }));
+    });
     vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageStock section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
@@ -349,13 +361,13 @@ describe("ServiceOrderDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Devolver ao estoque disponível" }));
     expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("estoque disponível"));
     expect(await screen.findByText("Reversão registrada em estoque disponível. Restam 2 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({
       method: "POST", credentials: "include", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory" }), body: JSON.stringify({ confirmed: true, quantity: 1, destination: "AVAILABLE" }),
     }));
     fireEvent.click(screen.getByRole("button", { name: "Classificar como defeituosa" }));
     expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("estoque defeituoso"));
     expect(await screen.findByText("Reversão registrada em estoque defeituoso. Restam 1 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(5, `/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({ body: JSON.stringify({ confirmed: true, quantity: 1, destination: "DEFECTIVE" }) }));
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({ body: JSON.stringify({ confirmed: true, quantity: 1, destination: "DEFECTIVE" }) }));
     fireEvent.click(screen.getByRole("button", { name: "Devolver ao estoque disponível" }));
     expect(await screen.findByText("Reversão registrada em estoque disponível. Restam 0 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
     expect(await screen.findAllByText("Evento do sistema: OS BAIXA DEFINITIVA REVERTIDA")).not.toHaveLength(0);
@@ -453,7 +465,7 @@ describe("ServiceOrderDetailPage", () => {
   });
 
   it("lista as dez situações e envia enum oficial com CSRF ao endpoint operacional", async () => {
-    const updated = { ...detail, operationalSituation: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO", updatedAt: "2026-10-11T13:00:00.000Z" };
+    const updated = { ...detail, operationalSituation: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO", operationalStatus: { ...detail.operationalStatus, publicId: "00000000-0000-4000-8000-000000000002", name: "AGUARDANDO AVALIAÇÃO/ORÇAMENTO" }, updatedAt: "2026-10-11T13:00:00.000Z" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ data: detail }))
       .mockResolvedValueOnce(response({ data: updated }));
@@ -467,7 +479,7 @@ describe("ServiceOrderDetailPage", () => {
     expect(screen.getByRole("region", { name: "Retrato do cliente" })).toHaveTextContent("Marina Costa");
     expect(screen.getByRole("region", { name: "Retrato do equipamento" })).toHaveTextContent("ThinkPad");
 
-    fireEvent.change(select, { target: { value: "AWAITING_EVALUATION_BUDGET" } });
+    fireEvent.change(select, { target: { value: "00000000-0000-4000-8000-000000000002" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar situação" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Situação operacional atualizada.");
@@ -475,7 +487,7 @@ describe("ServiceOrderDetailPage", () => {
       method: "PATCH",
       credentials: "include",
       headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory", "Content-Type": "application/json" }),
-      body: JSON.stringify({ operationalSituation: "AWAITING_EVALUATION_BUDGET" }),
+      body: JSON.stringify({ operationalStatusPublicId: "00000000-0000-4000-8000-000000000002" }),
     }));
     expect(screen.getAllByText("AGUARDANDO AVALIAÇÃO/ORÇAMENTO").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("ABERTA")).toBeInTheDocument();
@@ -509,7 +521,7 @@ describe("ServiceOrderDetailPage", () => {
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canUpdateSituation section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
-    fireEvent.change(screen.getByRole("combobox", { name: "Nova situação" }), { target: { value: "REPAIR_AUTHORIZED" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Nova situação" }), { target: { value: "00000000-0000-4000-8000-000000000004" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar situação" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });

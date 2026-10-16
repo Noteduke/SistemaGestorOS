@@ -168,6 +168,7 @@ model User {
   activeServiceOrderOpening     ServiceOrderOpening?      @relation("OpeningActiveUser")
   requestedOpeningTransfers     ServiceOrderOpening[]     @relation("OpeningTransferRequester")
   createdServiceOrders          ServiceOrder[]            @relation("ServiceOrderCreator")
+  technicallyCompletedOrders    ServiceOrder[]            @relation("TechnicalCompletionActor")
   serviceOrderAssignments       ServiceOrderAssignment[]  @relation("AssignmentUser")
   serviceOrderAssignmentsMade   ServiceOrderAssignment[]  @relation("AssignmentActor")
   serviceOrderEvents            ServiceOrderEvent[]       @relation("ServiceOrderEventActor")
@@ -490,19 +491,28 @@ enum ServiceOrderBudgetItemOrigin {
   @@map("service_order_budget_item_origin")
 }
 
-enum ServiceOrderOperationalSituation {
-  TRIAGE                        @map("TRIAGEM")
-  AWAITING_EVALUATION_BUDGET    @map("AGUARDANDO AVALIAÇÃO/ORÇAMENTO")
-  AWAITING_BUDGET_APPROVAL      @map("AGUARDANDO APROVAÇÃO DO ORÇAMENTO")
-  REPAIR_AUTHORIZED             @map("AUTORIZADO REPARO")
-  AWAITING_PART_PURCHASE        @map("AGUARDANDO COMPRA DE PEÇA")
-  AWAITING_PART_ARRIVAL         @map("AGUARDANDO CHEGADA DE PEÇA")
-  READY_TO_NOTIFY_CUSTOMER      @map("PRONTO AVISAR CLIENTE")
-  READY_CUSTOMER_NOTIFIED       @map("PRONTO CLIENTE AVISADO")
-  NOT_AUTHORIZED_REASSEMBLE     @map("NÃO AUTORIZADO - REMONTAR EQUIPAMENTO")
-  NOT_AUTHORIZED_READY_DELIVERY @map("NÃO AUTORIZADO - PRONTO PRA ENTREGA")
+enum ServiceOrderTechnicalCompletion {
+  NOT_COMPLETED
+  COMPLETED_WITH_REPAIR
+  COMPLETED_WITHOUT_REPAIR
 
-  @@map("service_order_operational_situation")
+  @@map("service_order_technical_completion")
+}
+
+model ServiceOrderStatus {
+  id                     Int                             @id @default(autoincrement())
+  publicId               String                          @unique @default(uuid()) @map("public_id") @db.Char(36)
+  name                   String                          @unique @db.VarChar(191)
+  technicalCompletion    ServiceOrderTechnicalCompletion @default(NOT_COMPLETED) @map("technical_completion")
+  allowsBudgetWithdrawal Boolean                         @default(false) @map("allows_budget_withdrawal")
+  isActive               Boolean                         @default(true) @map("is_active")
+  version                Int                             @default(1)
+  createdAt              DateTime                        @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt              DateTime                        @updatedAt @map("updated_at") @db.DateTime(3)
+  orders                 ServiceOrder[]                  @relation("CurrentServiceOrderStatus")
+  technicalConclusions   ServiceOrder[]                  @relation("TechnicalConclusionStatus")
+
+  @@map("service_order_statuses")
 }
 
 model ServiceOrderNumberControl {
@@ -567,40 +577,48 @@ model ServiceOrderOpening {
 }
 
 model ServiceOrder {
-  id                                     Int                              @id @default(autoincrement())
-  publicId                               String                           @unique @default(uuid()) @map("public_id") @db.Char(36)
-  openingId                              Int                              @unique @map("opening_id")
-  numberValue                            BigInt                           @unique @map("number_value")
-  customerId                             Int                              @map("customer_id")
-  equipmentId                            Int                              @map("equipment_id")
-  createdByUserId                        Int                              @map("created_by_user_id")
-  macroStatus                            ServiceOrderMacroStatus          @default(OPEN) @map("macro_status")
-  operationalSituation                   ServiceOrderOperationalSituation @default(TRIAGE) @map("operational_situation")
-  complaint                              String?                          @db.Text
-  intakeObservations                     String?                          @map("intake_observations") @db.Text
-  newEquipmentSerialIdentificationStatus SerialIdentificationStatus?      @map("new_equipment_serial_identification_status")
-  customerSnapshotJson                   Json                             @map("customer_snapshot_json")
-  equipmentSnapshotJson                  Json                             @map("equipment_snapshot_json")
-  snapshotVersion                        Int                              @default(1) @map("snapshot_version")
-  snapshotCapturedAt                     DateTime                         @map("snapshot_captured_at") @db.DateTime(3)
-  openedAt                               DateTime                         @default(now()) @map("opened_at") @db.DateTime(3)
-  createdAt                              DateTime                         @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt                              DateTime                         @updatedAt @map("updated_at") @db.DateTime(3)
+  id                                     Int                             @id @default(autoincrement())
+  publicId                               String                          @unique @default(uuid()) @map("public_id") @db.Char(36)
+  openingId                              Int                             @unique @map("opening_id")
+  numberValue                            BigInt                          @unique @map("number_value")
+  customerId                             Int                             @map("customer_id")
+  equipmentId                            Int                             @map("equipment_id")
+  createdByUserId                        Int                             @map("created_by_user_id")
+  macroStatus                            ServiceOrderMacroStatus         @default(OPEN) @map("macro_status")
+  operationalStatusId                    Int                             @default(1) @map("operational_status_id")
+  technicalCompletion                    ServiceOrderTechnicalCompletion @default(NOT_COMPLETED) @map("technical_completion")
+  technicalCompletedAt                   DateTime?                       @map("technical_completed_at") @db.DateTime(3)
+  technicalCompletedByUserId             Int?                            @map("technical_completed_by_user_id")
+  technicalConclusionStatusId            Int?                            @map("technical_conclusion_status_id")
+  complaint                              String?                         @db.Text
+  intakeObservations                     String?                         @map("intake_observations") @db.Text
+  newEquipmentSerialIdentificationStatus SerialIdentificationStatus?     @map("new_equipment_serial_identification_status")
+  customerSnapshotJson                   Json                            @map("customer_snapshot_json")
+  equipmentSnapshotJson                  Json                            @map("equipment_snapshot_json")
+  snapshotVersion                        Int                             @default(1) @map("snapshot_version")
+  snapshotCapturedAt                     DateTime                        @map("snapshot_captured_at") @db.DateTime(3)
+  openedAt                               DateTime                        @default(now()) @map("opened_at") @db.DateTime(3)
+  createdAt                              DateTime                        @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                              DateTime                        @updatedAt @map("updated_at") @db.DateTime(3)
 
-  opening          ServiceOrderOpening          @relation(fields: [openingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  numberAllocation ServiceOrderNumberAllocation @relation(fields: [numberValue], references: [numberValue], onDelete: Restrict, onUpdate: Cascade)
-  customer         Person                       @relation("ServiceOrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  equipment        Equipment                    @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy        User                         @relation("ServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assignments      ServiceOrderAssignment[]
-  events           ServiceOrderEvent[]
-  notes            ServiceOrderNote[]
-  ownershipEvents  EquipmentOwnership[]
-  budgetItems      ServiceOrderBudgetItem[]
-  stockMovements   ProductStockMovement[]
-  editControl      ServiceOrderEditControl?
+  opening                   ServiceOrderOpening          @relation(fields: [openingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operationalStatus         ServiceOrderStatus           @relation("CurrentServiceOrderStatus", fields: [operationalStatusId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  technicalConclusionStatus ServiceOrderStatus?          @relation("TechnicalConclusionStatus", fields: [technicalConclusionStatusId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  technicalCompletedBy      User?                        @relation("TechnicalCompletionActor", fields: [technicalCompletedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  numberAllocation          ServiceOrderNumberAllocation @relation(fields: [numberValue], references: [numberValue], onDelete: Restrict, onUpdate: Cascade)
+  customer                  Person                       @relation("ServiceOrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  equipment                 Equipment                    @relation(fields: [equipmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy                 User                         @relation("ServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignments               ServiceOrderAssignment[]
+  events                    ServiceOrderEvent[]
+  notes                     ServiceOrderNote[]
+  ownershipEvents           EquipmentOwnership[]
+  budgetItems               ServiceOrderBudgetItem[]
+  stockMovements            ProductStockMovement[]
+  editControl               ServiceOrderEditControl?
 
-  @@index([macroStatus, operationalSituation, openedAt])
+  @@index([macroStatus, operationalStatusId, openedAt])
+  @@index([macroStatus, technicalCompletion, openedAt])
   @@index([customerId, openedAt])
   @@index([equipmentId, openedAt])
   @@index([createdByUserId, openedAt])
