@@ -85,6 +85,9 @@ function movementView(movement: {
   defectiveDelta: number;
   occurredAt: Date;
   actor: { username: string };
+  serviceOrder?: { publicId: string } | null;
+  sourceMovement?: { publicId: string } | null;
+  reversesMovement?: { publicId: string } | null;
 }) {
   const quantity = Math.max(Math.abs(movement.totalDelta), Math.abs(movement.appliedDelta), Math.abs(movement.defectiveDelta));
   return {
@@ -97,6 +100,9 @@ function movementView(movement: {
     defectiveDelta: movement.defectiveDelta,
     occurredAt: movement.occurredAt,
     actor: { username: movement.actor.username },
+    ...(movement.serviceOrder ? { serviceOrderPublicId: movement.serviceOrder.publicId } : {}),
+    ...(movement.sourceMovement ? { sourceMovementPublicId: movement.sourceMovement.publicId } : {}),
+    ...(movement.reversesMovement ? { reversesMovementPublicId: movement.reversesMovement.publicId } : {}),
   };
 }
 
@@ -139,7 +145,12 @@ export class ProductStockService {
       this.prisma.productStockMovement.findMany({
         where: { productId: product.id }, orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
         skip: (query.page - 1) * query.pageSize, take: query.pageSize,
-        include: { actor: { select: { username: true } } },
+        include: {
+          actor: { select: { username: true } },
+          serviceOrder: { select: { publicId: true } },
+          sourceMovement: { select: { publicId: true } },
+          reversesMovement: { select: { publicId: true } },
+        },
       }),
       this.prisma.productStockMovement.count({ where: { productId: product.id } }),
     ]);

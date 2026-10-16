@@ -29,6 +29,7 @@ const movementLabels = {
   SERVICE_ORDER_APPLIED: "Aplicada em Ordem de Serviço",
   SERVICE_ORDER_REVERSED: "Aplicação revertida da Ordem de Serviço",
   SERVICE_ORDER_CONSUMED: "Baixada no encerramento da Ordem de Serviço",
+  SERVICE_ORDER_CONSUMPTION_REVERSED: "Baixa definitiva revertida para o estoque",
 } as const;
 
 function actionMessage(error: unknown): string {
@@ -273,13 +274,14 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
         <div className="product-stock-history">
           <h3>Histórico de movimentações</h3>
           {!movements ? <p role="status">Carregando histórico…</p> : movements.data.length === 0 ? <p>Nenhuma movimentação registrada.</p> : <div className="table-card"><div className="table-scroll"><table>
-            <thead><tr><th>Data/hora</th><th>Movimentação</th><th>Quantidade</th><th>Variação do total</th><th>Variação das defeituosas</th><th>Usuário</th></tr></thead>
+            <thead><tr><th>Data/hora</th><th>Movimentação</th><th>Quantidade</th><th>Variação do total</th><th>Variação das defeituosas</th><th>Referências</th><th>Usuário</th></tr></thead>
             <tbody>{movements.data.map((movement) => <tr key={movement.publicId}>
               <td>{new Date(movement.occurredAt).toLocaleString("pt-BR")}</td>
               <td>{movementLabels[movement.type]}</td>
               <td>{movement.quantity}</td>
               <td>{movement.totalDelta > 0 ? `+${movement.totalDelta}` : movement.totalDelta}</td>
               <td>{movement.defectiveDelta > 0 ? `+${movement.defectiveDelta}` : movement.defectiveDelta}</td>
+              <td>{movement.serviceOrderPublicId && <span>OS {movement.serviceOrderPublicId}</span>}{movement.reversesMovementPublicId && <span>Baixa original {movement.reversesMovementPublicId}</span>}{movement.sourceMovementPublicId && !movement.reversesMovementPublicId && <span>Movimento de origem {movement.sourceMovementPublicId}</span>}</td>
               <td>{movement.actor.username}</td>
             </tr>)}</tbody>
           </table></div></div>}

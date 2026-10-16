@@ -651,7 +651,11 @@ try {
   } finally {
     await executeIsolatedDdl(`RENAME TABLE \`${unavailableAuditTable}\` TO \`admin_audit_log\``);
   }
-  const repairedClose = await api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "REPAIRED" } });
+  const closeRevision = (await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { updatedAt: true } })).updatedAt.toISOString();
+  const parallelClosures = await Promise.all([0, 1].map(() => api(`/service-orders/${order.publicId}/close`, { method: "POST", body: { outcome: "REPAIRED" }, expectedRevision: closeRevision })));
+  assert.equal(parallelClosures.filter(({ status }) => status === 201).length, 1, JSON.stringify(parallelClosures));
+  assert.equal(parallelClosures.filter(({ status }) => status === 409).length, 1, JSON.stringify(parallelClosures));
+  const repairedClose = parallelClosures.find(({ status }) => status === 201);
   assert.equal(repairedClose.status, 201, JSON.stringify(repairedClose.body));
   assert.equal(repairedClose.body.data.macroStatus, "FECHADA");
   const consumedRows = await prisma.productStockMovement.findMany({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: closureItemId } }, type: "SERVICE_ORDER_CONSUMED" } });
@@ -664,7 +668,59 @@ try {
   assert.equal(secondConsumed.totalDelta, -1, "baixa itens diferentes dentro da mesma operação");
   const closedEvent = await prisma.serviceOrderEvent.findFirstOrThrow({ where: { serviceOrderId: order.id, eventType: "OS_ENCERRADA", actorUserId: userId }, orderBy: { id: "desc" } });
   assert.equal(JSON.stringify(closedEvent.payload).includes("unitCostSnapshot"), false, "o evento não expõe o custo histórico");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: closureItemId } }, type: "SERVICE_ORDER_CONSUMED" } }), consumedRows.length, "duas tentativas concorrentes deixam as baixas definitivas uma única vez");
+  await expectFailure(`/service-orders/${order.publicId}/close`, "POST", { outcome: "REPAIRED" }, 409, "SERVICE_ORDER_ALREADY_FINAL");
   results.push("Encerramento reparado reconcilia quantidades, preserva disponibilidade e custo histórico e reverte integralmente sob falha no Log Administrativo");
+
+  const closedOrderRevision = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true, updatedAt: true } });
+  const reversalTarget = consumedRows[0];
+  const reversalQuantity = -reversalTarget.totalDelta;
+  const reversalPath = `/service-orders/${order.publicId}/stock-consumptions/${reversalTarget.publicId}/reversal`;
+  await expectFailure(reversalPath, "POST", { confirmed: false }, 400, "INVALID_STOCK_CONSUMPTION_REVERSAL");
+  await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: stockManagePermission.id } } });
+  await expectFailure(reversalPath, "POST", { confirmed: true }, 403, "PERMISSION_DENIED");
+  await prisma.userPermission.create({ data: { userId, permissionId: stockManagePermission.id } });
+
+  const secondReversalTarget = consumedRows[1];
+  const unavailableReversalAuditTable = `admin_audit_log_reverse_fail_${nonce}`;
+  await executeIsolatedDdl(`RENAME TABLE \`admin_audit_log\` TO \`${unavailableReversalAuditTable}\``);
+  try {
+    const failedReversal = await api(`/service-orders/${order.publicId}/stock-consumptions/${secondReversalTarget.publicId}/reversal`, { method: "POST", body: { confirmed: true } });
+    assert.equal(failedReversal.status, 500, JSON.stringify(failedReversal.body));
+    assert.equal(await prisma.productStockMovement.count({ where: { reversesMovementId: secondReversalTarget.id } }), 0, "falha no Log Administrativo reverte o movimento compensatório");
+    assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "CLOSED");
+  } finally {
+    await executeIsolatedDdl(`RENAME TABLE \`${unavailableReversalAuditTable}\` TO \`admin_audit_log\``);
+  }
+
+  const parallelReversals = await Promise.all([0, 1].map(() => api(reversalPath, { method: "POST", body: { confirmed: true } })));
+  assert.equal(parallelReversals.filter(({ status }) => status === 201).length, 1, JSON.stringify(parallelReversals));
+  assert.equal(parallelReversals.filter(({ status }) => status === 409).length, 1, JSON.stringify(parallelReversals));
+  await expectFailure(reversalPath, "POST", { confirmed: true }, 409, "STOCK_CONSUMPTION_ALREADY_REVERSED");
+  const reversalRow = await prisma.productStockMovement.findUniqueOrThrow({ where: { reversesMovementId: reversalTarget.id } });
+  assert.equal(reversalRow.type, "SERVICE_ORDER_CONSUMPTION_REVERSED");
+  assert.equal(reversalRow.totalDelta, reversalQuantity);
+  assert.equal(reversalRow.appliedDelta, 0);
+  assert.equal(reversalRow.serviceOrderId, order.id);
+  assert.equal(reversalRow.actorUserId, userId);
+  assert.ok(reversalRow.occurredAt instanceof Date, "a movimentação registra o horário do servidor");
+  assert.equal((await prisma.productStockMovement.findUniqueOrThrow({ where: { id: reversalTarget.id } })).totalDelta, reversalTarget.totalDelta, "o movimento original permanece imutável");
+  const stockAfterDefinitiveReversal = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+  assert.equal(stockAfterDefinitiveReversal._sum.totalDelta, repairedBalance._sum.totalDelta + reversalQuantity, "a compensação recompõe somente o total disponível");
+  assert.equal(stockAfterDefinitiveReversal._sum.appliedDelta, repairedBalance._sum.appliedDelta);
+  assert.equal(stockAfterDefinitiveReversal._sum.defectiveDelta, repairedBalance._sum.defectiveDelta);
+  assert.deepEqual(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true, updatedAt: true } }), closedOrderRevision, "a reversão não altera o estado administrativo da OS");
+  const reversalAudit = await prisma.adminAuditLog.findFirstOrThrow({ where: { eventCode: "SERVICE_ORDER_STOCK_CONSUMPTION_REVERSED", actorUserId: userId }, orderBy: { id: "desc" } });
+  assert.equal(reversalAudit.detailsJson.originalMovementPublicId, reversalTarget.publicId);
+  const reversalHistory = await api(`/service-orders/${order.publicId}/history?pageSize=100`);
+  const reversalEvent = reversalHistory.body.data.find(({ eventType }) => eventType === "OS_BAIXA_DEFINITIVA_REVERTIDA");
+  assert.ok(reversalEvent, "a reversão aparece no histórico operacional");
+  assert.equal(JSON.stringify(reversalEvent.payload).includes("unitCostSnapshot"), false, "histórico da reversão não expõe custos");
+  const stockHistory = await api(`/products/${closureProduct.publicId}/stock/movements?page=1&pageSize=100`);
+  const reversalMovementView = stockHistory.body.data.find(({ publicId }) => publicId === reversalRow.publicId);
+  assert.equal(reversalMovementView.reversesMovementPublicId, reversalTarget.publicId);
+  assert.equal(reversalMovementView.serviceOrderPublicId, order.publicId);
+  results.push("Reversão explícita de baixa exige confirmação e products.stock.manage, bloqueia repetição concorrente, é atômica com histórico/auditoria, preserva OS FECHADA e rastreia a movimentação original sem expor custos");
 
   await reopenForClosureTest();
   const noRepairProduct = await prisma.product.create({ data: { internalCode: `NO-REPAIR-${nonce}`, description: `DEVOLUÇÃO ${nonce}`, category: "PART", createdByUserId: userId, updatedByUserId: userId } });
@@ -679,6 +735,8 @@ try {
   assert.equal(noRepairClose.status, 201, JSON.stringify(noRepairClose.body));
   const returnedBalance = await prisma.productStockMovement.aggregate({ where: { productId: noRepairProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
   assert.deepEqual(returnedBalance._sum, { totalDelta: 4, appliedDelta: 0, defectiveDelta: 1 }, "uma unidade normal volta à disponibilidade e a defeituosa permanece separada");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: noRepairItem.body.data.publicId } }, type: "SERVICE_ORDER_APPLIED" } }), 1, "encerrar sem reparo preserva os movimentos anteriores de aplicação");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: noRepairItem.body.data.publicId } }, type: "SERVICE_ORDER_REVERSED" } }), 1, "encerrar sem reparo acrescenta movimento compensatório sem apagar a aplicação original");
   results.push("Encerramento sem reparo exige confirmação de retirada e devolve unidades normais, mantendo defeituosas indisponíveis");
 
   await reopenForClosureTest();
@@ -704,6 +762,8 @@ try {
   assert.equal(concurrentCancel.filter(({ status }) => status === 201).length, 1, JSON.stringify(concurrentCancel));
   assert.equal(concurrentCancel.filter(({ status }) => status === 409).length, 1, JSON.stringify(concurrentCancel));
   assert.equal((await prisma.productStockMovement.aggregate({ where: { productId: cancelProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } }))._sum.defectiveDelta, 1, "tentativas concorrentes não duplicam a classificação ou reversão");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: cancelItem.body.data.publicId } }, type: "SERVICE_ORDER_APPLIED" } }), 1, "cancelamento preserva a aplicação original");
+  assert.equal(await prisma.productStockMovement.count({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: cancelItem.body.data.publicId } }, type: "SERVICE_ORDER_REVERSED" } }), 1, "cancelamento acrescenta reversão sem excluir movimentos anteriores");
   assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "CANCELED");
   results.push("Cancelamento com peças exige retirada, classifica defeito e duas solicitações simultâneas não duplicam movimentos");
 
@@ -726,6 +786,7 @@ try {
     if (userId && order) {
       await prisma.$transaction(async (tx) => {
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_REVERSED" } });
+        await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_CONSUMPTION_REVERSED" } });
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_CONSUMED" } });
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId, type: "SERVICE_ORDER_APPLIED" } });
         await tx.productStockMovement.deleteMany({ where: { actorUserId: userId } });

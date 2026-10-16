@@ -321,6 +321,31 @@ describe("ServiceOrderDetailPage", () => {
     expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
   });
 
+  it("permite ao gestor de estoque reverter uma baixa definitiva após confirmação e mantém a OS fechada", async () => {
+    const actor = { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" };
+    const movementPublicId = "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
+    const closureEvent = { kind: "SYSTEM_EVENT", eventType: "OS_ENCERRADA", occurredAt: "2026-10-10T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor,
+      payload: { stockOperations: [{ itemPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435", productPublicId: "b2000000-0000-4000-8000-000000000002", description: "Tela", quantity: 2, operation: "CONSUMED", consumptionMovements: [{ publicId: movementPublicId, quantity: 2 }] }] } };
+    const reversalEvent = { kind: "SYSTEM_EVENT", eventType: "OS_BAIXA_DEFINITIVA_REVERTIDA", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor,
+      payload: { originalMovementPublicId: movementPublicId, reversalMovementPublicId: "c3000000-0000-4000-8000-000000000003", quantity: 2 } };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: { ...detail, macroStatus: "FECHADA" } }))
+      .mockResolvedValueOnce(response({ data: [closureEvent], nextCursor: null, hasMore: false }))
+      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 2, macroStatus: "FECHADA" } }, 201))
+      .mockResolvedValueOnce(response({ data: [reversalEvent, closureEvent], nextCursor: null, hasMore: false }));
+    vi.stubGlobal("fetch", withEditControl(fetchMock));
+    render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageStock section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reverter baixa de 2 unidades — Tela" }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("fisicamente de volta ao estoque local"));
+    expect(await screen.findByText("Baixa definitiva revertida. A OS permaneceu fechada.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({
+      method: "POST", credentials: "include", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory" }), body: JSON.stringify({ confirmed: true }),
+    }));
+    await screen.findByText("Evento do sistema: OS BAIXA DEFINITIVA REVERTIDA");
+    expect(screen.queryByRole("button", { name: /Reverter baixa de/ })).not.toBeInTheDocument();
+  });
+
   it("cria observação com CSRF, sem controle de edição, e atualiza a linha do tempo", async () => {
     const actor = { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" };
     const note = { kind: "MANUAL_NOTE", publicId: "1d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", occurredAt: "2026-10-11T14:00:00.000Z", actor, text: "Cliente autorizou pelo WhatsApp.", canDelete: true };

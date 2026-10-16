@@ -14,6 +14,7 @@ import {
   operationalSituationErrorMessage,
   operationalSituationOptions,
   replaceServiceOrderAssignments,
+  reverseDefinitiveStockConsumption,
   releaseServiceOrderEditControl,
   takeoverServiceOrderEditControl,
   ApiError,
@@ -93,6 +94,17 @@ function eventLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function closureConsumptions(payload: Record<string, unknown> | null) {
+  if (!Array.isArray(payload?.stockOperations)) return [];
+  return payload.stockOperations.flatMap((operation) => {
+    if (!isRecord(operation) || operation.operation !== "CONSUMED" || typeof operation.description !== "string" || !Array.isArray(operation.consumptionMovements)) return [];
+    return operation.consumptionMovements.flatMap((movement) => isRecord(movement) && typeof movement.publicId === "string"
+      && typeof movement.quantity === "number" && Number.isSafeInteger(movement.quantity) && movement.quantity > 0
+      ? [{ publicId: movement.publicId, quantity: movement.quantity, description: operation.description as string }] : []);
+  });
+}
+
 export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canManageStock = false, canClose = false, canCancel = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,6 +112,9 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [history, setHistory] = useState<ServiceOrderHistoryPage | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const [consumptionReversalError, setConsumptionReversalError] = useState<string | null>(null);
+  const [consumptionReversalMessage, setConsumptionReversalMessage] = useState<string | null>(null);
+  const [reversingConsumption, setReversingConsumption] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [eventsReload, setEventsReload] = useState(0);
   const [noteText, setNoteText] = useState("");
@@ -430,6 +445,23 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
       setEventsError(errorMessage(reason, "events"));
     } finally {
       setMoreLoading(false);
+    }
+  }
+
+  async function reverseConsumption(movementPublicId: string, quantity: number, description: string) {
+    const confirmed = window.confirm(`Confirma a reversão integral de ${quantity} unidade(s) da baixa definitiva de “${description}”? Prossiga somente se a peça estiver fisicamente de volta ao estoque local. A OS permanecerá FECHADA.`);
+    if (!confirmed || reversingConsumption) return;
+    setReversingConsumption(movementPublicId);
+    setConsumptionReversalError(null);
+    setConsumptionReversalMessage(null);
+    try {
+      await reverseDefinitiveStockConsumption(publicId, movementPublicId, csrfToken);
+      setConsumptionReversalMessage("Baixa definitiva revertida. A OS permaneceu fechada.");
+      setEventsReload((value) => value + 1);
+    } catch (reason) {
+      setConsumptionReversalError(errorMessage(reason, "events"));
+    } finally {
+      setReversingConsumption(null);
     }
   }
 
@@ -809,6 +841,8 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 </form>
               )}
               {noteError && <p className="form-message form-message--error" role="alert">{noteError}</p>}
+              {consumptionReversalMessage && <p className="form-message" role="status">{consumptionReversalMessage}</p>}
+              {consumptionReversalError && <p className="form-message form-message--error" role="alert">{consumptionReversalError}</p>}
               <AsyncState loading={eventsLoading} error={eventsError} empty={!eventsLoading && !eventsError && !history?.data.length} emptyMessage="Esta OS ainda não possui itens de histórico para exibir." onRetry={() => setEventsReload((value) => value + 1)} />
               {history?.data.length ? (
                 <>
@@ -826,6 +860,17 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                                   {Object.entries(item.payload).map(([key, value]) => <div key={key}><dt>{eventLabel(key)}</dt><dd>{eventValue(value)}</dd></div>)}
                                 </dl>
                               )}
+                              {canManageStock && item.eventType === "OS_ENCERRADA" && closureConsumptions(item.payload).map((movement) => {
+                                const alreadyReversed = history.data.some((candidate) => candidate.kind === "SYSTEM_EVENT"
+                                  && candidate.eventType === "OS_BAIXA_DEFINITIVA_REVERTIDA"
+                                  && candidate.payload?.originalMovementPublicId === movement.publicId);
+                                if (alreadyReversed) return null;
+                                return <button className="button button--secondary" type="button" key={movement.publicId}
+                                  disabled={reversingConsumption !== null}
+                                  onClick={() => void reverseConsumption(movement.publicId, movement.quantity, movement.description)}>
+                                  {reversingConsumption === movement.publicId ? "Revertendo…" : `Reverter baixa de ${movement.quantity} ${movement.quantity === 1 ? "unidade" : "unidades"} — ${movement.description}`}
+                                </button>;
+                              })}
                             </>
                           ) : (
                             <>

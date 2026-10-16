@@ -15,10 +15,11 @@ import { ServiceOrderBudgetItemsService } from "./service-order-budget-items.ser
 import { ServiceOrderEditControlService } from "./service-order-edit-control.service.js";
 import { ServiceOrderStockApplicationsService } from "./service-order-stock-applications.service.js";
 import { ServiceOrderClosureService } from "./service-order-closure.service.js";
+import { ServiceOrderConsumptionReversalService } from "./service-order-consumption-reversal.service.js";
 
 @Module({
   imports: [PrismaModule, AuthModule],
   controllers: [ServiceOrderOpeningsController, ServiceOrdersController],
-  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrderAssignmentsService, ServiceOrdersReadService, ServiceOrderEventsReadService, ServiceOrderNotesService, ServiceOrderHistoryService, ServiceOrderBudgetItemsService, ServiceOrderEditControlService, ServiceOrderStockApplicationsService, ServiceOrderClosureService],
+  providers: [ServiceOrderOpeningsService, ServiceOrderConfirmationService, ServiceOrderOperationalSituationService, ServiceOrderAssignmentsService, ServiceOrdersReadService, ServiceOrderEventsReadService, ServiceOrderNotesService, ServiceOrderHistoryService, ServiceOrderBudgetItemsService, ServiceOrderEditControlService, ServiceOrderStockApplicationsService, ServiceOrderClosureService, ServiceOrderConsumptionReversalService],
 })
 export class ServiceOrdersModule {}

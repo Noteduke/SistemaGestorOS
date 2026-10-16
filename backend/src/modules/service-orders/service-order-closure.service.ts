@@ -151,7 +151,7 @@ export class ServiceOrderClosureService {
       const before = await productStockBalance(tx, productId);
       const after = stockBalanceFromDeltas({ total: before.total - quantity, applied: before.applied - quantity, defective: before.defective });
       assertMysqlStockRange(after.total, after.applied, after.defective);
-      const movementPublicIds: string[] = [];
+      const consumptionMovements: Array<{ publicId: string; quantity: number }> = [];
       for (const batch of itemBatches) {
         if (!batch.remaining) continue;
         const consumed = await tx.productStockMovement.create({ data: {
@@ -159,7 +159,7 @@ export class ServiceOrderClosureService {
           serviceOrderId: order.id, budgetItemId: item.id, sourceMovementId: batch.movement.id,
           unitCostSnapshot: batch.movement.unitCostSnapshot, actorUserId: actor.id,
         }, select: { publicId: true } });
-        movementPublicIds.push(consumed.publicId);
+        consumptionMovements.push({ publicId: consumed.publicId, quantity: batch.remaining });
       }
       const afterLedger = await productStockBalance(tx, productId);
       if (afterLedger.total !== after.total || afterLedger.applied !== after.applied || afterLedger.defective !== after.defective) {
@@ -167,9 +167,10 @@ export class ServiceOrderClosureService {
       }
       await tx.adminAuditLog.create({ data: {
         eventCode: "SERVICE_ORDER_STOCK_CONSUMED", actorUserId: actor.id,
-        detailsJson: { serviceOrderPublicId: order.publicId, itemPublicId: item.publicId, productPublicId: productViews.get(productId)!.publicId, movementPublicIds, quantity, operation: "CONSUMED_ON_REPAIR_CLOSURE", before, after },
+        detailsJson: { serviceOrderPublicId: order.publicId, itemPublicId: item.publicId, productPublicId: productViews.get(productId)!.publicId,
+          movementPublicIds: consumptionMovements.map(({ publicId }) => publicId), quantity, operation: "CONSUMED_ON_REPAIR_CLOSURE", before, after },
       } });
-      operations.push({ itemPublicId: item.publicId, productPublicId: productViews.get(productId)!.publicId, description: item.description, quantity, operation: "CONSUMED" });
+      operations.push({ itemPublicId: item.publicId, productPublicId: productViews.get(productId)!.publicId, description: item.description, quantity, consumptionMovements, operation: "CONSUMED" });
     }
     return operations;
   }

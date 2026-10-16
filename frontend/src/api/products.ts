@@ -1,7 +1,7 @@
 export type ProductCategory = "PART" | "RESALE_GOOD";
 export type ProductStatus = "active" | "inactive" | "all";
 export interface ProductStockBalance { total: number; applied: number; defective: number; available: number }
-export type ProductStockMovementType = "MANUAL_ENTRY" | "MANUAL_ADJUSTMENT" | "DEFECTIVE_CLASSIFIED" | "DEFECTIVE_RETURNED" | "DEFECTIVE_DISCARDED" | "SERVICE_ORDER_APPLIED" | "SERVICE_ORDER_REVERSED" | "SERVICE_ORDER_CONSUMED";
+export type ProductStockMovementType = "MANUAL_ENTRY" | "MANUAL_ADJUSTMENT" | "DEFECTIVE_CLASSIFIED" | "DEFECTIVE_RETURNED" | "DEFECTIVE_DISCARDED" | "SERVICE_ORDER_APPLIED" | "SERVICE_ORDER_REVERSED" | "SERVICE_ORDER_CONSUMED" | "SERVICE_ORDER_CONSUMPTION_REVERSED";
 export interface ProductStockMovement {
   publicId: string;
   type: ProductStockMovementType;
@@ -12,6 +12,9 @@ export interface ProductStockMovement {
   defectiveDelta: number;
   occurredAt: string;
   actor: { username: string };
+  serviceOrderPublicId?: string;
+  sourceMovementPublicId?: string;
+  reversesMovementPublicId?: string;
 }
 export interface CatalogProduct {
   publicId: string;

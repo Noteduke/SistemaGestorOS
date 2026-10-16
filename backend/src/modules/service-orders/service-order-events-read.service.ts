@@ -37,6 +37,7 @@ const payloadKeys: Record<string, readonly string[]> = {
   PECA_ESTOQUE_APLICACAO_REVERTIDA: ["itemPublicId", "productPublicId", "description", "quantity", "defectiveQuantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "defectiveBefore", "defectiveAfter", "reversals"],
   OS_ENCERRADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
   OS_CANCELADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
+  OS_BAIXA_DEFINITIVA_REVERTIDA: ["serviceOrderPublicId", "originalMovementPublicId", "reversalMovementPublicId", "productPublicId", "itemPublicId", "description", "quantity", "macroStatusUnchanged"],
 };
 
 const booleanPayloadKeys = new Set(["numberReleased"]);
@@ -44,7 +45,7 @@ const arrayPayloadKeys = new Set(["previousUserPublicIds", "newUserPublicIds", "
 const closurePayloadKeys = new Set(["stockOperations"]);
 const publicIdPayloadKeys = new Set([
   "initiatingUserPublicId", "canceledByUserPublicId", "openingPublicId", "serviceOrderPublicId", "equipmentPublicId",
-  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId", "itemPublicId", "movementPublicId",
+  "customerPublicId", "previousOwnerPublicId", "newOwnerPublicId", "actorUserPublicId", "productPublicId", "itemPublicId", "movementPublicId", "originalMovementPublicId", "reversalMovementPublicId",
 ]);
 const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -93,7 +94,12 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
           || (entry.defectiveQuantity !== undefined && typeof entry.defectiveQuantity !== "number")
           || !["CONSUMED", "RETURNED"].includes(String(entry.operation))) return [];
         return [{ itemPublicId: entry.itemPublicId, productPublicId: entry.productPublicId, description: entry.description, quantity: entry.quantity,
-          ...(typeof entry.defectiveQuantity === "number" ? { defectiveQuantity: entry.defectiveQuantity } : {}), operation: entry.operation }];
+          ...(typeof entry.defectiveQuantity === "number" ? { defectiveQuantity: entry.defectiveQuantity } : {}),
+          ...(Array.isArray(entry.consumptionMovements) ? { consumptionMovements: entry.consumptionMovements.flatMap((movement) =>
+            isRecord(movement) && typeof movement.publicId === "string" && publicIdPattern.test(movement.publicId)
+              && typeof movement.quantity === "number" && Number.isSafeInteger(movement.quantity) && movement.quantity > 0
+              ? [{ publicId: movement.publicId, quantity: movement.quantity }] : []) } : {}),
+          operation: entry.operation }];
       });
       continue;
     }

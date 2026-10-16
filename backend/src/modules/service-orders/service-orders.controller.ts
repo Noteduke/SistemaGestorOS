@@ -20,6 +20,8 @@ import { ServiceOrderStockApplicationsService } from "./service-order-stock-appl
 import { parseApplyStockPart, parseRemoveBudgetItem, parseReverseStockPart } from "./dto/service-order-stock-application.dto.js";
 import { parseCancelServiceOrder, parseCloseServiceOrder } from "./dto/service-order-closure.dto.js";
 import { ServiceOrderClosureService } from "./service-order-closure.service.js";
+import { ServiceOrderConsumptionReversalService } from "./service-order-consumption-reversal.service.js";
+import { parseReverseServiceOrderConsumption } from "./dto/service-order-consumption-reversal.dto.js";
 
 @Controller("service-orders")
 export class ServiceOrdersController {
@@ -34,6 +36,7 @@ export class ServiceOrdersController {
     private readonly editControl: ServiceOrderEditControlService,
     private readonly stockApplications: ServiceOrderStockApplicationsService,
     private readonly closure: ServiceOrderClosureService,
+    private readonly consumptionReversals: ServiceOrderConsumptionReversalService,
   ) {}
 
   @Get()
@@ -64,6 +67,12 @@ export class ServiceOrdersController {
   @RequirePermissions("os.cancel")
   cancel(@Param("publicId") publicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
     return this.closure.cancel(publicId, parseCancelServiceOrder(body), request.auth!, editToken(request), serviceOrderRevision(request));
+  }
+
+  @Post(":publicId/stock-consumptions/:movementPublicId/reversal")
+  @RequirePermissions("products.stock.manage")
+  reverseDefinitiveStockConsumption(@Param("publicId") publicId: string, @Param("movementPublicId") movementPublicId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.consumptionReversals.reverse(publicId, movementPublicId, parseReverseServiceOrderConsumption(body), request.auth!);
   }
 
   @Post(":publicId/edit-control")
