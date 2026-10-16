@@ -350,7 +350,7 @@ if ($LASTEXITCODE -ne 0 -or $nodeVersionOutput -notmatch '^v24\.') { throw 'O No
 
 if ($WhatIfPreference) {
   Write-Output 'Prévia concluída: caminhos, ambiente (valores secretos omitidos), conta de serviço, XMLs, manifesto, bundle e destinos de ACL foram verificados.'
-  Write-Output "Node.js $nodeVersionOutput confirmado. Nenhuma alteração foi feita; Caddy validate será executado no fluxo real antes da primeira alteração."
+  Write-Output "Node.js $nodeVersionOutput confirmado. Nenhuma alteração foi feita; a adaptação sintática do Caddyfile será executada no fluxo real antes da primeira alteração."
   Write-Output 'Nenhum arquivo foi copiado, nenhuma ACL foi alterada e nenhum serviço ou configuração do servidor foi modificado.'
   Write-Output 'A instalação real requer execução elevada e -Apply explícito.'
   return
@@ -362,8 +362,8 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 $caddyVersionOutput = (& $caddySource version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($caddyVersionOutput)) { throw 'Não foi possível validar a versão do executável Caddy fornecido.' }
-$caddyValidationOutput = (& $caddySource validate --config $caddyfile 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0) { throw 'Caddy recusou o Caddyfile; nenhuma ACL, cópia ou serviço foi alterado.' }
+$caddyAdaptationOutput = (& $caddySource adapt --config $caddyfile --adapter caddyfile 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($caddyAdaptationOutput)) { throw 'Caddy não conseguiu adaptar o Caddyfile; nenhuma ACL, cópia ou serviço foi alterado.' }
 
 if (-not $PSCmdlet.ShouldProcess($configRoot, 'Restringir configuração e credenciais para Administrators, SYSTEM e LocalService')) {
   throw 'Aplicação de ACL recusada; instalação interrompida antes da cópia ou registro dos serviços.'
