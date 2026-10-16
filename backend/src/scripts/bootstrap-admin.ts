@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "../app.module.js";
 import { PrismaService } from "../infrastructure/prisma/prisma.service.js";
 import { AuthService } from "../modules/auth/auth.service.js";
+import { safeDiagnosticMessage } from "../infrastructure/safe-diagnostic.js";
 
 async function main(): Promise<void> {
   if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
@@ -71,7 +72,6 @@ function readSecret(label: string): Promise<string> {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Falha no bootstrap; nenhuma senha foi exibida.";
-  console.error(message);
+  console.error(safeDiagnosticMessage(error, "Falha no bootstrap; nenhuma senha foi exibida."));
   process.exitCode = 1;
 });

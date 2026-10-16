@@ -1,6 +1,7 @@
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "../app.module.js";
 import { PrismaService } from "../infrastructure/prisma/prisma.service.js";
+import { safeDiagnosticMessage } from "../infrastructure/safe-diagnostic.js";
 import { ensureUnspecifiedBrand } from "./ensure-unspecified-brand.js";
 
 async function main(): Promise<void> {
@@ -24,6 +25,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "Falha ao verificar a Marca controlada.");
+  console.error(safeDiagnosticMessage(error, "Falha ao verificar a Marca controlada."));
   process.exitCode = 1;
 });

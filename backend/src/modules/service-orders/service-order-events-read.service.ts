@@ -37,7 +37,7 @@ const payloadKeys: Record<string, readonly string[]> = {
   PECA_ESTOQUE_APLICACAO_REVERTIDA: ["itemPublicId", "productPublicId", "description", "quantity", "defectiveQuantity", "appliedBefore", "appliedAfter", "availableBefore", "availableAfter", "defectiveBefore", "defectiveAfter", "reversals"],
   OS_ENCERRADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
   OS_CANCELADA: ["previousMacroStatus", "newMacroStatus", "outcome", "stockOperations"],
-  OS_BAIXA_DEFINITIVA_REVERTIDA: ["serviceOrderPublicId", "originalMovementPublicId", "reversalMovementPublicId", "productPublicId", "itemPublicId", "description", "quantity", "macroStatusUnchanged"],
+  OS_BAIXA_DEFINITIVA_REVERTIDA: ["serviceOrderPublicId", "originalMovementPublicId", "reversalMovementPublicId", "productPublicId", "itemPublicId", "description", "quantity", "originalQuantity", "remainingBefore", "remainingAfter", "destination", "stockBefore", "stockAfter", "macroStatusUnchanged"],
 };
 
 const booleanPayloadKeys = new Set(["numberReleased"]);
@@ -101,6 +101,16 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
               ? [{ publicId: movement.publicId, quantity: movement.quantity }] : []) } : {}),
           operation: entry.operation }];
       });
+      continue;
+    }
+    if (key === "destination") {
+      if (candidate === "AVAILABLE" || candidate === "DEFECTIVE") sanitized[key] = candidate;
+      continue;
+    }
+    if (key === "stockBefore" || key === "stockAfter") {
+      if (isRecord(candidate) && ["total", "applied", "defective", "available"].every((field) => Number.isSafeInteger(candidate[field]))) {
+        sanitized[key] = { total: candidate.total, applied: candidate.applied, defective: candidate.defective, available: candidate.available };
+      }
       continue;
     }
     if (booleanPayloadKeys.has(key)) {

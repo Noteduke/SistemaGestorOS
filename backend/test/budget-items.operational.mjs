@@ -637,6 +637,15 @@ try {
   assert.equal(secondClosureItem.status, 201, JSON.stringify(secondClosureItem.body));
   createdItemIds.push(secondClosureItem.body.data.publicId);
   await api(`/service-orders/${order.publicId}/budget-items/${secondClosureItem.body.data.publicId}/applications`, { method: "POST", body: { quantity: 1 } });
+  const partialReversalProduct = await prisma.product.create({ data: {
+    internalCode: `CLOSE-PARTIAL-${nonce}`, description: `PEÇA REVERSÃO PARCIAL ${nonce}`, category: "PART", salePrice: new Prisma.Decimal("3.00"), acquisitionCost: null, createdByUserId: userId, updatedByUserId: userId,
+  } });
+  createdProductIds.push(partialReversalProduct.publicId);
+  await api(`/products/${partialReversalProduct.publicId}/stock/entries`, { method: "POST", body: { quantity: 3 } });
+  const partialReversalItem = await api(`/service-orders/${order.publicId}/budget-items/stock-part`, { method: "POST", body: { productPublicId: partialReversalProduct.publicId, quantity: 3 } });
+  assert.equal(partialReversalItem.status, 201, JSON.stringify(partialReversalItem.body));
+  createdItemIds.push(partialReversalItem.body.data.publicId);
+  await api(`/service-orders/${order.publicId}/budget-items/${partialReversalItem.body.data.publicId}/applications`, { method: "POST", body: { quantity: 3 } });
 
   const unavailableAuditTable = `admin_audit_log_test_fail_${nonce}`;
   await executeIsolatedDdl(`RENAME TABLE \`admin_audit_log\` TO \`${unavailableAuditTable}\``);
@@ -664,6 +673,7 @@ try {
   assert.ok(consumedRows.every((movement) => movement.unitCostSnapshot?.toFixed(2) === "7.10"), "cada movimento de baixa preserva o snapshot histórico da aplicação de origem");
   const repairedBalance = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
   assert.deepEqual(repairedBalance._sum, { totalDelta: -1, appliedDelta: 0, defectiveDelta: 0 }, "a baixa aceita estoque negativo e reduz total/aplicado igualmente, preservando disponibilidade");
+  const partialReversalBalance = await prisma.productStockMovement.aggregate({ where: { productId: partialReversalProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
   const secondConsumed = await prisma.productStockMovement.findFirstOrThrow({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: secondClosureItem.body.data.publicId } }, type: "SERVICE_ORDER_CONSUMED" } });
   assert.equal(secondConsumed.totalDelta, -1, "baixa itens diferentes dentro da mesma operação");
   const closedEvent = await prisma.serviceOrderEvent.findFirstOrThrow({ where: { serviceOrderId: order.id, eventType: "OS_ENCERRADA", actorUserId: userId }, orderBy: { id: "desc" } });
@@ -673,54 +683,82 @@ try {
   results.push("Encerramento reparado reconcilia quantidades, preserva disponibilidade e custo histórico e reverte integralmente sob falha no Log Administrativo");
 
   const closedOrderRevision = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true, updatedAt: true } });
-  const reversalTarget = consumedRows[0];
+  const reversalTarget = await prisma.productStockMovement.findFirstOrThrow({ where: { serviceOrderId: order.id, budgetItem: { is: { publicId: partialReversalItem.body.data.publicId } }, type: "SERVICE_ORDER_CONSUMED" } });
   const reversalQuantity = -reversalTarget.totalDelta;
+  assert.equal(reversalQuantity, 3);
+  await assert.rejects(prisma.$executeRaw`INSERT INTO product_stock_movements (public_id, product_id, type, origin, total_delta, applied_delta, defective_delta, service_order_id, budget_item_id, reverses_movement_id, actor_user_id) VALUES (${randomUUID()}, ${reversalTarget.productId}, 'SERVICE_ORDER_CONSUMPTION_REVERSED', 'SERVICE_ORDER', 1, 0, 0, ${order.id}, ${reversalTarget.budgetItemId}, ${reversalTarget.id}, ${userId})`, (error) => {
+    assert.match(String(error?.message ?? error), /product_stock_reversal_destination_chk/iu);
+    return true;
+  }, "o banco rejeita reversão sem destino");
   const reversalPath = `/service-orders/${order.publicId}/stock-consumptions/${reversalTarget.publicId}/reversal`;
-  await expectFailure(reversalPath, "POST", { confirmed: false }, 400, "INVALID_STOCK_CONSUMPTION_REVERSAL");
+  await expectFailure(reversalPath, "POST", { confirmed: false, quantity: 1, destination: "AVAILABLE" }, 400, "INVALID_STOCK_CONSUMPTION_REVERSAL");
   await prisma.userPermission.delete({ where: { userId_permissionId: { userId, permissionId: stockManagePermission.id } } });
-  await expectFailure(reversalPath, "POST", { confirmed: true }, 403, "PERMISSION_DENIED");
+  await expectFailure(reversalPath, "POST", { confirmed: true, quantity: 1, destination: "AVAILABLE" }, 403, "PERMISSION_DENIED");
   await prisma.userPermission.create({ data: { userId, permissionId: stockManagePermission.id } });
 
-  const secondReversalTarget = consumedRows[1];
   const unavailableReversalAuditTable = `admin_audit_log_reverse_fail_${nonce}`;
   await executeIsolatedDdl(`RENAME TABLE \`admin_audit_log\` TO \`${unavailableReversalAuditTable}\``);
   try {
-    const failedReversal = await api(`/service-orders/${order.publicId}/stock-consumptions/${secondReversalTarget.publicId}/reversal`, { method: "POST", body: { confirmed: true } });
+    const failedReversal = await api(reversalPath, { method: "POST", body: { confirmed: true, quantity: 1, destination: "DEFECTIVE" } });
     assert.equal(failedReversal.status, 500, JSON.stringify(failedReversal.body));
-    assert.equal(await prisma.productStockMovement.count({ where: { reversesMovementId: secondReversalTarget.id } }), 0, "falha no Log Administrativo reverte o movimento compensatório");
+    assert.equal(await prisma.productStockMovement.count({ where: { reversesMovementId: reversalTarget.id } }), 0, "falha no Log Administrativo reverte o movimento compensatório");
     assert.equal((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true } })).macroStatus, "CLOSED");
   } finally {
     await executeIsolatedDdl(`RENAME TABLE \`${unavailableReversalAuditTable}\` TO \`admin_audit_log\``);
   }
 
-  const parallelReversals = await Promise.all([0, 1].map(() => api(reversalPath, { method: "POST", body: { confirmed: true } })));
+  const firstReversal = await api(reversalPath, { method: "POST", body: { confirmed: true, quantity: 1, destination: "AVAILABLE" } });
+  assert.equal(firstReversal.status, 201, JSON.stringify(firstReversal.body));
+  assert.equal(firstReversal.body.data.remainingReversible, 2);
+  assert.equal(firstReversal.body.data.destination, "AVAILABLE");
+  const afterFirstReversal = await prisma.productStockMovement.findUniqueOrThrow({ where: { publicId: firstReversal.body.data.reversalMovementPublicId } });
+  assert.equal(afterFirstReversal.totalDelta, 1);
+  assert.equal(afterFirstReversal.defectiveDelta, 0);
+  await expectFailure(reversalPath, "POST", { confirmed: true, quantity: 3, destination: "AVAILABLE" }, 409, "STOCK_CONSUMPTION_REVERSAL_EXCEEDS_REMAINING");
+
+  const secondReversal = await api(reversalPath, { method: "POST", body: { confirmed: true, quantity: 1, destination: "DEFECTIVE" } });
+  assert.equal(secondReversal.status, 201, JSON.stringify(secondReversal.body));
+  assert.equal(secondReversal.body.data.remainingReversible, 1);
+  assert.equal(secondReversal.body.data.destination, "DEFECTIVE");
+  const afterSecondReversal = await prisma.productStockMovement.findUniqueOrThrow({ where: { publicId: secondReversal.body.data.reversalMovementPublicId } });
+  assert.equal(afterSecondReversal.totalDelta, 1);
+  assert.equal(afterSecondReversal.defectiveDelta, 1);
+
+  const parallelReversals = await Promise.all([0, 1].map(() => api(reversalPath, { method: "POST", body: { confirmed: true, quantity: 1, destination: "AVAILABLE" } })));
   assert.equal(parallelReversals.filter(({ status }) => status === 201).length, 1, JSON.stringify(parallelReversals));
   assert.equal(parallelReversals.filter(({ status }) => status === 409).length, 1, JSON.stringify(parallelReversals));
-  await expectFailure(reversalPath, "POST", { confirmed: true }, 409, "STOCK_CONSUMPTION_ALREADY_REVERSED");
-  const reversalRow = await prisma.productStockMovement.findUniqueOrThrow({ where: { reversesMovementId: reversalTarget.id } });
-  assert.equal(reversalRow.type, "SERVICE_ORDER_CONSUMPTION_REVERSED");
-  assert.equal(reversalRow.totalDelta, reversalQuantity);
-  assert.equal(reversalRow.appliedDelta, 0);
-  assert.equal(reversalRow.serviceOrderId, order.id);
-  assert.equal(reversalRow.actorUserId, userId);
-  assert.ok(reversalRow.occurredAt instanceof Date, "a movimentação registra o horário do servidor");
+  await expectFailure(reversalPath, "POST", { confirmed: true, quantity: 1, destination: "AVAILABLE" }, 409, "STOCK_CONSUMPTION_ALREADY_REVERSED");
+  const reversalRows = await prisma.productStockMovement.findMany({ where: { reversesMovementId: reversalTarget.id, type: "SERVICE_ORDER_CONSUMPTION_REVERSED" }, orderBy: { occurredAt: "asc" } });
+  assert.equal(reversalRows.length, 3);
+  assert.equal(reversalRows.reduce((sum, movement) => sum + movement.totalDelta, 0), reversalQuantity);
+  assert.deepEqual(reversalRows.map(({ reversalDestination }) => reversalDestination).sort(), ["AVAILABLE", "AVAILABLE", "DEFECTIVE"]);
+  assert.ok(reversalRows.every((movement) => movement.serviceOrderId === order.id && movement.actorUserId === userId && movement.occurredAt instanceof Date), "cada reversão registra OS, ator e horário do servidor");
+  assert.ok(reversalRows.every((movement) => movement.type === "SERVICE_ORDER_CONSUMPTION_REVERSED" && movement.appliedDelta === 0));
   assert.equal((await prisma.productStockMovement.findUniqueOrThrow({ where: { id: reversalTarget.id } })).totalDelta, reversalTarget.totalDelta, "o movimento original permanece imutável");
-  const stockAfterDefinitiveReversal = await prisma.productStockMovement.aggregate({ where: { productId: closureProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
-  assert.equal(stockAfterDefinitiveReversal._sum.totalDelta, repairedBalance._sum.totalDelta + reversalQuantity, "a compensação recompõe somente o total disponível");
-  assert.equal(stockAfterDefinitiveReversal._sum.appliedDelta, repairedBalance._sum.appliedDelta);
-  assert.equal(stockAfterDefinitiveReversal._sum.defectiveDelta, repairedBalance._sum.defectiveDelta);
+  const stockAfterDefinitiveReversal = await prisma.productStockMovement.aggregate({ where: { productId: partialReversalProduct.id }, _sum: { totalDelta: true, appliedDelta: true, defectiveDelta: true } });
+  assert.equal(stockAfterDefinitiveReversal._sum.totalDelta, partialReversalBalance._sum.totalDelta + reversalQuantity, "a compensação recompõe somente o total");
+  assert.equal(stockAfterDefinitiveReversal._sum.appliedDelta, partialReversalBalance._sum.appliedDelta);
+  assert.equal(stockAfterDefinitiveReversal._sum.defectiveDelta, partialReversalBalance._sum.defectiveDelta + 1);
+  assert.equal(stockAfterDefinitiveReversal._sum.totalDelta - stockAfterDefinitiveReversal._sum.appliedDelta - stockAfterDefinitiveReversal._sum.defectiveDelta,
+    partialReversalBalance._sum.totalDelta - partialReversalBalance._sum.appliedDelta - partialReversalBalance._sum.defectiveDelta + 2, "duas unidades ficam disponíveis e uma defeituosa");
   assert.deepEqual(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { macroStatus: true, updatedAt: true } }), closedOrderRevision, "a reversão não altera o estado administrativo da OS");
   const reversalAudit = await prisma.adminAuditLog.findFirstOrThrow({ where: { eventCode: "SERVICE_ORDER_STOCK_CONSUMPTION_REVERSED", actorUserId: userId }, orderBy: { id: "desc" } });
   assert.equal(reversalAudit.detailsJson.originalMovementPublicId, reversalTarget.publicId);
+  assert.equal(reversalAudit.detailsJson.originalQuantity, reversalQuantity);
+  assert.equal(reversalAudit.detailsJson.remainingAfter, 0);
+  assert.ok(["AVAILABLE", "DEFECTIVE"].includes(reversalAudit.detailsJson.destination));
   const reversalHistory = await api(`/service-orders/${order.publicId}/history?pageSize=100`);
   const reversalEvent = reversalHistory.body.data.find(({ eventType }) => eventType === "OS_BAIXA_DEFINITIVA_REVERTIDA");
   assert.ok(reversalEvent, "a reversão aparece no histórico operacional");
   assert.equal(JSON.stringify(reversalEvent.payload).includes("unitCostSnapshot"), false, "histórico da reversão não expõe custos");
-  const stockHistory = await api(`/products/${closureProduct.publicId}/stock/movements?page=1&pageSize=100`);
-  const reversalMovementView = stockHistory.body.data.find(({ publicId }) => publicId === reversalRow.publicId);
-  assert.equal(reversalMovementView.reversesMovementPublicId, reversalTarget.publicId);
-  assert.equal(reversalMovementView.serviceOrderPublicId, order.publicId);
-  results.push("Reversão explícita de baixa exige confirmação e products.stock.manage, bloqueia repetição concorrente, é atômica com histórico/auditoria, preserva OS FECHADA e rastreia a movimentação original sem expor custos");
+  const stockHistory = await api(`/products/${partialReversalProduct.publicId}/stock/movements?page=1&pageSize=100`);
+  assert.equal(stockHistory.status, 200, `consulta do histórico de estoque falhou (${errorCode(stockHistory) ?? stockHistory.status})`);
+  assert.ok(Array.isArray(stockHistory.body.data), "o histórico de estoque retorna uma lista");
+  const availableMovementView = stockHistory.body.data.find(({ publicId }) => publicId === firstReversal.body.data.reversalMovementPublicId);
+  assert.equal(availableMovementView.reversesMovementPublicId, reversalTarget.publicId);
+  assert.equal(availableMovementView.serviceOrderPublicId, order.publicId);
+  assert.equal(availableMovementView.reversalDestination, "AVAILABLE");
+  results.push("Reversão parcial e integral para disponível/defeituoso respeita saldo restante, impede excesso simultâneo, é atômica com histórico/auditoria e mantém custos protegidos");
 
   await reopenForClosureTest();
   const noRepairProduct = await prisma.product.create({ data: { internalCode: `NO-REPAIR-${nonce}`, description: `DEVOLUÇÃO ${nonce}`, category: "PART", createdByUserId: userId, updatedByUserId: userId } });

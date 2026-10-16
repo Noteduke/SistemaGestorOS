@@ -115,6 +115,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const [consumptionReversalError, setConsumptionReversalError] = useState<string | null>(null);
   const [consumptionReversalMessage, setConsumptionReversalMessage] = useState<string | null>(null);
   const [reversingConsumption, setReversingConsumption] = useState<string | null>(null);
+  const [reversalQuantities, setReversalQuantities] = useState<Record<string, string>>({});
   const [reload, setReload] = useState(0);
   const [eventsReload, setEventsReload] = useState(0);
   const [noteText, setNoteText] = useState("");
@@ -448,15 +449,16 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     }
   }
 
-  async function reverseConsumption(movementPublicId: string, quantity: number, description: string) {
-    const confirmed = window.confirm(`Confirma a reversão integral de ${quantity} unidade(s) da baixa definitiva de “${description}”? Prossiga somente se a peça estiver fisicamente de volta ao estoque local. A OS permanecerá FECHADA.`);
+  async function reverseConsumption(movementPublicId: string, quantity: number, description: string, destination: "AVAILABLE" | "DEFECTIVE") {
+    const destinationLabel = destination === "AVAILABLE" ? "estoque disponível" : "estoque defeituoso";
+    const confirmed = window.confirm(`Confirma a reversão de ${quantity} unidade(s) da baixa definitiva de “${description}” para ${destinationLabel}? Prossiga somente se a peça estiver fisicamente de volta ao estoque local. A OS permanecerá FECHADA.`);
     if (!confirmed || reversingConsumption) return;
     setReversingConsumption(movementPublicId);
     setConsumptionReversalError(null);
     setConsumptionReversalMessage(null);
     try {
-      await reverseDefinitiveStockConsumption(publicId, movementPublicId, csrfToken);
-      setConsumptionReversalMessage("Baixa definitiva revertida. A OS permaneceu fechada.");
+      const result = await reverseDefinitiveStockConsumption(publicId, movementPublicId, csrfToken, { confirmed: true, quantity, destination });
+      setConsumptionReversalMessage(`Reversão registrada em ${destinationLabel}. Restam ${result.data.remainingReversible} unidade(s) reversível(is); a OS permaneceu fechada.`);
       setEventsReload((value) => value + 1);
     } catch (reason) {
       setConsumptionReversalError(errorMessage(reason, "events"));
@@ -861,15 +863,31 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                                 </dl>
                               )}
                               {canManageStock && item.eventType === "OS_ENCERRADA" && closureConsumptions(item.payload).map((movement) => {
-                                const alreadyReversed = history.data.some((candidate) => candidate.kind === "SYSTEM_EVENT"
+                                const reversedQuantity = history.data.reduce((sum, candidate) => candidate.kind === "SYSTEM_EVENT"
                                   && candidate.eventType === "OS_BAIXA_DEFINITIVA_REVERTIDA"
-                                  && candidate.payload?.originalMovementPublicId === movement.publicId);
-                                if (alreadyReversed) return null;
-                                return <button className="button button--secondary" type="button" key={movement.publicId}
-                                  disabled={reversingConsumption !== null}
-                                  onClick={() => void reverseConsumption(movement.publicId, movement.quantity, movement.description)}>
-                                  {reversingConsumption === movement.publicId ? "Revertendo…" : `Reverter baixa de ${movement.quantity} ${movement.quantity === 1 ? "unidade" : "unidades"} — ${movement.description}`}
-                                </button>;
+                                  && candidate.payload?.originalMovementPublicId === movement.publicId
+                                  && typeof candidate.payload.quantity === "number" && Number.isSafeInteger(candidate.payload.quantity) && candidate.payload.quantity > 0
+                                  ? sum + candidate.payload.quantity : sum, 0);
+                                const remaining = movement.quantity - reversedQuantity;
+                                if (remaining <= 0) return null;
+                                const quantityValue = reversalQuantities[movement.publicId] ?? "1";
+                                const quantity = Number(quantityValue);
+                                const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= remaining;
+                                return <div className="stock-reversal-controls" key={movement.publicId}>
+                                  <p>Baixa de {movement.quantity} unidade(s) — {movement.description}. Restam {remaining} para reversão.</p>
+                                  <label>Quantidade a reverter
+                                    <input type="number" min={1} max={remaining} step={1} value={quantityValue} disabled={reversingConsumption !== null}
+                                      onChange={(event) => setReversalQuantities((current) => ({ ...current, [movement.publicId]: event.target.value }))} />
+                                  </label>
+                                  <button className="button button--secondary" type="button" disabled={!quantityValid || reversingConsumption !== null}
+                                    onClick={() => void reverseConsumption(movement.publicId, quantity, movement.description, "AVAILABLE")}>
+                                    {reversingConsumption === movement.publicId ? "Revertendo…" : "Devolver ao estoque disponível"}
+                                  </button>
+                                  <button className="button button--secondary" type="button" disabled={!quantityValid || reversingConsumption !== null}
+                                    onClick={() => void reverseConsumption(movement.publicId, quantity, movement.description, "DEFECTIVE")}>
+                                    Classificar como defeituosa
+                                  </button>
+                                </div>;
                               })}
                             </>
                           ) : (

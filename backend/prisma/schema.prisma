@@ -49,6 +49,11 @@ enum ProductStockMovementOrigin {
   SERVICE_ORDER
 }
 
+enum ProductStockReversalDestination {
+  AVAILABLE
+  DEFECTIVE
+}
+
 model Person {
   id                           Int                    @id @default(autoincrement())
   publicId                     String                 @unique @default(uuid()) @map("public_id") @db.Char(36)
@@ -314,32 +319,34 @@ model Product {
 }
 
 model ProductStockMovement {
-  id                 Int                        @id @default(autoincrement())
-  publicId           String                     @unique @default(uuid()) @map("public_id") @db.Char(36)
-  productId          Int                        @map("product_id")
-  type               ProductStockMovementType
-  origin             ProductStockMovementOrigin @default(MANUAL)
-  totalDelta         Int                        @default(0) @map("total_delta")
-  appliedDelta       Int                        @default(0) @map("applied_delta")
-  defectiveDelta     Int                        @default(0) @map("defective_delta")
-  serviceOrderId     Int?                       @map("service_order_id")
-  budgetItemId       Int?                       @map("budget_item_id")
-  sourceMovementId   Int?                       @map("source_movement_id")
-  reversesMovementId Int?                       @unique(map: "stock_movement_reverses_movement_uq") @map("reverses_movement_id")
-  unitCostSnapshot   Decimal?                   @map("unit_cost_snapshot") @db.Decimal(15, 2)
-  actorUserId        Int                        @map("actor_user_id")
-  occurredAt         DateTime                   @default(now()) @map("occurred_at") @db.DateTime(3)
-  product            Product                    @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  serviceOrder       ServiceOrder?              @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  budgetItem         ServiceOrderBudgetItem?    @relation(fields: [budgetItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  sourceMovement     ProductStockMovement?      @relation("StockMovementReversals", fields: [sourceMovementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  reversals          ProductStockMovement[]     @relation("StockMovementReversals")
-  reversesMovement   ProductStockMovement?      @relation("DefinitiveStockMovementReversals", fields: [reversesMovementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  definitiveReversal ProductStockMovement?      @relation("DefinitiveStockMovementReversals")
-  actor              User                       @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                  Int                              @id @default(autoincrement())
+  publicId            String                           @unique @default(uuid()) @map("public_id") @db.Char(36)
+  productId           Int                              @map("product_id")
+  type                ProductStockMovementType
+  origin              ProductStockMovementOrigin       @default(MANUAL)
+  totalDelta          Int                              @default(0) @map("total_delta")
+  appliedDelta        Int                              @default(0) @map("applied_delta")
+  defectiveDelta      Int                              @default(0) @map("defective_delta")
+  serviceOrderId      Int?                             @map("service_order_id")
+  budgetItemId        Int?                             @map("budget_item_id")
+  sourceMovementId    Int?                             @map("source_movement_id")
+  reversesMovementId  Int?                             @map("reverses_movement_id")
+  reversalDestination ProductStockReversalDestination? @map("reversal_destination")
+  unitCostSnapshot    Decimal?                         @map("unit_cost_snapshot") @db.Decimal(15, 2)
+  actorUserId         Int                              @map("actor_user_id")
+  occurredAt          DateTime                         @default(now()) @map("occurred_at") @db.DateTime(3)
+  product             Product                          @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder        ServiceOrder?                    @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  budgetItem          ServiceOrderBudgetItem?          @relation(fields: [budgetItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceMovement      ProductStockMovement?            @relation("StockMovementReversals", fields: [sourceMovementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversals           ProductStockMovement[]           @relation("StockMovementReversals")
+  reversesMovement    ProductStockMovement?            @relation("DefinitiveStockMovementReversals", fields: [reversesMovementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  definitiveReversals ProductStockMovement[]           @relation("DefinitiveStockMovementReversals")
+  actor               User                             @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([productId, occurredAt, id])
   @@index([actorUserId, occurredAt])
+  @@index([reversesMovementId], map: "stock_movement_reverses_movement_idx")
   @@index([serviceOrderId, budgetItemId, occurredAt, id], map: "stock_movement_order_item_time_idx")
   @@index([sourceMovementId, occurredAt, id], map: "stock_movement_source_time_idx")
   @@map("product_stock_movements")

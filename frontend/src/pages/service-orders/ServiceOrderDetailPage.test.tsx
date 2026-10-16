@@ -321,29 +321,45 @@ describe("ServiceOrderDetailPage", () => {
     expect(fetchMock.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
   });
 
-  it("permite ao gestor de estoque reverter uma baixa definitiva após confirmação e mantém a OS fechada", async () => {
+  it("permite reversões parciais para disponível e defeituoso, mantendo a OS fechada", async () => {
     const actor = { publicId: "8d02a98e-1d95-4f86-a5a3-dbd4f234a0cd", username: "marina.admin" };
     const movementPublicId = "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910";
     const closureEvent = { kind: "SYSTEM_EVENT", eventType: "OS_ENCERRADA", occurredAt: "2026-10-10T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor,
-      payload: { stockOperations: [{ itemPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435", productPublicId: "b2000000-0000-4000-8000-000000000002", description: "Tela", quantity: 2, operation: "CONSUMED", consumptionMovements: [{ publicId: movementPublicId, quantity: 2 }] }] } };
-    const reversalEvent = { kind: "SYSTEM_EVENT", eventType: "OS_BAIXA_DEFINITIVA_REVERTIDA", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor,
-      payload: { originalMovementPublicId: movementPublicId, reversalMovementPublicId: "c3000000-0000-4000-8000-000000000003", quantity: 2 } };
+      payload: { stockOperations: [{ itemPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435", productPublicId: "b2000000-0000-4000-8000-000000000002", description: "Tela", quantity: 3, operation: "CONSUMED", consumptionMovements: [{ publicId: movementPublicId, quantity: 3 }] }] } };
+    const makeReversalEvent = (id: string, quantity: number, destination: "AVAILABLE" | "DEFECTIVE") => ({ kind: "SYSTEM_EVENT", eventType: "OS_BAIXA_DEFINITIVA_REVERTIDA", occurredAt: "2026-10-11T13:00:00.000Z", serviceOrderNumber: "OS-000128", actor,
+      payload: { originalMovementPublicId: movementPublicId, reversalMovementPublicId: id, quantity, destination } });
+    const reversalOne = makeReversalEvent("c3000000-0000-4000-8000-000000000003", 1, "AVAILABLE");
+    const reversalTwo = makeReversalEvent("c3000000-0000-4000-8000-000000000004", 1, "DEFECTIVE");
+    const reversalThree = makeReversalEvent("c3000000-0000-4000-8000-000000000005", 1, "AVAILABLE");
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = vi.fn().mockResolvedValueOnce(response({ data: { ...detail, macroStatus: "FECHADA" } }))
       .mockResolvedValueOnce(response({ data: [closureEvent], nextCursor: null, hasMore: false }))
-      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 2, macroStatus: "FECHADA" } }, 201))
-      .mockResolvedValueOnce(response({ data: [reversalEvent, closureEvent], nextCursor: null, hasMore: false }));
+      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 2, destination: "AVAILABLE", macroStatus: "FECHADA" } }, 201))
+      .mockResolvedValueOnce(response({ data: [reversalOne, closureEvent], nextCursor: null, hasMore: false }))
+      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 1, destination: "DEFECTIVE", macroStatus: "FECHADA" } }, 201))
+      .mockResolvedValueOnce(response({ data: [reversalTwo, reversalOne, closureEvent], nextCursor: null, hasMore: false }))
+      .mockResolvedValueOnce(response({ data: { originalMovementPublicId: movementPublicId, quantity: 1, originalQuantity: 3, remainingReversible: 0, destination: "AVAILABLE", macroStatus: "FECHADA" } }, 201))
+      .mockResolvedValueOnce(response({ data: [reversalThree, reversalTwo, reversalOne, closureEvent], nextCursor: null, hasMore: false }));
     vi.stubGlobal("fetch", withEditControl(fetchMock));
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canManageStock section="events" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Reverter baixa de 2 unidades — Tela" }));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("fisicamente de volta ao estoque local"));
-    expect(await screen.findByText("Baixa definitiva revertida. A OS permaneceu fechada.")).toBeInTheDocument();
+    const quantityInput = await screen.findByRole("spinbutton", { name: "Quantidade a reverter" });
+    expect(quantityInput).toHaveAttribute("max", "3");
+    fireEvent.change(quantityInput, { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devolver ao estoque disponível" }));
+    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("estoque disponível"));
+    expect(await screen.findByText("Reversão registrada em estoque disponível. Restam 2 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({
-      method: "POST", credentials: "include", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory" }), body: JSON.stringify({ confirmed: true }),
+      method: "POST", credentials: "include", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-in-memory" }), body: JSON.stringify({ confirmed: true, quantity: 1, destination: "AVAILABLE" }),
     }));
-    await screen.findByText("Evento do sistema: OS BAIXA DEFINITIVA REVERTIDA");
-    expect(screen.queryByRole("button", { name: /Reverter baixa de/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Classificar como defeituosa" }));
+    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("estoque defeituoso"));
+    expect(await screen.findByText("Reversão registrada em estoque defeituoso. Restam 1 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(5, `/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({ body: JSON.stringify({ confirmed: true, quantity: 1, destination: "DEFECTIVE" }) }));
+    fireEvent.click(screen.getByRole("button", { name: "Devolver ao estoque disponível" }));
+    expect(await screen.findByText("Reversão registrada em estoque disponível. Restam 0 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
+    expect(await screen.findAllByText("Evento do sistema: OS BAIXA DEFINITIVA REVERTIDA")).not.toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Devolver ao estoque disponível" })).not.toBeInTheDocument();
   });
 
   it("cria observação com CSRF, sem controle de edição, e atualiza a linha do tempo", async () => {

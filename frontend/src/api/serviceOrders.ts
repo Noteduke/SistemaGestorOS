@@ -309,9 +309,9 @@ export function closeServiceOrder(publicId: string, body: { outcome: "REPAIRED" 
 export function cancelServiceOrder(publicId: string, body: { confirmPhysicalRemoval: boolean; defectiveItems: Array<{ itemPublicId: string; quantity: number }> }, csrfToken: string, editToken?: string, expectedRevision?: string) {
   return mutateBudget<ServiceOrderClosureResponse>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/cancel`, "POST", csrfToken, body, editToken, expectedRevision);
 }
-export function reverseDefinitiveStockConsumption(publicId: string, movementPublicId: string, csrfToken: string) {
-  return mutateBudget<{ data: { originalMovementPublicId: string; reversalMovementPublicId: string; quantity: number; macroStatus: "FECHADA" } }>(
-    `/api/v1/service-orders/${encodeURIComponent(publicId)}/stock-consumptions/${encodeURIComponent(movementPublicId)}/reversal`, "POST", csrfToken, { confirmed: true });
+export function reverseDefinitiveStockConsumption(publicId: string, movementPublicId: string, csrfToken: string, body: { confirmed: true; quantity: number; destination: "AVAILABLE" | "DEFECTIVE" }) {
+  return mutateBudget<{ data: { originalMovementPublicId: string; reversalMovementPublicId: string; quantity: number; originalQuantity: number; remainingReversible: number; destination: "AVAILABLE" | "DEFECTIVE"; macroStatus: "FECHADA" } }>(
+    `/api/v1/service-orders/${encodeURIComponent(publicId)}/stock-consumptions/${encodeURIComponent(movementPublicId)}/reversal`, "POST", csrfToken, body);
 }
 
 async function mutateEditControl<T>(publicId: string, action: "acquire" | "heartbeat" | "release" | "takeover", csrfToken: string, editToken: string): Promise<T> {

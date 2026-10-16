@@ -281,7 +281,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
               <td>{movement.quantity}</td>
               <td>{movement.totalDelta > 0 ? `+${movement.totalDelta}` : movement.totalDelta}</td>
               <td>{movement.defectiveDelta > 0 ? `+${movement.defectiveDelta}` : movement.defectiveDelta}</td>
-              <td>{movement.serviceOrderPublicId && <span>OS {movement.serviceOrderPublicId}</span>}{movement.reversesMovementPublicId && <span>Baixa original {movement.reversesMovementPublicId}</span>}{movement.sourceMovementPublicId && !movement.reversesMovementPublicId && <span>Movimento de origem {movement.sourceMovementPublicId}</span>}</td>
+              <td>{movement.serviceOrderPublicId && <span>OS {movement.serviceOrderPublicId}</span>}{movement.reversesMovementPublicId && <span>Baixa original {movement.reversesMovementPublicId}</span>}{movement.reversalDestination && <span>Destino: {movement.reversalDestination === "AVAILABLE" ? "disponível" : "defeituosa"}</span>}{movement.sourceMovementPublicId && !movement.reversesMovementPublicId && <span>Movimento de origem {movement.sourceMovementPublicId}</span>}</td>
               <td>{movement.actor.username}</td>
             </tr>)}</tbody>
           </table></div></div>}

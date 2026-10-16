@@ -1,6 +1,7 @@
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "../app.module.js";
 import { PrismaService } from "../infrastructure/prisma/prisma.service.js";
+import { safeDiagnosticMessage } from "../infrastructure/safe-diagnostic.js";
 import { PERMISSION_CATALOG } from "../modules/auth/auth.constants.js";
 
 async function main(): Promise<void> {
@@ -21,7 +22,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Falha ao verificar o catálogo de permissões.";
-  console.error(message);
+  console.error(safeDiagnosticMessage(error, "Falha ao verificar o catálogo de permissões."));
   process.exitCode = 1;
 });

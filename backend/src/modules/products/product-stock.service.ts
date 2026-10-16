@@ -83,6 +83,7 @@ function movementView(movement: {
   totalDelta: number;
   appliedDelta: number;
   defectiveDelta: number;
+  reversalDestination?: string | null;
   occurredAt: Date;
   actor: { username: string };
   serviceOrder?: { publicId: string } | null;
@@ -98,6 +99,7 @@ function movementView(movement: {
     totalDelta: movement.totalDelta,
     appliedDelta: movement.appliedDelta,
     defectiveDelta: movement.defectiveDelta,
+    ...(movement.reversalDestination ? { reversalDestination: movement.reversalDestination } : {}),
     occurredAt: movement.occurredAt,
     actor: { username: movement.actor.username },
     ...(movement.serviceOrder ? { serviceOrderPublicId: movement.serviceOrder.publicId } : {}),

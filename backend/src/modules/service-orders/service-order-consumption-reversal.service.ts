@@ -44,15 +44,25 @@ export class ServiceOrderConsumptionReversalService {
         if (!original || original.totalDelta >= 0 || original.appliedDelta !== original.totalDelta || original.defectiveDelta !== 0) {
           throw new NotFoundException({ code: "STOCK_CONSUMPTION_NOT_FOUND", message: "A baixa definitiva não pertence a esta OS ou não é reversível." });
         }
-        const quantity = -original.totalDelta;
-        if (!Number.isSafeInteger(quantity) || quantity < 1) throw conflict("STOCK_LEDGER_INCONSISTENT", "A quantidade da baixa definitiva é inválida.");
-        if (await tx.productStockMovement.findUnique({ where: { reversesMovementId: original.id }, select: { id: true } })) {
-          throw conflict("STOCK_CONSUMPTION_ALREADY_REVERSED", "Esta baixa definitiva já foi revertida.");
+        const originalQuantity = -original.totalDelta;
+        if (!Number.isSafeInteger(originalQuantity) || originalQuantity < 1) throw conflict("STOCK_LEDGER_INCONSISTENT", "A quantidade da baixa definitiva é inválida.");
+        const reversalAggregate = await tx.productStockMovement.aggregate({
+          where: { reversesMovementId: original.id, type: "SERVICE_ORDER_CONSUMPTION_REVERSED" },
+          _sum: { totalDelta: true },
+        });
+        const reversedBefore = reversalAggregate._sum.totalDelta ?? 0;
+        const remainingBefore = originalQuantity - reversedBefore;
+        if (!Number.isSafeInteger(remainingBefore) || remainingBefore < 0) throw conflict("STOCK_LEDGER_INCONSISTENT", "O histórico de reversões excede a baixa original.");
+        if (remainingBefore === 0) throw conflict("STOCK_CONSUMPTION_ALREADY_REVERSED", "Toda a quantidade desta baixa definitiva já foi revertida.");
+        if (input.quantity > remainingBefore) {
+          throw conflict("STOCK_CONSUMPTION_REVERSAL_EXCEEDS_REMAINING", `A quantidade máxima ainda reversível é ${remainingBefore}.`);
         }
+        const quantity = input.quantity;
 
         await tx.$queryRaw<{ id: number }[]>`SELECT id FROM products WHERE id = ${original.productId} FOR UPDATE`;
         const before = await balanceForProduct(tx, original.productId);
-        const after = stockBalanceFromDeltas({ total: before.total + quantity, applied: before.applied, defective: before.defective });
+        const defectiveDelta = input.destination === "DEFECTIVE" ? quantity : 0;
+        const after = stockBalanceFromDeltas({ total: before.total + quantity, applied: before.applied, defective: before.defective + defectiveDelta });
         assertMysqlStockRange(after.total, after.applied, after.defective);
         const reversal = await tx.productStockMovement.create({
           data: {
@@ -61,10 +71,11 @@ export class ServiceOrderConsumptionReversalService {
             origin: "SERVICE_ORDER",
             totalDelta: quantity,
             appliedDelta: 0,
-            defectiveDelta: 0,
+            defectiveDelta,
             serviceOrderId: order.id,
             budgetItemId: original.budgetItemId,
             reversesMovementId: original.id,
+            reversalDestination: input.destination,
             unitCostSnapshot: original.unitCostSnapshot,
             actorUserId: actor.id,
           },
@@ -81,6 +92,11 @@ export class ServiceOrderConsumptionReversalService {
           productPublicId: original.product.publicId,
           ...(original.budgetItem ? { itemPublicId: original.budgetItem.publicId, description: original.budgetItem.description } : {}),
           quantity,
+          remainingBefore,
+          remainingAfter: remainingBefore - quantity,
+          destination: input.destination,
+          stockBefore: before,
+          stockAfter: after,
           macroStatusUnchanged: "FECHADA",
         } as Prisma.InputJsonValue;
         await tx.serviceOrderEvent.create({ data: {
@@ -100,6 +116,10 @@ export class ServiceOrderConsumptionReversalService {
             productPublicId: original.product.publicId,
             ...(original.budgetItem ? { itemPublicId: original.budgetItem.publicId } : {}),
             quantity,
+            originalQuantity,
+            remainingBefore,
+            remainingAfter: remainingBefore - quantity,
+            destination: input.destination,
             stockBefore: before,
             stockAfter: after,
             serviceOrderMacroStatusUnchanged: order.macroStatus,
@@ -113,6 +133,9 @@ export class ServiceOrderConsumptionReversalService {
           productPublicId: original.product.publicId,
           ...(original.budgetItem ? { itemPublicId: original.budgetItem.publicId, description: original.budgetItem.description } : {}),
           quantity,
+          originalQuantity,
+          remainingReversible: remainingBefore - quantity,
+          destination: input.destination,
           stock: after,
           macroStatus: "FECHADA",
           occurredAt: reversal.occurredAt,
@@ -120,7 +143,6 @@ export class ServiceOrderConsumptionReversalService {
       }, TX_OPTIONS);
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      if (hasCode(error, "P2002")) throw conflict("STOCK_CONSUMPTION_ALREADY_REVERSED", "Esta baixa definitiva já foi revertida.");
       if (hasCode(error, "P2034") || hasCode(error, "P2028") || isLockConflict(error)) {
         throw conflict("STOCK_REVERSAL_CONCURRENCY_CONFLICT", "Outra operação alterou o estoque. Consulte os dados atuais e tente novamente.");
       }

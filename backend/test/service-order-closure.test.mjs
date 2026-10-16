@@ -30,10 +30,13 @@ test("a projeção do histórico de fechamento filtra campos desconhecidos e nã
   });
 });
 
-test("a reversão definitiva exige confirmação explícita e não aceita quantidade parcial", () => {
-  assert.deepEqual(parseReverseServiceOrderConsumption({ confirmed: true }), { confirmed: true });
+test("a reversão definitiva exige confirmação, quantidade positiva e destino válido", () => {
+  assert.deepEqual(parseReverseServiceOrderConsumption({ confirmed: true, quantity: 2, destination: "DEFECTIVE" }), { confirmed: true, quantity: 2, destination: "DEFECTIVE" });
   assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: false }), { status: 400 });
-  assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: true, quantity: 1 }), { status: 400 });
+  assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: true, quantity: 0, destination: "AVAILABLE" }), { status: 400 });
+  assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: true, quantity: 1.5, destination: "AVAILABLE" }), { status: 400 });
+  assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: true, quantity: 1, destination: "OTHER" }), { status: 400 });
+  assert.throws(() => parseReverseServiceOrderConsumption({ confirmed: true, quantity: 1, destination: "AVAILABLE", extra: true }), { status: 400 });
 });
 
 test("o histórico permite rastrear a baixa e sua reversão sem projetar custo", () => {
@@ -49,10 +52,14 @@ test("o histórico permite rastrear a baixa e sua reversão sem projetar custo",
   const reversal = sanitizeServiceOrderEventPayload("OS_BAIXA_DEFINITIVA_REVERTIDA", {
     originalMovementPublicId: "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910",
     reversalMovementPublicId: "a542fc64-f29a-4ba1-859e-0af1462d8435",
-    productPublicId, itemPublicId, description: "Peça", quantity: 2, macroStatusUnchanged: "FECHADA",
+    productPublicId, itemPublicId, description: "Peça", quantity: 1, originalQuantity: 3, remainingBefore: 2, remainingAfter: 1,
+    destination: "DEFECTIVE", stockBefore: { total: 6, applied: 0, defective: 1, available: 5 },
+    stockAfter: { total: 7, applied: 0, defective: 2, available: 5 }, macroStatusUnchanged: "FECHADA",
     unitCostSnapshot: "999.00",
   });
   assert.equal(reversal.originalMovementPublicId, "6a5ccbc1-a7cc-4a12-8f71-65b9f379d910");
-  assert.equal(reversal.quantity, 2);
+  assert.equal(reversal.quantity, 1);
+  assert.equal(reversal.destination, "DEFECTIVE");
+  assert.deepEqual(reversal.stockAfter, { total: 7, applied: 0, defective: 2, available: 5 });
   assert.equal(Object.hasOwn(reversal, "unitCostSnapshot"), false);
 });

@@ -41,7 +41,11 @@ export class PrismaService
   }
 
   async onModuleInit(): Promise<void> {
-    await this.$connect();
+    try {
+      await this.$connect();
+    } catch {
+      throw new Error("Não foi possível conectar ao banco configurado; detalhes de conexão foram omitidos.");
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
