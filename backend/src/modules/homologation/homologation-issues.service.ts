@@ -7,6 +7,7 @@ import { Prisma, type HomologationIssueStatus } from "../../generated/prisma/cli
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { UploadFile } from "./homologation-issues.controller.js";
+import { formatServiceOrderNumber } from "../service-orders/domain/service-order-number-format.js";
 
 const MAX_PAGE = 100;
 const statusMap = { PENDING: "PENDENTE", IN_PROGRESS: "EM CORREÇÃO", FIXED: "CORRIGIDO", VALIDATED: "VALIDADO" } as const;
@@ -42,7 +43,7 @@ export class HomologationIssuesService {
     this.assertHomologation(); this.assertAdmin(actor);
     const rows = await this.prisma.homologationIssue.findMany({ take: MAX_PAGE, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: { publicId: true, description: true, attemptedAction: true, observedResult: true, screenReference: true, systemVersion: true, status: true, createdAt: true, updatedAt: true, screenshotMime: true, serviceOrder: { select: { numberValue: true } }, reportedBy: { select: { username: true } }, updatedBy: { select: { username: true } } } });
-    return { data: rows.map(({ status, serviceOrder, ...row }) => ({ ...row, serviceOrderNumber: serviceOrder?.numberValue.toString() ?? null, status: statusMap[status] })) };
+    return { data: rows.map(({ status, serviceOrder, ...row }) => ({ ...row, serviceOrderNumber: serviceOrder ? formatServiceOrderNumber(serviceOrder.numberValue) : null, status: statusMap[status] })) };
   }
   async updateStatus(publicId: string, body: unknown, actor: AuthenticatedUser) {
     this.assertHomologation(); this.assertAdmin(actor);

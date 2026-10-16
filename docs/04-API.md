@@ -309,3 +309,13 @@ As rotas abaixo só operam com `GOS_DEPLOYMENT_ENV=homologation` e exigem sessã
 - `GET /api/v1/homologation/issues/:publicId/screenshot` — download autenticado da captura, somente Administrador.
 
 O servidor associa identidade autenticada, timestamp do servidor e versão configurada do sistema. Capturas usam chave aleatória e diretório local configurado fora da raiz pública. Nenhum endpoint correspondente é exposto pela interface de produção; o backend retorna não encontrado fora do modo de homologação.
+## Identificação da empresa e logotipo
+
+Todas as rotas exigem sessão autenticada. A consulta é disponibilizada aos usuários autenticados para apresentação dos documentos; alterações são autorizadas exclusivamente para Administrador e geram Log Administrativo quando há mudança efetiva.
+
+- `GET /api/v1/company-settings` — retorna razão social, nome fantasia, CNPJ, endereço, telefone, e-mail, logo (data URL quando disponível), indicação de arquivo ausente e ambiente de implantação. Não retorna identificadores internos.
+- `PATCH /api/v1/company-settings` — atualiza campos empresariais enviados; valores ausentes permanecem intactos e `null`/texto vazio limpa o respectivo campo. CNPJ é validado e normalizado. Requer Administrador e CSRF.
+- `PUT /api/v1/company-settings/logo` — multipart com campo `logo`; aceita PNG/JPEG até 2 MiB, verifica MIME e assinatura do conteúdo, persiste fora da raiz pública em diretório próprio do ambiente e requer Administrador e CSRF.
+- `DELETE /api/v1/company-settings/logo` — remove a referência e arquivo de logo existente, com auditoria; requer Administrador e CSRF.
+
+A migration inicial mantém os campos empresariais vazios; ausência de dados não é preenchida com valores fictícios. O caminho persistente é configurado por `GOS_COMPANY_ASSETS_DIR` no host e deve ser respaldado junto com o ambiente correspondente.

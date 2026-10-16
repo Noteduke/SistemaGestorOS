@@ -186,6 +186,7 @@ model User {
   heldServiceOrderEditControls  ServiceOrderEditControl[]
   reportedHomologationIssues    HomologationIssue[]       @relation("HomologationIssueReporter")
   updatedHomologationIssues     HomologationIssue[]       @relation("HomologationIssueUpdater")
+  updatedCompanySettings        CompanySettings[]         @relation("CompanySettingsUpdater")
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -270,6 +271,26 @@ model AdminAuditLog {
   @@index([targetUserId, occurredAt])
   @@index([attemptedUsername, occurredAt])
   @@map("admin_audit_log")
+}
+
+model CompanySettings {
+  id              Int      @id
+  legalName       String?  @map("legal_name") @db.VarChar(191)
+  tradeName       String?  @map("trade_name") @db.VarChar(191)
+  cnpj            String?  @db.VarChar(14)
+  fullAddress     String?  @map("full_address") @db.Text
+  phone           String?  @db.VarChar(30)
+  email           String?  @db.VarChar(254)
+  logoStorageKey  String?  @map("logo_storage_key") @db.VarChar(64)
+  logoMime        String?  @map("logo_mime") @db.VarChar(32)
+  updatedByUserId Int?     @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  updatedBy User? @relation("CompanySettingsUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([updatedByUserId])
+  @@map("company_settings")
 }
 
 model ServiceCatalog {

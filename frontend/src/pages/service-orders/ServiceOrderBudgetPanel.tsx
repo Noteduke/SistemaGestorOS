@@ -253,7 +253,7 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
 
   return (
     <section className="info-card budget-panel" aria-labelledby="budget-title">
-      <div className="section-heading"><div><h2 id="budget-title">Orçamento</h2><p>Serviços e peças vinculados à OS. O total é calculado pelo servidor.</p></div><button className="button button--secondary" type="button" disabled={!order || !budget || dirty} onClick={() => { if (order && budget && !openServiceOrderBudgetPrint(order, budget)) setError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); }}>Imprimir / salvar como PDF</button></div>
+      <div className="section-heading"><div><h2 id="budget-title">Orçamento</h2><p>Serviços e peças vinculados à OS. O total é calculado pelo servidor.</p></div><button className="button button--secondary" type="button" disabled={!order || !budget || dirty} onClick={() => { if (order && budget) void openServiceOrderBudgetPrint(order, budget).then((opened) => { if (!opened) setError("Não foi possível abrir a impressão. Verifique os pop-ups e a identificação da empresa."); }); }}>Imprimir / salvar como PDF</button></div>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
       {message && <p className="form-message form-message--success" role="status">{message}</p>}
       {conflictBudgetError && <p className="form-message form-message--error" role="alert">{conflictBudgetError}</p>}

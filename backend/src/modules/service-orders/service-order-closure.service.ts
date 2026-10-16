@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { stockBalanceFromDeltas } from "../products/domain/product-stock-ledger.js";
 import { assertEditControlInTransaction, advanceServiceOrderRevision, assertServiceOrderRevision } from "./service-order-edit-control.service.js";
 import { ServiceOrderStockApplicationsService } from "./service-order-stock-applications.service.js";
+import { formatServiceOrderNumber } from "./domain/service-order-number-format.js";
 import type { CloseServiceOrderInput, DefectiveStockPartInput } from "./dto/service-order-closure.dto.js";
 
 type Tx = Prisma.TransactionClient;
@@ -104,7 +105,7 @@ export class ServiceOrderClosureService {
         } });
         await tx.adminAuditLog.create({ data: {
           eventCode: result.macroStatus === "CLOSED" ? "SERVICE_ORDER_CLOSED" : "SERVICE_ORDER_CANCELED", actorUserId: actor.id, occurredAt: now,
-          detailsJson: { serviceOrderPublicId: order.publicId, visibleNumber: order.numberValue.toString(), previousMacroStatus: "ABERTA", newMacroStatus: result.macroStatus === "CLOSED" ? "FECHADA" : "CANCELADA", outcome: result.outcome, stockOperations: result.stockOperations } as Prisma.InputJsonValue,
+          detailsJson: { serviceOrderPublicId: order.publicId, visibleNumber: formatServiceOrderNumber(order.numberValue), previousMacroStatus: "ABERTA", newMacroStatus: result.macroStatus === "CLOSED" ? "FECHADA" : "CANCELADA", outcome: result.outcome, stockOperations: result.stockOperations } as Prisma.InputJsonValue,
         } });
         await releaseEditControl(tx, order.id);
         return { data: { publicId: order.publicId, macroStatus: result.macroStatus === "CLOSED" ? "FECHADA" : "CANCELADA", outcome: result.outcome, stockOperations: result.stockOperations }, serviceOrderRevision: revision.toISOString() };

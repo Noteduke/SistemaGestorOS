@@ -9,8 +9,9 @@ import { EquipmentModule } from "./modules/equipment/equipment.module.js";
 import { ServicesModule } from "./modules/services/services.module.js";
 import { ProductsModule } from "./modules/products/products.module.js";
 import { HomologationIssuesModule } from "./modules/homologation/homologation-issues.module.js";
+import { CompanySettingsModule } from "./modules/company-settings/company-settings.module.js";
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.GOS_ENV_FILE ?? ".env" }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule, ProductsModule, HomologationIssuesModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.GOS_ENV_FILE ?? ".env" }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule, ProductsModule, HomologationIssuesModule, CompanySettingsModule],
 })
 export class AppModule {}

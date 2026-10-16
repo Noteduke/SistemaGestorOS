@@ -26,7 +26,11 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 43);
+  const requiredPermissionCodes = [
+    "service_orders.opening.create", "service_orders.create", "service_orders.situation.update",
+    "service_orders.assignment.manage", "equipment.create", "equipment.transfer_ownership", "service_orders.events.read",
+  ];
+  assert.equal(await db.permission.count({ where: { code: { in: requiredPermissionCodes } } }), requiredPermissionCodes.length);
 
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
@@ -139,8 +143,12 @@ try {
   const eventCountBefore = await db.serviceOrderEvent.count({ where: { OR: [
     { serviceOrderId: orderBefore.id }, { openingId: orderBefore.openingId },
   ] } });
+  const nextOperationalStatus = await db.serviceOrderStatus.findFirst({
+    where: { isActive: true, id: { not: orderBefore.operationalStatusId } }, select: { publicId: true },
+  });
+  assert.ok(nextOperationalStatus, "O banco isolado precisa ter ao menos dois status ativos para testar a alteração.");
   status(await request("PATCH", `/service-orders/${order.publicId}/operational-situation`, { ...editSession,
-    body: { operationalSituation: "REPAIR_AUTHORIZED" } }), 200, "change situation for event history");
+    body: { operationalStatusPublicId: nextOperationalStatus.publicId } }), 200, "change situation for event history");
   status(await request("PUT", `/service-orders/${order.publicId}/assignments`, { ...editSession,
     body: { userPublicIds: [assignee.publicId] } }), 200, "change assignments for event history");
 

@@ -30,10 +30,12 @@ import {
   type ServiceOrderStatus,
   type ServiceOrderEvent,
 } from "../../api/serviceOrders";
+import { getCompanySettings } from "../../api/companySettings";
 import { AsyncState } from "../../components/AsyncState";
 import { SnapshotCard } from "../../components/SnapshotCard";
 import { ServiceOrderBudgetPanel } from "./ServiceOrderBudgetPanel";
-import { buildServiceOrderEntryPrintHtml, buildServiceOrderExitPrintHtml, openServiceOrderDocumentPrint } from "./service-order-documents-print";
+import { buildServiceOrderEntryPrintHtml, buildServiceOrderExitPrintHtml } from "./service-order-documents-print";
+import { openPrintWindow, writePrintDocument, writePrintError } from "./company-document-print";
 
 const PAGE_SIZE = 20;
 const ASSIGNABLE_PAGE_SIZE = 100;
@@ -603,13 +605,26 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
 
   async function printExitDocument() {
     if (!order || printing) return;
+    const popup = openPrintWindow();
+    if (!popup) { setPrintError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); return; }
     setPrinting(true); setPrintError(null);
     try {
-      const [budget, events] = await Promise.all([getServiceOrderBudget(publicId), listServiceOrderEvents(publicId, 1, 100)]);
+      const [budget, events, company] = await Promise.all([getServiceOrderBudget(publicId), listServiceOrderEvents(publicId, 1, 100), getCompanySettings()]);
       const printEvents: ServiceOrderEvent[] = events.data.map((event) => ({ ...event, actor: event.actor ?? null }));
-      openServiceOrderDocumentPrint(buildServiceOrderExitPrintHtml(order, budget.data, budget.total, printEvents));
-    } catch { setPrintError("Não foi possível preparar a impressão de saída. Verifique as permissões e tente novamente."); }
+      writePrintDocument(popup, buildServiceOrderExitPrintHtml(order, budget.data, budget.total, printEvents, company.data));
+    } catch { writePrintError(popup); setPrintError("Não foi possível preparar a impressão de saída. Verifique as permissões e tente novamente."); }
     finally { setPrinting(false); }
+  }
+
+  async function printEntryDocument() {
+    if (!order) return;
+    const popup = openPrintWindow();
+    if (!popup) { setPrintError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); return; }
+    setPrintError(null);
+    try {
+      const { data: company } = await getCompanySettings();
+      writePrintDocument(popup, buildServiceOrderEntryPrintHtml(order, company));
+    } catch { writePrintError(popup); setPrintError("Não foi possível carregar a identificação da empresa para impressão."); }
   }
 
   function sameUserSet(left: string[], right: string[]): boolean {
@@ -714,7 +729,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
             <span className="status-badge">{order.operationalSituation}</span>
           </div>
           <div className="document-print-actions no-print">
-            <button className="button button--secondary" type="button" onClick={() => openServiceOrderDocumentPrint(buildServiceOrderEntryPrintHtml(order))}>Imprimir OS de entrada</button>
+            <button className="button button--secondary" type="button" onClick={() => void printEntryDocument()}>Imprimir OS de entrada</button>
             <button className="button button--secondary" type="button" onClick={() => void printExitDocument()} disabled={printing || !canReadBudget || !canReadEvents}>{printing ? "Preparando saída…" : "Imprimir OS de saída"}</button>
             {(!canReadBudget || !canReadEvents) && <span className="muted">A impressão de saída exige leitura da OS, orçamento e histórico.</span>}
           </div>
@@ -731,7 +746,6 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 <div className="section-heading"><div><h2>Dados da OS</h2><p>Informações atuais da ordem confirmada</p></div><span className="status-badge">{order.macroStatus}</span></div>
                 <dl className="detail-grid">
                   <div><dt>Número</dt><dd>{order.visibleNumber}</dd></div>
-                  <div><dt>Valor numérico</dt><dd>{order.numberValue}</dd></div>
                   <div><dt>Situação operacional</dt><dd>{order.operationalSituation}</dd></div>
                   <div><dt>Situação técnica</dt><dd>{order.technicalCompletion === "COMPLETED_WITH_REPAIR" ? "Concluída com reparo" : order.technicalCompletion === "COMPLETED_WITHOUT_REPAIR" ? "Concluída sem reparo" : "Não concluída"}</dd></div>
                   <div><dt>Conclusão técnica mais recente</dt><dd>{dateLabel(order.technicalCompletedAt)}{order.technicalCompletedByUsername ? ` · ${order.technicalCompletedByUsername}` : ""}</dd></div>

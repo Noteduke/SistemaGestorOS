@@ -9,6 +9,7 @@ import { ServiceCatalogPage } from "./pages/services/ServiceCatalogPage";
 import { ProductCatalogPage } from "./pages/products/ProductCatalogPage";
 import { ServiceOrderStatusesPage } from "./pages/service-orders/ServiceOrderStatusesPage";
 import { HomologationIssuesPage } from "./pages/homologation/HomologationIssuesPage";
+import { CompanySettingsPage } from "./pages/company-settings/CompanySettingsPage";
 
 type Route =
   | { view: "list"; page: number }
@@ -17,6 +18,7 @@ type Route =
   | { view: "products" }
   | { view: "statuses" }
   | { view: "homologation-issues" }
+  | { view: "company-settings" }
   | { view: "detail"; publicId: string; section: "details" | "events" };
 
 function positivePage(value: string | null): number {
@@ -36,6 +38,7 @@ function readRoute(): Route {
   if (segments.length === 1 && segments[0] === "products") return { view: "products" };
   if (segments.length === 1 && segments[0] === "service-order-statuses") return { view: "statuses" };
   if (segments.length === 1 && segments[0] === "homologation-issues") return { view: "homologation-issues" };
+  if (segments.length === 1 && segments[0] === "company-settings") return { view: "company-settings" };
   if (segments.length === 2 && segments[0] === "service-orders" && segments[1] === "opening") {
     return { view: "opening" };
   }
@@ -190,6 +193,7 @@ export function App() {
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
           {canAccessProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos / Estoque</a>}
           {session.identity.isAdmin && <a className="topbar-link" href="#/service-order-statuses" onClick={(event) => { event.preventDefault(); navigateSafely("/service-order-statuses"); }}>Status de OS</a>}
+          {session.identity.isAdmin && <a className="topbar-link" href="#/company-settings" onClick={(event) => { event.preventDefault(); navigateSafely("/company-settings"); }}>Empresa</a>}
           {import.meta.env.MODE === "homologation" && <a className="topbar-link" href="#/homologation-issues" onClick={(event) => { event.preventDefault(); navigateSafely("/homologation-issues"); }}>{session.identity.isAdmin ? "Problemas da homologação" : "Reportar problema"}</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
@@ -200,6 +204,8 @@ export function App() {
       <main className="content">
         {route.view === "homologation-issues" ? (
           import.meta.env.MODE === "homologation" ? <HomologationIssuesPage csrfToken={session.identity.csrfToken} isAdmin={session.identity.isAdmin} /> : <section className="state-card">Recurso disponível apenas na Homologação 1.</section>
+        ) : route.view === "company-settings" ? (
+          session.identity.isAdmin ? <CompanySettingsPage csrfToken={session.identity.csrfToken} /> : <section className="state-card">Somente Administradores podem alterar a identificação da empresa.</section>
         ) : route.view === "products" ? (
           canAccessProducts ? <ProductCatalogPage
             csrfToken={session.identity.csrfToken}

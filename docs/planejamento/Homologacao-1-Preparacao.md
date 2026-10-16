@@ -7,8 +7,8 @@
 
 - Ciclo de vida dos atributos de conclusão técnica dos status, preservando o histórico e sem reclassificação automática.
 - Impressão A4 do orçamento da OS, sem custos, lucro, margem ou informação administrativa restrita.
-- Em modo de build `homologation`, a impressão de orçamento inclui a identificação fixa **DOCUMENTO DE TESTE — HOMOLOGAÇÃO**, tanto como aviso visível quanto marca d'água impressa. Não há controle na tela para removê-la. Builds de produção não incluem a identificação.
-- Impressões de entrada e saída da OS usam o mesmo marcador somente no build `homologation`; a impressão é produzida pelo navegador em A4 e a inclusão do marcador é decidida no build, sem opção de remoção pela interface. Produção não contém a identificação.
+- As impressões de entrada, orçamento e saída incluem **DOCUMENTO DE TESTE — HOMOLOGAÇÃO** quando o Frontend foi compilado no modo `homologation`. O aviso e a marca d'água são fixos e não podem ser removidos pelo operador. Builds `production` não incluem o marcador, mesmo que a API reporte homologação; antes da operação, conferir que modo de build e ambiente do Backend correspondem ao ambiente escolhido.
+- A identificação empresarial dos documentos vem da configuração central carregada do Backend: razão social, nome fantasia, CNPJ, endereço, telefone, e-mail e logotipo. Os campos iniciam vazios; não se devem inventar valores oficiais. Sem dados cadastrados, o documento informa que a identificação está incompleta. As três impressões continuam sendo geradas no navegador em A4.
 - O registro de problemas é exclusivo do modo de homologação. Funcionários autenticados podem registrar descrição, tentativa, resultado, tela e OS opcional; Administradores consultam a lista e alteram a situação entre PENDENTE, EM CORREÇÃO, CORRIGIDO e VALIDADO. Capturas opcionais aceitam PNG/JPEG até 5 MiB, são salvas fora da raiz pública em diretório configurado e disponibilizadas somente a Administradores autenticados.
 - Nenhuma funcionalidade financeira de contas a pagar/receber, compras, vendas, cobrança ou emissão fiscal faz parte deste preparo.
 
@@ -18,6 +18,7 @@
 - Banco de testes automatizados continua separado: `gestor_os_opening_test`.
 - `npm run prisma:safe -- <gestor_os_opening_test|gestor_os_homologation> migrate <status|deploy>` exige alvo explícito e consulta `SELECT DATABASE()` antes de iniciar Prisma. `prisma.config.ts` bloqueia comandos Prisma de banco diretos; o marcador de preflight é passado somente pelo wrapper após a confirmação. `deploy` continua sendo uma operação de escrita e exige revisão/aprovação operacional própria.
 - Para a homologação, o Backend exige `GOS_DEPLOYMENT_ENV=homologation`, destino `gestor_os_homologation` e `GOS_EXTERNAL_EFFECTS_ENABLED=false`. O arquivo exemplo contém apenas placeholders e não deve ser copiado para Git como segredo.
+- Os logotipos ficam em armazenamento persistente privado configurado por `GOS_COMPANY_ASSETS_DIR`, separados automaticamente em subdiretórios `production` e `homologation`. O diretório precisa ser provisionado com permissões restritas e backup/restauração junto ao ambiente; logos PNG/JPEG são limitadas a 2 MiB. Esse armazenamento ainda não foi provisionado no host da equipe.
 - O exemplo de Backend reserva a porta `3100`, que corresponde ao proxy configurado no exemplo do Frontend. Com o arquivo local `.env.homologation` revisado e preenchido com credencial exclusiva, iniciar o Backend com `$env:GOS_ENV_FILE='.env.homologation'; npm run start:dev`. Iniciar o Frontend separadamente com `npm run dev -- --host 127.0.0.1 --port 5174 --strictPort --mode homologation`. Antes disso, confirmar o banco pelo wrapper `npm run prisma:safe -- gestor_os_homologation migrate status`. Não reutilizar serviços/portas do ambiente principal ou de `gestor_os_opening_test`.
 - O repositório não possui um subsistema geral de anexos/arquivos nem geração de documentos persistida no servidor. A impressão dos documentos é gerada no navegador. Capturas de problemas usam armazenamento local isolado, configurado em `GOS_HOMOLOGATION_FILES_DIR`; essa configuração ainda precisa ser instalada e validada no host da equipe antes de receber arquivos.
 - A captura de tela dos problemas é o primeiro armazenamento de arquivo da homologação e exige `GOS_HOMOLOGATION_FILES_DIR` apontando para diretório local segregado. A política de retenção, expurgo e backup dessas capturas ainda depende de definição operacional; não armazenar dados pessoais ou segredos nos relatos/capturas.
@@ -57,11 +58,17 @@ O identificador `283NLZ1` não foi associado a um modelo de forma verificável n
 
 | Documento | Situação |
 |---|---|
-| Orçamento da OS | Implementado; modo `homologation` inclui marca fixa de teste. Ainda requer inspeção visual A4 em navegador/impressora. |
+| Orçamento da OS | Implementado; usa a identificação empresarial cadastrada e inclui a marca fixa de teste em build Frontend `homologation`. Ainda requer inspeção visual A4 em navegador/impressora. |
 | Entrada/recebimento da OS | Implementada em A4 a partir dos retratos da OS, reclamação/observações persistidas e espaços em branco para condição física, acessórios e assinaturas. Os campos em branco não são campos obrigatórios do sistema. |
 | Saída/entrega da OS | Implementada em A4 com cliente/equipamento, resultado de encerramento, itens e valores registrados no orçamento e assinaturas. O sistema ainda não registra cobrança/pagamento: a saída declara que o total exibido é do orçamento e não comprovante de cobrança. Não inventa vencimento ou garantia. |
 
-O orçamento existente mantém seu próprio gerador A4. Os três documentos exibem a marca de teste somente no build homologation e a marca não pode ser removida pelo operador. A validação visual em impressora ou pré-visualização A4 ainda é necessária.
+Os três documentos usam a identificação empresarial persistida e exibem a marca de teste quando o Frontend foi compilado no modo `homologation`; a marca não pode ser removida pelo operador e não está presente nos builds `production`. Não exibem custos internos, lucro, margem ou logs administrativos. A validação visual em impressora ou pré-visualização A4 ainda é necessária.
+
+## Cadastro empresarial e numeração de OS
+
+Foi implementada a tela **Identificação da empresa**, editável somente por Administrador. A configuração singleton permanece vazia até cadastro explícito e a API entrega apenas os campos públicos necessários aos documentos. A logo aceita PNG/JPEG até 2 MiB, tem assinatura verificada, é persistida fora da raiz pública e em diretório segregado por ambiente. A migration `20261023120000_company_settings` foi aplicada pelo wrapper seguro somente em `gestor_os_opening_test`; `migrate status` confirmou schema atualizado. Nenhuma aplicação foi feita em `gestor_os` ou no banco de homologação ainda não provisionado.
+
+O Backend apresenta OS como `OS-000001` em produção e `HOS-0000001` em homologação. O identificador numérico persistido e a alocação transacional existente não foram alterados; bancos separados têm sequências naturalmente independentes. A preservação operacional da sequência HOS, concorrência de criação, impressão com dados/logo reais e ausência do marcador em produção ainda exigem teste no host de homologação.
 
 ## Registro de problemas
 
@@ -76,7 +83,7 @@ Os dez status originais preservados mantêm a classificação inicial `NOT_COMPL
 Antes de liberar a Homologação 1:
 
 1. Criar `gestor_os_homologation` por procedimento administrativo autorizado, com acesso isolado e credenciais próprias. Não reutilizar banco de produção ou de testes automatizados.
-2. Instalar configuração local ignorada pelo Git e validar o alvo com `SELECT DATABASE()`; não imprimir URL nem senha. Configurar também `GOS_HOMOLOGATION_FILES_DIR` para local isolado e não público.
+2. Instalar configuração local ignorada pelo Git e validar o alvo com `SELECT DATABASE()`; não imprimir URL nem senha. Configurar `GOS_HOMOLOGATION_FILES_DIR` e `GOS_COMPANY_ASSETS_DIR` para diretórios persistentes isolados e não públicos.
 3. Aplicar migrations somente via comando seguro após inspeção e autorização operacional própria.
 4. Criar usuários descartáveis e dados de homologação; impedir tráfego/ações externas reais.
 5. Validar visualmente em A4 entrada, orçamento e saída; confirmar que produção não inclui o marcador.

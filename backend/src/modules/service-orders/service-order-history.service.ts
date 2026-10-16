@@ -82,7 +82,7 @@ export class ServiceOrderHistoryService {
           actor: row.event.actor,
           eventType: row.event.eventType,
           serviceOrderNumber: formatServiceOrderNumber(row.event.numberValue),
-          payload: sanitizeServiceOrderEventPayload(row.event.eventType, row.event.payload, canReadBudgetCosts, canReadProductCosts),
+          payload: sanitizeServiceOrderEventPayload(row.event.eventType, row.event.payload, canReadBudgetCosts, canReadProductCosts, formatServiceOrderNumber(row.event.numberValue)),
         } : {
           kind: "MANUAL_NOTE" as HistoryKind,
           publicId: row.note.publicId,

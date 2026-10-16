@@ -296,3 +296,10 @@ A migration foi aplicada e validada exclusivamente em `gestor_os_opening_test`; 
 ## Homologação 1 — registro de problemas
 
 A tabela `homologation_issues` armazena registros simples de problemas do ambiente isolado: identificador público, descrição, ação tentada, resultado observado, referência de tela opcional, vínculo opcional com OS, chave e MIME de captura opcional, versão do sistema, situação, usuário que registrou, Administrador que atualizou a situação e timestamps do servidor. A migration não cria dados iniciais. Capturas ficam no filesystem segregado, não em conteúdo público; a política de retenção/expurgo ainda requer definição operacional.
+## Identificação empresarial por ambiente
+
+A migration `20261023120000_company_settings` cria `company_settings`, configuração singleton identificada por `id=1`, com `legal_name VARCHAR(191)`, `trade_name VARCHAR(191)`, `cnpj VARCHAR(14)`, `full_address TEXT`, `phone VARCHAR(30)`, `email VARCHAR(254)`, `logo_storage_key VARCHAR(64)`, `logo_mime VARCHAR(32)`, `updated_by_user_id` nullable e timestamps `DATETIME(3)`. Os dados empresariais e a referência ao logotipo são opcionais. A migration insere apenas a linha estrutural vazia com `id=1`; não inventa nem registra dados empresariais. A FK de autoria aponta para `users` com `ON DELETE SET NULL`, acompanhada de índice.
+
+O logotipo não é armazenado como blob no MySQL: somente chave aleatória e MIME são persistidos. PNG/JPEG até 2 MiB são guardados em filesystem persistente configurado, fora da raiz pública e segregado por ambiente. O Backend controla acesso e registra alterações no Log Administrativo. A migration `20261023120000_company_settings` foi aplicada e `prisma migrate status` confirmou o schema atualizado exclusivamente em `gestor_os_opening_test`; ela não foi aplicada em `gestor_os`.
+
+As sequências visíveis `OS-` e `HOS-` usam a alocação transacional por banco e a restrição numérica única já existente. O banco de homologação, quando provisionado, terá contador independente do banco de produção. Não foi criada tabela ou migration de sequência paralela, e o banco principal não recebe transformação dos números existentes.

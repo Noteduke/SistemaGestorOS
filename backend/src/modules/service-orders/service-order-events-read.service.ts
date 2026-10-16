@@ -55,7 +55,7 @@ const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f
 const budgetEventTypes = new Set(["ITEM_ORCAMENTO_CRIADO", "ITEM_ORCAMENTO_ALTERADO", "ITEM_ORCAMENTO_REMOVIDO", "ORCAMENTO_RETIRADO"]);
 const budgetSnapshotKeys = ["publicId", "productPublicId", "itemType", "origin", "description", "quantity", "unitPrice", "total", "unitCost", "totalCost"] as const;
 
-export function sanitizeServiceOrderEventPayload(eventType: string, value: Prisma.JsonValue | null, includeCosts = false, includeProductCosts = includeCosts): Record<string, unknown> | null {
+export function sanitizeServiceOrderEventPayload(eventType: string, value: Prisma.JsonValue | null, includeCosts = false, includeProductCosts = includeCosts, visibleNumber?: string): Record<string, unknown> | null {
   const allowed = Object.hasOwn(payloadKeys, eventType) ? payloadKeys[eventType] : undefined;
   if (!allowed || value === null || typeof value !== "object" || Array.isArray(value)) return null;
 
@@ -63,6 +63,10 @@ export function sanitizeServiceOrderEventPayload(eventType: string, value: Prism
   const sanitized: Record<string, unknown> = {};
   for (const key of allowed) {
     const candidate = source[key];
+    if (key === "visibleNumber" && visibleNumber) {
+      sanitized[key] = visibleNumber;
+      continue;
+    }
     if (budgetEventTypes.has(eventType) && !includeCosts && (key === "unitCost" || key === "totalCost")) continue;
     if (key === "unitCostSnapshot") {
       if (includeProductCosts && (candidate === null || typeof candidate === "string")) sanitized[key] = candidate;
@@ -157,7 +161,7 @@ function toEventView(event: EventRow, includeCosts: boolean, includeProductCosts
     visibleNumber: formatServiceOrderNumber(event.numberValue),
     numberValue: event.numberValue.toString(),
     actor: { publicId: event.actor.publicId, username: event.actor.username },
-    payload: sanitizeServiceOrderEventPayload(event.eventType, event.payload, includeCosts, includeProductCosts),
+    payload: sanitizeServiceOrderEventPayload(event.eventType, event.payload, includeCosts, includeProductCosts, formatServiceOrderNumber(event.numberValue)),
   };
 }
 

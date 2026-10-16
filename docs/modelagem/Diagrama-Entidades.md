@@ -423,3 +423,25 @@ erDiagram
 ```
 
 `ProductStockMovement` é um ledger append-only. Não existe tabela de saldo/local; um único local é implícito, e os saldos são somas de deltas. Movimentos da OS vinculam-se ao Produto, item, OS e aplicação original quando são reversões. `unit_cost_snapshot` mantém o custo conhecido no instante da aplicação ou `NULL`; sua projeção exige `products.cost.read`. A migration `20261016130000_service_order_stock_applications` foi aplicada somente ao banco isolado `gestor_os_opening_test` e não foi aplicada ao principal.
+## Identificação empresarial por ambiente
+
+```mermaid
+erDiagram
+    User o|--o{ CompanySettings : atualiza
+    CompanySettings {
+        int id PK "singleton id=1"
+        varchar191 legal_name "nullable"
+        varchar191 trade_name "nullable"
+        varchar14 cnpj "nullable"
+        text full_address "nullable"
+        varchar30 phone "nullable"
+        varchar254 email "nullable"
+        varchar64 logo_storage_key "nullable; filesystem privado"
+        varchar32 logo_mime "nullable"
+        int updated_by_user_id FK "nullable"
+        datetime3 created_at
+        datetime3 updated_at
+    }
+```
+
+`company_settings` tem uma linha vazia criada estruturalmente pela migration, sem dados empresariais presumidos. O campo de arquivo referencia logo persistida fora do banco, com raiz de armazenamento configurada e subdiretório segregado por ambiente. A FK de autoria permite preservar a configuração caso a conta associada deixe de existir.
