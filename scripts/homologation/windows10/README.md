@@ -31,14 +31,20 @@ Copie ou clone o repositório para uma pasta de staging local. A partir da raiz 
 
 O script de build confirma que o bundle contém `DOCUMENTO DE TESTE — HOMOLOGAÇÃO` e grava `build-info.json` com ambiente, versão e commit de origem. O deploy recusa artefatos sem esse marcador/manifests. O diretório de artefatos é ignorado pelo Git.
 
-Copie os binários já verificados para caminhos locais explícitos e só após a revisão de host/ACL execute como Administrador:
+Copie os binários já verificados para caminhos locais explícitos. Primeiro execute a prévia, que valida caminhos, variáveis (sem exibir valores), XMLs, manifesto e bundle, sem copiar arquivos, alterar ACLs ou registrar serviços:
 
 ```powershell
-& .\scripts\homologation\windows10\Install-HomologationServices.ps1 -CaddyExe 'C:\staging\caddy.exe' -WinSWExe 'C:\staging\WinSW-x64.exe' -Apply
+& .\scripts\homologation\windows10\Install-HomologationServices.ps1 -CaddyExe 'C:\staging\caddy.exe' -WinSWExe 'C:\staging\WinSW-x64.exe' -WhatIf
+```
+
+Se a prévia passar e os caminhos/artefatos forem revisados, execute em PowerShell elevado no host de destino:
+
+```powershell
+& .\scripts\homologation\windows10\Install-HomologationServices.ps1 -CaddyExe 'C:\staging\caddy.exe' -WinSWExe 'C:\staging\WinSW-x64.exe' -Apply -Confirm
 & .\scripts\homologation\windows10\Verify-HomologationServices.ps1
 ```
 
-O instalador valida a configuração do Caddy, cria/instala dois serviços WinSW com início automático e conta `NT AUTHORITY\LocalService`, e aplica ACLs locais. O Frontend é estático; o Backend escuta somente em `127.0.0.1:3100`; Caddy publica HTTPS interno e restringe a requisição a IP de origem de faixa privada. O instalador não cria regras de Firewall. Em PowerShell elevado, informe a sub-rede privada real da equipe, confira a prévia e então aplique somente a regra TCP/443:
+Antes da primeira alteração, a instalação real confirma Node.js 24, executa `caddy validate`, valida estruturalmente os dois XMLs e verifica a identidade do banco configurado sem abrir conexão SQL. Os XMLs são copiados ao lado dos executáveis como `GestorOSBackend.xml` e `GestorOSCaddy.xml`, nomes que o WinSW procura automaticamente. Se houver serviços ou arquivos de uma tentativa anterior, inclusive configurações `.exe.config`, o script para para revisão manual e não os sobrescreve nem remove. Os dois serviços usam início automático e conta `NT AUTHORITY\LocalService`; o usuário da conexão MySQL do Backend deve ser `gos_homologation_app`, no banco `gestor_os_homologation`, com efeitos externos desativados. O Frontend é estático; o Backend escuta somente em `127.0.0.1:3100`; Caddy publica HTTPS interno e restringe a requisição a IP de origem de faixa privada. O instalador não cria regras de Firewall. Em PowerShell elevado, informe a sub-rede privada real da equipe, confira a prévia e então aplique somente a regra TCP/443:
 
 ```powershell
 & .\scripts\homologation\windows10\Configure-HomologationFirewall.ps1 -LanCidr '192.168.1.0/24' -WhatIf
