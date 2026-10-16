@@ -382,7 +382,7 @@ Agenda/lembretes vinculados à OS foram aprovados, com estrutura do lembrete, av
 
 ### 11.1 Dell
 
-Foi solicitada pesquisa de integração para consultar equipamentos Dell pelo asset tag/serial, recuperar modelo/dados do equipamento e apoiar o cadastro/OS. O asset tag foi definido como número de série Dell. A pesquisa compara API oficial e alternativas e registra fluxo, cache, erros e limites. A integração Dell TechDirect também aparece como módulo/documento previsto. Credenciais, disponibilidade comercial, escopo de API e operação efetivamente contratada não foram comprovados como decisão final.
+Para a Homologação 1, o único escopo Dell é a consulta pública de Service Tag para obter somente o modelo; a validação funcional verificável dessa consulta continua pendente e preenchimento manual é apenas fallback. Não consultar garantia, dados de suporte, proprietário nem usar TechDirect nesta homologação. Integrações mais amplas — inclusive garantia, chamados, peças e TechDirect — são futuras, fora da Homologação 1, e dependem de decisões, disponibilidade e aprovação próprias.
 
 ### 11.2 Correios e logística
 

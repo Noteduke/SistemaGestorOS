@@ -298,3 +298,11 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 
 .unsaved-dialog h2 { margin-top: 0; }
 .unsaved-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+.document-print-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin: .75rem 0 1rem; }
+.issue-form { display: grid; gap: 1rem; }
+.issue-form label, .issue-card label { display: grid; gap: .35rem; font-weight: 600; }
+.issue-form textarea, .issue-form input, .issue-card select { width: 100%; padding: .65rem; border: 1px solid var(--border, #ccd5dd); border-radius: .4rem; font: inherit; }
+.issue-form textarea { min-height: 6rem; resize: vertical; }
+.issue-card { border-top: 1px solid var(--border, #ddd); padding: 1rem 0; }
+.issue-card dd { margin: 0 0 .5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.issue-card dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem .75rem; }

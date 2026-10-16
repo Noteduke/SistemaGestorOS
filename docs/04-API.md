@@ -299,3 +299,13 @@ Adquirir exige autorização normal para editar OS. O Backend permite `takeover`
 O contrato não combina alterações automaticamente nem oferece resolução campo a campo. Não há comparação de valores originais para merge, escolha de valores em conflito, reconstrução de itens removidos ou confirmação para combinar composições. `expectedVersion` do item continua protegendo contra alteração daquele registro, enquanto a revisão global protege toda a OS. Uma revisão desatualizada exige consultar os dados atuais e reaplicar manualmente a intenção desejada com controle válido e revisão atual. O Frontend preserva o rascunho para consulta/cópia, mantém claramente separados os dados atuais e os valores locais e não salva automaticamente ao recuperar o controle. Descartar o rascunho exige ação explícita do usuário.
 
 Itens removidos permanecem removidos logicamente e não são restaurados. Uma inclusão posterior é um novo POST e uma nova escolha explícita. As permissões de custo são verificadas em cada operação; respostas de composição e histórico omitem custos de quem não pode lê-los. Observações manuais continuam independentes do controle exclusivo. Salvamentos de situação, atribuições e orçamento mantêm suas transações atômicas: se a operação falhar, nenhuma parte dela é gravada.
+## API exclusiva da Homologação 1: problemas reportados
+
+As rotas abaixo só operam com `GOS_DEPLOYMENT_ENV=homologation` e exigem sessão autenticada. A criação é permitida a qualquer funcionário autenticado; a consulta, alteração de situação e download de captura são exclusivos de Administradores. Alteração de estado exige CSRF pela política global.
+
+- `POST /api/v1/homologation/issues` — multipart: `description`, `attemptedAction`, `observedResult` obrigatórios; `screenReference`, `serviceOrderPublicId` e `screenshot` opcionais. Captura PNG/JPEG até 5 MiB.
+- `GET /api/v1/homologation/issues` — consulta administrativa limitada aos 100 registros mais recentes.
+- `PATCH /api/v1/homologation/issues/:publicId/status` — recebe `status`: `PENDENTE`, `EM CORREÇÃO`, `CORRIGIDO` ou `VALIDADO`.
+- `GET /api/v1/homologation/issues/:publicId/screenshot` — download autenticado da captura, somente Administrador.
+
+O servidor associa identidade autenticada, timestamp do servidor e versão configurada do sistema. Capturas usam chave aleatória e diretório local configurado fora da raiz pública. Nenhum endpoint correspondente é exposto pela interface de produção; o backend retorna não encontrado fora do modo de homologação.

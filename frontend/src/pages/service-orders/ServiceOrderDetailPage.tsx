@@ -11,6 +11,8 @@ import {
   heartbeatServiceOrderEditControl,
   listAssignableUsers,
   listServiceOrderHistory,
+  listServiceOrderEvents,
+  getServiceOrderBudget,
   listServiceOrderStatuses,
   operationalSituationErrorMessage,
   operationalSituationOptions,
@@ -26,10 +28,12 @@ import {
   type ServiceOrderDetail,
   type ServiceOrderHistoryPage,
   type ServiceOrderStatus,
+  type ServiceOrderEvent,
 } from "../../api/serviceOrders";
 import { AsyncState } from "../../components/AsyncState";
 import { SnapshotCard } from "../../components/SnapshotCard";
 import { ServiceOrderBudgetPanel } from "./ServiceOrderBudgetPanel";
+import { buildServiceOrderEntryPrintHtml, buildServiceOrderExitPrintHtml, openServiceOrderDocumentPrint } from "./service-order-documents-print";
 
 const PAGE_SIZE = 20;
 const ASSIGNABLE_PAGE_SIZE = 100;
@@ -61,6 +65,7 @@ interface ServiceOrderDetailPageProps {
   csrfToken: string;
   canCreateNote?: boolean;
   canReadBudget?: boolean;
+  canReadEvents?: boolean;
   canEditBudget?: boolean;
   canManageStock?: boolean;
   canClose?: boolean;
@@ -106,8 +111,10 @@ function closureConsumptions(payload: Record<string, unknown> | null) {
   });
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canEditBudget = false, canManageStock = false, canClose = false, canCancel = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canReadEvents = false, canEditBudget = false, canManageStock = false, canClose = false, canCancel = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ServiceOrderHistoryPage | null>(null);
@@ -594,6 +601,17 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
     }
   }
 
+  async function printExitDocument() {
+    if (!order || printing) return;
+    setPrinting(true); setPrintError(null);
+    try {
+      const [budget, events] = await Promise.all([getServiceOrderBudget(publicId), listServiceOrderEvents(publicId, 1, 100)]);
+      const printEvents: ServiceOrderEvent[] = events.data.map((event) => ({ ...event, actor: event.actor ?? null }));
+      openServiceOrderDocumentPrint(buildServiceOrderExitPrintHtml(order, budget.data, budget.total, printEvents));
+    } catch { setPrintError("Não foi possível preparar a impressão de saída. Verifique as permissões e tente novamente."); }
+    finally { setPrinting(false); }
+  }
+
   function sameUserSet(left: string[], right: string[]): boolean {
     return left.length === right.length && left.every((id) => right.includes(id));
   }
@@ -695,6 +713,12 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
             </div>
             <span className="status-badge">{order.operationalSituation}</span>
           </div>
+          <div className="document-print-actions no-print">
+            <button className="button button--secondary" type="button" onClick={() => openServiceOrderDocumentPrint(buildServiceOrderEntryPrintHtml(order))}>Imprimir OS de entrada</button>
+            <button className="button button--secondary" type="button" onClick={() => void printExitDocument()} disabled={printing || !canReadBudget || !canReadEvents}>{printing ? "Preparando saída…" : "Imprimir OS de saída"}</button>
+            {(!canReadBudget || !canReadEvents) && <span className="muted">A impressão de saída exige leitura da OS, orçamento e histórico.</span>}
+          </div>
+          {printError && <p className="form-message form-message--error" role="alert">{printError}</p>}
 
           <div className="tabs" role="group" aria-label="Seções da Ordem de Serviço">
             <button aria-pressed={section === "details"} className={section === "details" ? "tab tab--active" : "tab"} onClick={() => onSectionChange("details")}>Resumo</button>

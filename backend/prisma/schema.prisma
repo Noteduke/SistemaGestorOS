@@ -184,6 +184,8 @@ model User {
   updatedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemUpdater")
   removedBudgetItems            ServiceOrderBudgetItem[]  @relation("BudgetItemRemover")
   heldServiceOrderEditControls  ServiceOrderEditControl[]
+  reportedHomologationIssues    HomologationIssue[]       @relation("HomologationIssueReporter")
+  updatedHomologationIssues     HomologationIssue[]       @relation("HomologationIssueUpdater")
 
   @@index([isAdmin, isActive])
   @@map("users")
@@ -617,6 +619,7 @@ model ServiceOrder {
   budgetItems               ServiceOrderBudgetItem[]
   stockMovements            ProductStockMovement[]
   editControl               ServiceOrderEditControl?
+  homologationIssues        HomologationIssue[]
 
   @@index([macroStatus, operationalStatusId, openedAt])
   @@index([macroStatus, technicalCompletion, openedAt])
@@ -737,4 +740,39 @@ model ServiceOrderEditControl {
   @@index([holderSessionId, expiresAt])
   @@index([expiresAt])
   @@map("service_order_edit_controls")
+}
+
+enum HomologationIssueStatus {
+  PENDING
+  IN_PROGRESS
+  FIXED
+  VALIDATED
+
+  @@map("homologation_issue_status")
+}
+
+model HomologationIssue {
+  id                   Int                     @id @default(autoincrement())
+  publicId             String                  @unique @default(uuid()) @map("public_id") @db.Char(36)
+  description          String                  @db.Text
+  attemptedAction      String                  @map("attempted_action") @db.Text
+  observedResult       String                  @map("observed_result") @db.Text
+  screenReference      String?                 @map("screen_reference") @db.VarChar(191)
+  serviceOrderId       Int?                    @map("service_order_id")
+  screenshotStorageKey String?                 @map("screenshot_storage_key") @db.VarChar(80)
+  screenshotMime       String?                 @map("screenshot_mime") @db.VarChar(40)
+  systemVersion        String                  @map("system_version") @db.VarChar(80)
+  status               HomologationIssueStatus @default(PENDING)
+  reportedByUserId     Int                     @map("reported_by_user_id")
+  updatedByUserId      Int?                    @map("updated_by_user_id")
+  createdAt            DateTime                @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.DateTime(3)
+  serviceOrder         ServiceOrder?           @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reportedBy           User                    @relation("HomologationIssueReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy            User?                   @relation("HomologationIssueUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, createdAt, id])
+  @@index([reportedByUserId, createdAt])
+  @@index([serviceOrderId, createdAt])
+  @@map("homologation_issues")
 }

@@ -58,7 +58,7 @@ Exemplo de saída normalizada esperada:
 
 O exemplo usa os dados demonstrativos do manual, não uma consulta atual. Se a chamada não tiver credencial autorizada, o cliente retorna uma mensagem clara indicando que o serviço requer credencial e vínculo/autorização do objeto com o contrato.
 
-## 3. Dell
+## 3. Dell — prova técnica, não aceite funcional da Homologação 1
 
 ### Página pública e resultado observado
 
@@ -74,7 +74,7 @@ Em uma tentativa anterior com um identificador fictício (`ABC1234`), uma chamad
 
 ### Parser e riscos
 
-Não foi implementado parser Dell nesta spike. A consulta confirmou que o nome/modelo está disponível no conteúdo público renderizado: o título em `dep_showDeviceDetails` e o texto alternativo de `hero-product-image` mostraram `Latitude 3420`. A implementação experimental pode extrair somente esse nome e normalizar para `{ serviceTag, model, source: "dell_public_site" }`, sem ler garantia, suporte, proprietário ou outros dados.
+Não foi implementado parser Dell nesta spike. A consulta manual confirmou que o nome/modelo de uma unidade de teste estava disponível no conteúdo público renderizado. Isso não valida uma integração automatizada nem o Service Tag de validação da Homologação 1. Para H1, somente a consulta pública do modelo é considerada e sua validação funcional permanece pendente; não consultar garantia, suporte, proprietário ou outros dados. A TechDirect e integrações Dell mais amplas são futuras.
 
 Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecionamento, proteção anti-bot/limites, conteúdo renderizado por JavaScript e variação por país/idioma. O modelo foi confirmado visualmente no fluxo público, mas não foi verificado se uma requisição HTTP simples devolve o mesmo campo sem renderização. Revalidar o parser com respostas mínimas, sem armazenar cookies, tokens, Service Tags ou conteúdo de garantia. Fazer poucas requisições e definir timeout.
 
@@ -98,7 +98,7 @@ Riscos: mudanças no HTML/payload, nomes de propriedades, fluxo de redirecioname
 ## 5. Recomendação e próximos passos
 
 1. **Correios — preparado para validação autenticada:** usuário configurar as variáveis locais acima, confirmar no CWS o acesso à API Rastro e fornecer um código de objeto associado ao contrato/ambiente. Então executar uma única consulta e revisar o formato real da resposta.
-2. **Dell — consulta pública confirmada; parser simples é a próxima etapa:** inspecionar uma resposta HTTP controlada para a rota pública e verificar se o nome do modelo vem no HTML/payload inicial. Se vier, extrair somente o modelo com parser leve; se depender de JavaScript, avaliar uma opção de renderização em spike separada.
+2. **Dell — consulta pública de modelo para H1 ainda pendente:** a prova manual não constitui validação funcional da consulta. Validar a consulta pública permitida para o identificador definido no roteiro; extrair apenas o modelo, sem contornar proteções. Se não houver resposta verificável, manter como limitação e fallback manual. TechDirect, garantia e demais consultas permanecem futuras.
 3. Validar o comportamento de timeout, credenciais sem permissão, objeto não disponível e respostas sem eventos antes de qualquer evolução do spike.
 4. Fazer revisão técnica antes de integrar à OS. Esta spike não altera regras de negócio nem recomenda automação periódica ainda.
 

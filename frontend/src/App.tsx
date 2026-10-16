@@ -8,6 +8,7 @@ import { ServiceOrderOpeningPage } from "./pages/service-orders/ServiceOrderOpen
 import { ServiceCatalogPage } from "./pages/services/ServiceCatalogPage";
 import { ProductCatalogPage } from "./pages/products/ProductCatalogPage";
 import { ServiceOrderStatusesPage } from "./pages/service-orders/ServiceOrderStatusesPage";
+import { HomologationIssuesPage } from "./pages/homologation/HomologationIssuesPage";
 
 type Route =
   | { view: "list"; page: number }
@@ -15,6 +16,7 @@ type Route =
   | { view: "services" }
   | { view: "products" }
   | { view: "statuses" }
+  | { view: "homologation-issues" }
   | { view: "detail"; publicId: string; section: "details" | "events" };
 
 function positivePage(value: string | null): number {
@@ -33,6 +35,7 @@ function readRoute(): Route {
   if (segments.length === 1 && segments[0] === "services") return { view: "services" };
   if (segments.length === 1 && segments[0] === "products") return { view: "products" };
   if (segments.length === 1 && segments[0] === "service-order-statuses") return { view: "statuses" };
+  if (segments.length === 1 && segments[0] === "homologation-issues") return { view: "homologation-issues" };
   if (segments.length === 2 && segments[0] === "service-orders" && segments[1] === "opening") {
     return { view: "opening" };
   }
@@ -187,6 +190,7 @@ export function App() {
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
           {canAccessProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos / Estoque</a>}
           {session.identity.isAdmin && <a className="topbar-link" href="#/service-order-statuses" onClick={(event) => { event.preventDefault(); navigateSafely("/service-order-statuses"); }}>Status de OS</a>}
+          {import.meta.env.MODE === "homologation" && <a className="topbar-link" href="#/homologation-issues" onClick={(event) => { event.preventDefault(); navigateSafely("/homologation-issues"); }}>{session.identity.isAdmin ? "Problemas da homologação" : "Reportar problema"}</a>}
           <span className="connection-dot" />
           <span>{session.identity.username}</span>
           {logoutMessage && <span role="status">{logoutMessage}</span>}
@@ -194,7 +198,9 @@ export function App() {
         </div>
       </header>
       <main className="content">
-        {route.view === "products" ? (
+        {route.view === "homologation-issues" ? (
+          import.meta.env.MODE === "homologation" ? <HomologationIssuesPage csrfToken={session.identity.csrfToken} isAdmin={session.identity.isAdmin} /> : <section className="state-card">Recurso disponível apenas na Homologação 1.</section>
+        ) : route.view === "products" ? (
           canAccessProducts ? <ProductCatalogPage
             csrfToken={session.identity.csrfToken}
             canManageProducts={canManageProducts}
@@ -239,6 +245,7 @@ export function App() {
             canManageAssignments={session.identity.isAdmin || session.identity.permissions.includes("service_orders.assignment.manage")}
             currentUsername={session.identity.username}
             canReadBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.read")}
+            canReadEvents={session.identity.isAdmin || session.identity.permissions.includes("service_orders.events.read")}
             canEditBudget={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.update")}
             canManageStock={session.identity.isAdmin || session.identity.permissions.includes("products.stock.manage")}
             canReadBudgetCosts={session.identity.isAdmin || session.identity.permissions.includes("service_orders.budget.costs.read")}

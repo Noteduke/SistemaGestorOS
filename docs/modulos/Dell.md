@@ -2,11 +2,11 @@
 # SISTEMA GESTOR OS
 
 **Versão:** 1.0
-**Status:** Em evolução
+**Status:** Futuro; fora da Homologação 1
 
 # 1. Objetivo
 
-Documentar a integração do Gestor OS com os serviços da Dell, em especial a plataforma TechDirect, para apoiar atendimentos em garantia, solicitação de peças e acompanhamento de chamados.
+Documentar uma possível integração futura do Gestor OS com serviços Dell, incluindo TechDirect. O documento não declara essa integração implementada ou aprovada para a Homologação 1.
 
 # 2. Escopo
 
@@ -54,4 +54,4 @@ Registrar:
 
 # 7. Evolução
 
-As especificações técnicas da API Dell TechDirect e demais procedimentos oficiais serão incorporadas gradualmente, mantendo este documento como referência funcional do módulo.
+Para a Homologação 1, o único escopo considerado é consulta pública para obter somente o modelo por Service Tag; a validação funcional permanece pendente e a entrada manual é apenas alternativa operacional. Consulta de garantia, chamados, peças e integração TechDirect são futuras, fora da primeira homologação, e dependem de decisões e aprovação próprias.

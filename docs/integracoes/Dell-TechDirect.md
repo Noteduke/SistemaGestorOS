@@ -1,16 +1,16 @@
-# INTEGRAÇÃO — DELL TECHDIRECT
+# INTEGRAÇÃO FUTURA — DELL TECHDIRECT
 # SISTEMA GESTOR OS
 
 **Versão:** 1.0
-**Status:** Em evolução
+**Status:** Futuro; fora da Homologação 1
 
 # 1. Objetivo
 
-Documentar a integração entre o Sistema Gestor OS e a plataforma Dell TechDirect.
+Documentar uma possível integração futura entre o Sistema Gestor OS e a plataforma Dell TechDirect.
 
-# 2. Escopo
+# 2. Escopo futuro
 
-A integração deverá permitir:
+Uma integração mais ampla poderá permitir:
 
 - Consulta de garantia por Service Tag;
 - Abertura de chamados técnicos;
@@ -57,4 +57,4 @@ As credenciais deverão ser armazenadas fora do código-fonte e protegidas por v
 
 # 8. Evolução
 
-As especificações oficiais da plataforma Dell TechDirect, APIs, autenticação, fluxos de garantia, solicitação de peças, tratamento de erros e demais recursos serão incorporadas progressivamente a este documento.
+Este documento descreve uma possibilidade futura e não representa integração implementada ou aprovada para a Homologação 1. O único escopo Dell considerado para a Homologação 1 é a consulta pública de identificação do modelo a partir de Service Tag; não inclui TechDirect, garantia, chamados ou solicitação de peças. A consulta pública do modelo continua pendente de validação funcional verificável; preenchimento manual é apenas fallback e não comprova a consulta. API, autenticação e demais fluxos dependem de decisão e aprovação próprias.

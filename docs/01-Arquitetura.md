@@ -113,7 +113,7 @@ Toda alteração estrutural deverá ser feita através de migrations.
 - Stone
 - Banco Inter
 - Correios
-- Dell TechDirect
+- Dell TechDirect (integração ampla futura; fora da Homologação 1, que considera apenas consulta pública do modelo ainda pendente de validação)
 
 # 11. Evolução
 
