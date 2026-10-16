@@ -123,7 +123,7 @@ test("histórico mescla fontes sem pular/repetir em empate e filtra payload", as
   const earlier = new Date("2026-10-14T11:00:00.000Z");
   const actor = { publicId: author.publicId, username: author.username };
   const events = [
-    { id: 7, serviceOrderId: 2, openingId: null, occurredAt: instant, eventType: "SITUACAO_OPERACIONAL_ALTERADA", numberValue: 128n, actor, payload: { previousOperationalSituation: "TRIAGE", secret: "hidden" } },
+    { id: 7, serviceOrderId: 2, openingId: null, occurredAt: instant, eventType: "SITUACAO_OPERACIONAL_ALTERADA", numberValue: 128n, actor, payload: { previousOperationalStatus: "TRIAGEM", secret: "hidden" } },
     { id: 6, serviceOrderId: null, openingId: 3, occurredAt: instant, eventType: "OTHER", numberValue: 128n, actor, payload: { secret: "hidden" } },
     { id: 5, serviceOrderId: 2, openingId: null, occurredAt: earlier, eventType: "OTHER", numberValue: 128n, actor, payload: null },
   ];
@@ -163,7 +163,7 @@ test("histórico mescla fontes sem pular/repetir em empate e filtra payload", as
   } while (seen.length < 10);
   assert.equal(seen.length, 5);
   assert.deepEqual(seen.map((item) => item.kind), ["SYSTEM_EVENT", "SYSTEM_EVENT", "MANUAL_NOTE", "SYSTEM_EVENT", "MANUAL_NOTE"]);
-  assert.deepEqual(seen[0].payload, { previousOperationalSituation: "TRIAGE" });
+  assert.deepEqual(seen[0].payload, { previousOperationalStatus: "TRIAGEM" });
   assert.equal(seen[1].payload, null);
   assert.equal(seen[2].canDelete, true);
   assert.equal(seen[4].canDelete, false);

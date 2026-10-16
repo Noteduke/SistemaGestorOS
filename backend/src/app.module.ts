@@ -10,6 +10,6 @@ import { ServicesModule } from "./modules/services/services.module.js";
 import { ProductsModule } from "./modules/products/products.module.js";
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule, ProductsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.GOS_ENV_FILE ?? ".env" }), PrismaModule, AuthModule, PeopleModule, ServiceOrdersModule, UsersModule, EquipmentModule, ServicesModule, ProductsModule],
 })
 export class AppModule {}

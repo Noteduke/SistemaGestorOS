@@ -37,6 +37,17 @@ export class PrismaService
       database: decodeURIComponent(databaseUrl.pathname.slice(1)),
     });
 
+    const databaseName = decodeURIComponent(databaseUrl.pathname.slice(1));
+    const declaredTarget = configService.get<string>("GOS_DATABASE_TARGET");
+    const deploymentEnvironment = configService.get<string>("GOS_DEPLOYMENT_ENV");
+    if (declaredTarget && declaredTarget !== databaseName) {
+      throw new Error("Destino do banco não corresponde a GOS_DATABASE_TARGET.");
+    }
+    if (deploymentEnvironment === "homologation" &&
+      (databaseName !== "gestor_os_homologation" || configService.get<string>("GOS_EXTERNAL_EFFECTS_ENABLED") !== "false")) {
+      throw new Error("Homologação exige banco exclusivo gestor_os_homologation e efeitos externos desativados.");
+    }
+
     super({ adapter });
   }
 

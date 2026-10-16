@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServiceOrderBudget, ServiceOrderDetail } from "../../api/serviceOrders";
 import { buildServiceOrderBudgetPrintHtml } from "./service-order-budget-print";
 
@@ -14,6 +14,7 @@ const budget = {
 } as ServiceOrderBudget;
 
 describe("impressão do orçamento de OS", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("gera documento A4 com os dados cobrados e sem custos internos", () => {
     const html = buildServiceOrderBudgetPrintHtml(order, budget, new Date("2026-10-16T12:00:00.000Z"));
     expect(html).toContain("@page{size:A4 portrait");
@@ -26,5 +27,19 @@ describe("impressão do orçamento de OS", () => {
     expect(html).not.toContain("999,99");
     expect(html).not.toContain("1999,98");
     expect(html).not.toContain("lucro");
+  });
+
+  it("marca o PDF de homologação e não oferece controle para remover a identificação", () => {
+    vi.stubEnv("MODE", "homologation");
+    const html = buildServiceOrderBudgetPrintHtml(order, budget, new Date("2026-10-16T12:00:00.000Z"));
+    expect(html.match(/DOCUMENTO DE TESTE — HOMOLOGAÇÃO/gu)).toHaveLength(2);
+    expect(html).toContain("@media print");
+    expect(html).not.toMatch(/(checkbox|remover.*homologação|ocultar.*documento de teste)/iu);
+  });
+
+  it("não insere a identificação de homologação em produção", () => {
+    vi.stubEnv("MODE", "production");
+    const html = buildServiceOrderBudgetPrintHtml(order, budget, new Date("2026-10-16T12:00:00.000Z"));
+    expect(html).not.toContain("DOCUMENTO DE TESTE — HOMOLOGAÇÃO");
   });
 });

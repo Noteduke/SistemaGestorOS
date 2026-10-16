@@ -24,6 +24,8 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+!.env.*.example
+.homologation-data/
 
 # Prisma: artefatos gerados (schema e migrations devem ser versionados)
 prisma/generated/
