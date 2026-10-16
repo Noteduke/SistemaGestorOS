@@ -732,7 +732,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                     onChange={(event) => { setSelectedSituation(event.target.value); setSituationMessage(null); setSituationError(null); }}
                     disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || updatingSituation}
                   >
-                    {(operationalStatuses.length ? operationalStatuses : operationalSituationOptions.map((option) => ({ publicId: option.value, name: option.label, technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, version: 1 } as ServiceOrderStatus))).map((status) => <option key={status.publicId} value={status.publicId}>{status.name}</option>)}
+                    {(operationalStatuses.length ? operationalStatuses.filter((status) => status.isActive || status.publicId === order.operationalStatus.publicId) : operationalSituationOptions.map((option) => ({ publicId: option.value, name: option.label, technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, isActive: true, technicalCompletionMutable: false, version: 1 } as ServiceOrderStatus))).map((status) => <option key={status.publicId} value={status.publicId}>{status.name}{status.isActive ? "" : " (inativo — atual)"}</option>)}
                   </select>
                   <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
                     {updatingSituation ? "Salvando…" : "Salvar situação"}
@@ -810,6 +810,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
               {canReadBudget && <ServiceOrderBudgetPanel
                 key={`${publicId}-${budgetResetVersion}`}
                 publicId={publicId}
+                  order={order}
                 csrfToken={csrfToken}
                 editToken={editToken}
                 expectedRevision={editRevision}

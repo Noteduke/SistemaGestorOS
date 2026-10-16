@@ -298,6 +298,12 @@ Não autorização segue a mesma simplicidade: sem motivo estruturado, canal, fo
 
 A situação AGUARDANDO APROVAÇÃO DO ORÇAMENTO pode ser atribuída mesmo sem nenhum item lançado. A situação operacional não depende de orçamento não vazio; não criar essa validação.
 
+#### Catálogo de status e impressão do orçamento
+
+O Administrador pode criar, renomear, ativar e inativar status. Status inativo não pode ser atribuído a novas OS nem escolhido como destino de mudança; permanece visível nas OS que já o utilizam, sem alteração de histórico ou atributo. O atributo de conclusão técnica só pode mudar antes do primeiro uso do status por uma OS. Depois disso, seu valor é permanente, considerando atribuições atuais e históricas; renomear ou reativar não o desbloqueia. Nenhuma OS é reclassificada automaticamente. A interface informa e desabilita o atributo imutável, e o Backend aplica a mesma regra de forma transacional.
+
+A impressão do orçamento apresenta os dados correntes da OS, cliente e equipamento, data de emissão, itens ativos com tipo, descrição, quantidade, preço unitário e total, total geral, situação atualmente registrada e campo para aceite/assinatura. Usa A4 e pode ser impressa ou salva como PDF pelo diálogo do navegador. Custo de aquisição, custo interno, lucro, margem, logs e dados administrativos restritos não integram o documento. Desconto não existe no orçamento nesta etapa; permanece reservado ao futuro faturamento, sem criar indicação de desconto ou aprovação adicional.
+
 #### Retirada e histórico
 
 Itens ativos aparecem na ordem de inclusão, sem ordenação manual. Um item removido deixa a composição e o total atuais, sem exclusão física do histórico. Preservar tipo, descrição, quantidade, valores, usuário e data/hora, para Serviço/Mão de obra e Peça avulsa. Se necessário novamente, lançar NOVO item ao final da lista; a duplicidade considera apenas itens ativos. Não oferecer restauração nem reordenação.

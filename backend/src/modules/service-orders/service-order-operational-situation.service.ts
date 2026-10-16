@@ -42,8 +42,10 @@ export class ServiceOrderOperationalSituationService {
         if (current.macroStatus !== "OPEN") {
           throw new ConflictException({ code: "SERVICE_ORDER_NOT_OPEN", message: "A situação só pode ser alterada em uma OS aberta." });
         }
-        const targetStatus = await tx.serviceOrderStatus.findUnique({ where: { publicId: input.operationalStatusPublicId } });
+        const statusLocks = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM service_order_statuses WHERE public_id = ${input.operationalStatusPublicId} FOR UPDATE`;
+        const targetStatus = statusLocks.length ? await tx.serviceOrderStatus.findUnique({ where: { id: statusLocks[0].id } }) : null;
         if (!targetStatus) throw new NotFoundException({ code: "SERVICE_ORDER_STATUS_NOT_FOUND", message: "Status não encontrado." });
+        if (!targetStatus.isActive) throw new ConflictException({ code: "SERVICE_ORDER_STATUS_INACTIVE", message: "Status inativo não pode ser atribuído a uma OS." });
         if (current.operationalStatusId === targetStatus.id && input.withdrawBudget) {
           throw new ConflictException({ code: "BUDGET_WITHDRAWAL_REQUIRES_SITUATION_CHANGE", message: "A retirada integral só pode acompanhar uma mudança para situação de não autorização." });
         }
@@ -69,6 +71,7 @@ export class ServiceOrderOperationalSituationService {
           ...(recordsConclusion ? { technicalCompletedAt: now, technicalCompletedBy: { connect: { id: actor.id } }, technicalConclusionStatus: { connect: { id: targetStatus.id } } } : {}),
           ...(returnsToLab ? { technicalCompletedAt: null, technicalCompletedBy: { disconnect: true }, technicalConclusionStatus: { disconnect: true } } : {}),
         });
+        await tx.serviceOrderStatus.update({ where: { id: targetStatus.id }, data: { everAssigned: true } });
         const eventType = recordsConclusion ? "CONCLUSAO_TECNICA_REGISTRADA" : returnsToLab ? "RETORNO_AO_ATENDIMENTO" : "SITUACAO_OPERACIONAL_ALTERADA";
         await tx.serviceOrderEvent.create({
           data: {

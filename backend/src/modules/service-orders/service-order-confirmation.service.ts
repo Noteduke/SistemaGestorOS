@@ -156,6 +156,11 @@ export class ServiceOrderConfirmationService {
         const equipmentSnapshot = { snapshotVersion: 1, capturedAt, type: equipmentType, brand: equipmentBrand,
           model: equipmentModel, serialNumber: equipmentSerial,
           mainIdentification: [equipmentType, equipmentBrand, equipmentModel, equipmentSerial].filter(Boolean).join(" / ") };
+        const initialStatus = await tx.$queryRaw<Array<{ id: number; is_active: number }>>`SELECT id, is_active FROM service_order_statuses WHERE id = 1 FOR UPDATE`;
+        if (initialStatus.length !== 1 || !initialStatus[0].is_active) {
+          throw new ConflictException({ code: "INITIAL_SERVICE_ORDER_STATUS_INACTIVE", message: "O status inicial de triagem está inativo e não permite confirmar novas OS." });
+        }
+        await tx.serviceOrderStatus.update({ where: { id: 1 }, data: { everAssigned: true } });
         const order = await tx.serviceOrder.create({ data: {
           openingId: opening.id, numberValue, customerId: customer.id, equipmentId, createdByUserId: actor.id,
           macroStatus: "OPEN", complaint: opening.complaint,

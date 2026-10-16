@@ -6,7 +6,7 @@ const completionOptions: Array<{ value: TechnicalCompletion; label: string }> = 
   { value: "COMPLETED_WITH_REPAIR", label: "Concluído com reparo" },
   { value: "COMPLETED_WITHOUT_REPAIR", label: "Concluído sem reparo" },
 ];
-const empty = { publicId: "", name: "", technicalCompletion: "NOT_COMPLETED" as TechnicalCompletion };
+const empty = { publicId: "", name: "", technicalCompletion: "NOT_COMPLETED" as TechnicalCompletion, isActive: true };
 
 export function ServiceOrderStatusesPage({ csrfToken }: { csrfToken: string }) {
   const [statuses, setStatuses] = useState<ServiceOrderStatus[]>([]);
@@ -27,8 +27,9 @@ export function ServiceOrderStatusesPage({ csrfToken }: { csrfToken: string }) {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setMessage(""); setError("");
     try {
-      await saveServiceOrderStatus({ name: form.name, technicalCompletion: form.technicalCompletion, ...(form.publicId ? { publicId: form.publicId, version: statuses.find((status) => status.publicId === form.publicId)?.version } : {}) }, csrfToken);
-      setMessage("Status salvo. A configuração passa a valer nas próximas transições; OS e eventos anteriores não são reclassificados.");
+      const current = statuses.find((status) => status.publicId === form.publicId);
+      await saveServiceOrderStatus({ name: form.name, technicalCompletion: form.technicalCompletion, ...(form.publicId ? { isActive: form.isActive, publicId: form.publicId, version: current?.version } : {}) }, csrfToken);
+      setMessage("Status salvo. A configuração não reclassifica OS nem eventos anteriores.");
       setForm(empty); await refresh();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível salvar o status."); }
     finally { setSaving(false); }
@@ -39,13 +40,14 @@ export function ServiceOrderStatusesPage({ csrfToken }: { csrfToken: string }) {
     <div className="detail-content">
       <form className="info-card form-grid" onSubmit={(event) => void submit(event)}>
         <h2>{form.publicId ? "Editar status" : "Novo status"}</h2>
-        <p>Editar o atributo não reclassifica OS existentes nem altera eventos anteriores; a configuração nova vale quando a situação da OS for alterada.</p>
+        <p>O atributo de conclusão fica imutável após a primeira atribuição a uma OS. Desativar impede novas atribuições, sem alterar as OS existentes.</p>
         <label>Nome do status<input maxLength={191} required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-        <label>Conclusão técnica<select value={form.technicalCompletion} onChange={(event) => setForm({ ...form, technicalCompletion: event.target.value as TechnicalCompletion })}>{completionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>Conclusão técnica<select disabled={Boolean(form.publicId && !statuses.find((status) => status.publicId === form.publicId)?.technicalCompletionMutable)} value={form.technicalCompletion} onChange={(event) => setForm({ ...form, technicalCompletion: event.target.value as TechnicalCompletion })}>{completionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        {form.publicId && <label><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Status ativo</label>}
         <div className="form-actions"><button className="button button--primary" disabled={saving}>{saving ? "Salvando…" : "Salvar status"}</button><button className="button button--secondary" type="button" onClick={() => setForm(empty)}>Limpar</button></div>
         {message && <p role="status" className="form-message form-message--success">{message}</p>}{error && <p role="alert" className="form-message form-message--error">{error}</p>}
       </form>
-        <section className="info-card"><h2>Status cadastrados</h2>{loading ? <p>Carregando…</p> : statuses.length === 0 ? <p>Nenhum status cadastrado.</p> : <div className="table-scroll"><table><thead><tr><th>Nome</th><th>Conclusão técnica</th><th></th></tr></thead><tbody>{statuses.map((status) => <tr key={status.publicId}><td>{status.name}</td><td>{completionOptions.find((item) => item.value === status.technicalCompletion)?.label}</td><td><button className="text-button" type="button" onClick={() => setForm({ publicId: status.publicId, name: status.name, technicalCompletion: status.technicalCompletion })}>Editar</button></td></tr>)}</tbody></table></div>}</section>
+        <section className="info-card"><h2>Status cadastrados</h2>{loading ? <p>Carregando…</p> : statuses.length === 0 ? <p>Nenhum status cadastrado.</p> : <div className="table-scroll"><table><thead><tr><th>Nome</th><th>Conclusão técnica</th><th>Estado</th><th>Atributo editável</th><th></th></tr></thead><tbody>{statuses.map((status) => <tr key={status.publicId}><td>{status.name}</td><td>{completionOptions.find((item) => item.value === status.technicalCompletion)?.label}</td><td>{status.isActive ? "Ativo" : "Inativo"}</td><td>{status.technicalCompletionMutable ? "Sim" : "Imutável: já usado"}</td><td><button className="text-button" type="button" onClick={() => setForm({ publicId: status.publicId, name: status.name, technicalCompletion: status.technicalCompletion, isActive: status.isActive })}>Editar</button></td></tr>)}</tbody></table></div>}</section>
     </div>
   </section>;
 }

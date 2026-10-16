@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { ServiceOrderStatusesPage } from "./ServiceOrderStatusesPage";
 
-const initial = { publicId: "652c6498-a270-43b2-8627-4a754bb5fdad", name: "Em manutenção", technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, version: 2 };
+const initial = { publicId: "652c6498-a270-43b2-8627-4a754bb5fdad", name: "Em manutenção", technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, isActive: true, technicalCompletionMutable: true, version: 2 };
 function response(body: unknown) { return { ok: true, status: 200, json: async () => body }; }
 
 describe("ServiceOrderStatusesPage", () => {
@@ -39,11 +39,30 @@ describe("ServiceOrderStatusesPage", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Conclusão técnica" }), { target: { value: "COMPLETED_WITHOUT_REPAIR" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar status" }));
 
-    await screen.findByText(/configuração passa a valer/);
+    await screen.findByText(/não reclassifica OS/);
     await waitFor(() => expect(fetchMock.mock.calls.some(([, request]) => request?.method === "PATCH")).toBe(true));
     const [url, init] = fetchMock.mock.calls.find(([, request]) => request?.method === "PATCH")!;
     expect(String(url)).toBe(`/api/v1/service-order-statuses/${initial.publicId}`);
-    expect(JSON.parse(String(init?.body))).toEqual({ name: initial.name, technicalCompletion: "COMPLETED_WITHOUT_REPAIR", expectedVersion: 2 });
+    expect(JSON.parse(String(init?.body))).toEqual({ name: initial.name, technicalCompletion: "COMPLETED_WITHOUT_REPAIR", isActive: true, expectedVersion: 2 });
     expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("csrf-local");
+  });
+
+  it("impede editar atributo após uso e permite desativar o status", async () => {
+    let listCalls = 0;
+    const used = { ...initial, technicalCompletionMutable: false };
+    const fetchMock = vi.fn().mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Promise.resolve(response({ data: { ...used, isActive: false, version: 3 } }));
+      listCalls += 1;
+      return Promise.resolve(response({ data: listCalls === 1 ? [used] : [{ ...used, isActive: false, version: 3 }] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ServiceOrderStatusesPage csrfToken="csrf-local" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    expect(screen.getByRole("combobox", { name: "Conclusão técnica" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Status ativo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar status" }));
+    await screen.findByText("Inativo");
+    const [, init] = fetchMock.mock.calls.find(([, request]) => request?.method === "PATCH")!;
+    expect(JSON.parse(String(init?.body))).toMatchObject({ isActive: false, expectedVersion: 2 });
   });
 });

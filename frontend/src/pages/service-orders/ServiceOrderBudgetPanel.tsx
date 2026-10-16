@@ -3,10 +3,11 @@ import type { FormEvent } from "react";
 import {
   addManualLaborBudgetItem, addManualPartBudgetItem, addRegisteredBudgetService, addStockPartBudgetItem, applyStockPartToServiceOrder, reverseStockPartApplication, closeServiceOrder, cancelServiceOrder,
   getServiceOrderBudget, listAvailableCatalogProducts, listAvailableCatalogServices, removeBudgetItem, updateBudgetItem,
-  ApiError, type AvailableCatalogProduct, type AvailableCatalogService, type ServiceOrderBudget, type ServiceOrderBudgetItem,
+  ApiError, type AvailableCatalogProduct, type AvailableCatalogService, type ServiceOrderBudget, type ServiceOrderBudgetItem, type ServiceOrderDetail,
 } from "../../api/serviceOrders";
+import { openServiceOrderBudgetPrint } from "./service-order-budget-print";
 
-type Props = { publicId: string; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; hasEditControl?: boolean; canManageStock?: boolean; canClose?: boolean; canCancel?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onFinalized?: (macroStatus: "FECHADA" | "CANCELADA", revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
+type Props = { publicId: string; order?: ServiceOrderDetail; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; hasEditControl?: boolean; canManageStock?: boolean; canClose?: boolean; canCancel?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onFinalized?: (macroStatus: "FECHADA" | "CANCELADA", revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
 type Mode = "service" | "labor" | "part" | "stock-part";
 
 function errorText(error: unknown): string {
@@ -23,7 +24,7 @@ function errorText(error: unknown): string {
   return "Não foi possível concluir a operação do orçamento.";
 }
 
-export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expectedRevision, canEdit, hasEditControl = canEdit, canManageStock = false, canClose = false, canCancel = false, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onFinalized, onDirtyChange, onDataConflict }: Props) {
+export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken, expectedRevision, canEdit, hasEditControl = canEdit, canManageStock = false, canClose = false, canCancel = false, canReadCosts, canUpdateCosts, isOpen, onActiveCountChange, onEditControlLost, onRevisionChange, onFinalized, onDirtyChange, onDataConflict }: Props) {
   const [budget, setBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudget, setConflictBudget] = useState<ServiceOrderBudget | null>(null);
   const [conflictBudgetLoading, setConflictBudgetLoading] = useState(false);
@@ -252,7 +253,7 @@ export function ServiceOrderBudgetPanel({ publicId, csrfToken, editToken, expect
 
   return (
     <section className="info-card budget-panel" aria-labelledby="budget-title">
-      <div className="section-heading"><div><h2 id="budget-title">Orçamento</h2><p>Serviços e peças vinculados à OS. O total é calculado pelo servidor.</p></div></div>
+      <div className="section-heading"><div><h2 id="budget-title">Orçamento</h2><p>Serviços e peças vinculados à OS. O total é calculado pelo servidor.</p></div><button className="button button--secondary" type="button" disabled={!order || !budget || dirty} onClick={() => { if (order && budget && !openServiceOrderBudgetPrint(order, budget)) setError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); }}>Imprimir / salvar como PDF</button></div>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
       {message && <p className="form-message form-message--success" role="status">{message}</p>}
       {conflictBudgetError && <p className="form-message form-message--error" role="alert">{conflictBudgetError}</p>}

@@ -175,18 +175,19 @@ export const operationalSituationOptions = [
 export type OperationalSituation = (typeof operationalSituationOptions)[number]["value"];
 
 export type TechnicalCompletion = "NOT_COMPLETED" | "COMPLETED_WITH_REPAIR" | "COMPLETED_WITHOUT_REPAIR";
-export interface ServiceOrderStatus { publicId: string; name: string; technicalCompletion: TechnicalCompletion; allowsBudgetWithdrawal: boolean; version: number }
+export interface ServiceOrderStatus { publicId: string; name: string; technicalCompletion: TechnicalCompletion; allowsBudgetWithdrawal: boolean; isActive: boolean; technicalCompletionMutable: boolean; version: number }
 
 export function listServiceOrderStatuses(signal?: AbortSignal) {
   return get<{ data: ServiceOrderStatus[] }>("/api/v1/service-order-statuses", signal);
 }
 
-export async function saveServiceOrderStatus(input: Pick<ServiceOrderStatus, "name" | "technicalCompletion"> & { publicId?: string; version?: number }, csrfToken: string) {
+export async function saveServiceOrderStatus(input: Pick<ServiceOrderStatus, "name" | "technicalCompletion"> & { isActive?: boolean; publicId?: string; version?: number }, csrfToken: string) {
   const editing = Boolean(input.publicId);
   const path = editing ? `/api/v1/service-order-statuses/${encodeURIComponent(input.publicId!)}` : "/api/v1/service-order-statuses";
   const response = await fetch(path, { method: editing ? "PATCH" : "POST", credentials: "include",
     headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ name: input.name, technicalCompletion: input.technicalCompletion, ...(input.version ? { expectedVersion: input.version } : {}) }) });
+    body: JSON.stringify({ name: input.name, technicalCompletion: input.technicalCompletion,
+      ...(editing ? { isActive: input.isActive ?? true, expectedVersion: input.version } : {}) }) });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const responseBody = isRecord(body) ? body : undefined;

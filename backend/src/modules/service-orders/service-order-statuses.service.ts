@@ -4,12 +4,14 @@ import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { ServiceOrderStatusInput } from "./dto/service-order-status.dto.js";
 
-const select = { publicId: true, name: true, technicalCompletion: true, allowsBudgetWithdrawal: true, version: true, createdAt: true, updatedAt: true } as const;
+const select = { id: true, publicId: true, name: true, technicalCompletion: true, allowsBudgetWithdrawal: true, isActive: true, everAssigned: true,
+  version: true, createdAt: true, updatedAt: true } as const;
 type StatusRow = Prisma.ServiceOrderStatusGetPayload<{ select: typeof select }>;
 
 function view(row: StatusRow) {
   return { publicId: row.publicId, name: row.name, technicalCompletion: row.technicalCompletion,
-    allowsBudgetWithdrawal: row.allowsBudgetWithdrawal, version: row.version,
+    allowsBudgetWithdrawal: row.allowsBudgetWithdrawal, isActive: row.isActive,
+    technicalCompletionMutable: !row.everAssigned, version: row.version,
     createdAt: row.createdAt, updatedAt: row.updatedAt };
 }
 
@@ -43,17 +45,21 @@ export class ServiceOrderStatusesService {
     }
     try {
       const row = await this.prisma.$transaction(async (tx) => {
-        const current = await tx.serviceOrderStatus.findUnique({ where: { publicId } });
+        const lockedRows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM service_order_statuses WHERE public_id = ${publicId} FOR UPDATE`;
+        const current = lockedRows.length ? await tx.serviceOrderStatus.findUnique({ where: { id: lockedRows[0].id } }) : null;
         if (!current) throw new NotFoundException({ code: "SERVICE_ORDER_STATUS_NOT_FOUND", message: "Status não encontrado." });
         if (current.version !== input.expectedVersion) throw new ConflictException({ code: "SERVICE_ORDER_STATUS_VERSION_CONFLICT", message: "O status foi alterado. Recarregue os dados." });
+        if (current.technicalCompletion !== input.technicalCompletion && current.everAssigned) {
+          throw new ConflictException({ code: "SERVICE_ORDER_STATUS_COMPLETION_IMMUTABLE", message: "A conclusão técnica não pode ser alterada porque este status já foi usado por uma OS." });
+        }
         const changed = await tx.serviceOrderStatus.updateMany({ where: { id: current.id, version: input.expectedVersion }, data: { name: input.name,
-          technicalCompletion: input.technicalCompletion, version: { increment: 1 } } });
+          technicalCompletion: input.technicalCompletion, ...(input.isActive === undefined ? {} : { isActive: input.isActive }), version: { increment: 1 } } });
         if (changed.count !== 1) throw new ConflictException({ code: "SERVICE_ORDER_STATUS_VERSION_CONFLICT", message: "O status foi alterado. Recarregue os dados." });
         const updated = await tx.serviceOrderStatus.findUniqueOrThrow({ where: { id: current.id } });
         await tx.adminAuditLog.create({ data: { eventCode: "SERVICE_ORDER_STATUS_UPDATED", actorUserId: actor.id,
-          detailsJson: { statusPublicId: current.publicId, previous: { name: current.name, technicalCompletion: current.technicalCompletion,
+          detailsJson: { statusPublicId: current.publicId, previous: { name: current.name, technicalCompletion: current.technicalCompletion, isActive: current.isActive,
             allowsBudgetWithdrawal: current.allowsBudgetWithdrawal },
-            next: { name: updated.name, technicalCompletion: updated.technicalCompletion,
+            next: { name: updated.name, technicalCompletion: updated.technicalCompletion, isActive: updated.isActive,
               allowsBudgetWithdrawal: updated.allowsBudgetWithdrawal } } } });
         return tx.serviceOrderStatus.findUniqueOrThrow({ where: { id: updated.id }, select });
       });

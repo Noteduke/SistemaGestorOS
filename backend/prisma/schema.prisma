@@ -506,6 +506,7 @@ model ServiceOrderStatus {
   technicalCompletion    ServiceOrderTechnicalCompletion @default(NOT_COMPLETED) @map("technical_completion")
   allowsBudgetWithdrawal Boolean                         @default(false) @map("allows_budget_withdrawal")
   isActive               Boolean                         @default(true) @map("is_active")
+  everAssigned           Boolean                         @default(false) @map("ever_assigned")
   version                Int                             @default(1)
   createdAt              DateTime                        @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt              DateTime                        @updatedAt @map("updated_at") @db.DateTime(3)

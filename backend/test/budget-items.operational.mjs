@@ -34,7 +34,8 @@ const normalizedNames = [catalogName, inactiveName, `Diagnóstico ${nonce}`, `Di
   .map((value) => value.normalize("NFD").replace(/\p{M}/gu, "").toLocaleUpperCase("pt-BR").replace(/\s+/gu, " ").trim());
 let userId;
 let order;
-let previousSituation;
+let previousStatusId;
+let previousStatusPublicId;
 let previousMacroStatus;
 let server;
 let cookie;
@@ -120,12 +121,13 @@ try {
   order = await prisma.serviceOrder.findFirst({
     where: { opening: { is: { status: "CONFIRMED" } }, numberAllocation: { is: { status: "CONFIRMED" } } },
     orderBy: { id: "asc" },
-    select: { id: true, publicId: true, numberValue: true, macroStatus: true, operationalSituation: true, updatedAt: true },
+    select: { id: true, publicId: true, numberValue: true, macroStatus: true, operationalStatusId: true, operationalStatus: { select: { publicId: true } }, updatedAt: true },
   });
   assert.ok(order, "O banco de teste precisa conter ao menos uma OS confirmada.");
   assert.equal(order.macroStatus, "OPEN", "A OS de teste precisa estar aberta.");
   previousMacroStatus = order.macroStatus;
-  previousSituation = order.operationalSituation;
+  previousStatusId = order.operationalStatusId;
+  previousStatusPublicId = order.operationalStatus.publicId;
 
   const hash = await argon2.hash(password, { type: argon2.argon2id });
   const user = await prisma.user.create({ data: { username, passwordHash: hash } });
@@ -579,8 +581,9 @@ try {
 
   const bulkApplied = await api(`/service-orders/${order.publicId}/budget-items/${zeroStockPart.body.data.publicId}/applications`, { method: "POST", body: { quantity: 2 } });
   assert.equal(bulkApplied.status, 201, JSON.stringify(bulkApplied.body));
-  const targetSituation = previousSituation === "NOT_AUTHORIZED_READY_DELIVERY" ? "NOT_AUTHORIZED_REASSEMBLE" : "NOT_AUTHORIZED_READY_DELIVERY";
-  const withdrawal = await api(`/service-orders/${order.publicId}/operational-situation`, { method: "PATCH", body: { operationalSituation: targetSituation, withdrawBudget: true } });
+  const targetStatus = await prisma.serviceOrderStatus.findFirst({ where: { allowsBudgetWithdrawal: true, publicId: { not: previousStatusPublicId } }, select: { publicId: true } });
+  assert.ok(targetStatus, "O banco de teste precisa de um status ativo configurado para retirada do orçamento.");
+  const withdrawal = await api(`/service-orders/${order.publicId}/operational-situation`, { method: "PATCH", body: { operationalStatusPublicId: targetStatus.publicId, withdrawBudget: true } });
   assert.equal(withdrawal.status, 200, JSON.stringify(withdrawal.body));
   const afterWithdrawal = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(afterWithdrawal.status, 200);
@@ -596,7 +599,7 @@ try {
   await expectFailure(`/services/${service.publicId}?expectedVersion=4`, "DELETE", undefined, 409, "SERVICE_ALREADY_USED");
   results.push("Retirada integral somente junto da situação NÃO AUTORIZADO, com snapshot e total histórico");
 
-  const restored = await api(`/service-orders/${order.publicId}/operational-situation`, { method: "PATCH", body: { operationalSituation: previousSituation } });
+  const restored = await api(`/service-orders/${order.publicId}/operational-situation`, { method: "PATCH", body: { operationalStatusPublicId: previousStatusPublicId } });
   assert.equal(restored.status, 200, JSON.stringify(restored.body));
   const clean = await api(`/service-orders/${order.publicId}/budget-items`);
   assert.equal(clean.body.data.length, 0);
@@ -836,7 +839,7 @@ try {
         await tx.userSession.deleteMany({ where: { userId } });
         await tx.userPermission.deleteMany({ where: { userId } });
         await tx.user.deleteMany({ where: { id: userId } });
-        if (previousSituation !== undefined) await tx.serviceOrder.update({ where: { id: order.id }, data: { macroStatus: previousMacroStatus ?? "OPEN", operationalSituation: previousSituation, updatedAt: order.updatedAt } });
+        if (previousStatusId !== undefined) await tx.serviceOrder.update({ where: { id: order.id }, data: { macroStatus: previousMacroStatus ?? "OPEN", operationalStatusId: previousStatusId, updatedAt: order.updatedAt } });
         await tx.serviceOrderBudgetNameLock.deleteMany({ where: { normalizedName: { in: normalizedNames } } });
       });
     }

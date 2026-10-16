@@ -4,24 +4,30 @@ import { ServiceOrderTechnicalCompletion } from "../../../generated/prisma/enums
 export interface ServiceOrderStatusInput {
   name: string;
   technicalCompletion: ServiceOrderTechnicalCompletion;
+  isActive?: boolean;
 }
 
 export function parseServiceOrderStatusInput(body: unknown): ServiceOrderStatusInput {
-  if (!isRecord(body) || Object.keys(body).some((key) => !["name", "technicalCompletion"].includes(key))) {
+  if (!isRecord(body) || Object.keys(body).some((key) => !["name", "technicalCompletion", "isActive"].includes(key))) {
     throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_STATUS", message: "Informe os dados válidos do status." });
   }
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name || name.length > 191 || !Object.values(ServiceOrderTechnicalCompletion).includes(body.technicalCompletion as ServiceOrderTechnicalCompletion)) {
     throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_STATUS", message: "Nome, conclusão técnica ou retirada do orçamento inválidos." });
   }
-  return { name, technicalCompletion: body.technicalCompletion as ServiceOrderTechnicalCompletion };
+  if (body.isActive !== undefined && typeof body.isActive !== "boolean") {
+    throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_STATUS", message: "Situação ativa do status inválida." });
+  }
+  return { name, technicalCompletion: body.technicalCompletion as ServiceOrderTechnicalCompletion,
+    ...(body.isActive === undefined ? {} : { isActive: body.isActive }) };
 }
 
 export function parseServiceOrderStatusPatch(body: unknown): ServiceOrderStatusInput & { expectedVersion: number } {
   if (!isRecord(body) || !Number.isSafeInteger(body.expectedVersion) || Number(body.expectedVersion) < 1) {
     throw new BadRequestException({ code: "INVALID_SERVICE_ORDER_STATUS_VERSION", message: "Informe a versão atual do status." });
   }
-  return { ...parseServiceOrderStatusInput({ name: body.name, technicalCompletion: body.technicalCompletion }), expectedVersion: Number(body.expectedVersion) };
+  return { ...parseServiceOrderStatusInput({ name: body.name, technicalCompletion: body.technicalCompletion, isActive: body.isActive }),
+    expectedVersion: Number(body.expectedVersion) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

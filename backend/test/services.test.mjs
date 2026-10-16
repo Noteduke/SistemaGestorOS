@@ -435,6 +435,9 @@ test("status técnico aceita as três classificações e valida concorrência ot
   assert.deepEqual(parseServiceOrderStatusPatch({ name: "Bancada", technicalCompletion: "NOT_COMPLETED", expectedVersion: 3 }), {
     name: "Bancada", technicalCompletion: "NOT_COMPLETED", expectedVersion: 3,
   });
+  assert.deepEqual(parseServiceOrderStatusPatch({ name: "Bancada", technicalCompletion: "NOT_COMPLETED", isActive: false, expectedVersion: 4 }), {
+    name: "Bancada", technicalCompletion: "NOT_COMPLETED", isActive: false, expectedVersion: 4,
+  });
   rejectsCode(() => parseServiceOrderStatusInput({ name: "Pronto", technicalCompletion: "DONE" }), "INVALID_SERVICE_ORDER_STATUS");
   rejectsCode(() => parseServiceOrderStatusInput({ name: "Pronto", technicalCompletion: "NOT_COMPLETED", isAdmin: true }), "INVALID_SERVICE_ORDER_STATUS");
   rejectsCode(() => parseServiceOrderStatusPatch({ name: "Pronto", technicalCompletion: "NOT_COMPLETED", expectedVersion: 0 }), "INVALID_SERVICE_ORDER_STATUS_VERSION");
@@ -451,11 +454,12 @@ test("transições técnicas registram entrada, retorno e evitam conclusões rep
 test("catálogo de status exige Administrador e audita criação e edição com versão", async () => {
   const actor = { id: 7, publicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f", isAdmin: true };
   let row = { id: 4, publicId: "652c6498-a270-43b2-8627-4a754bb5fdad", name: "Concluído", technicalCompletion: "COMPLETED_WITH_REPAIR",
-    allowsBudgetWithdrawal: false, version: 1, createdAt: new Date(0), updatedAt: new Date(0) };
+    allowsBudgetWithdrawal: false, isActive: true, everAssigned: false, version: 1, createdAt: new Date(0), updatedAt: new Date(0) };
   const audits = [];
   const calls = [];
   let forceVersionConflict = false;
   const tx = {
+    $queryRaw: async () => [{ id: 4 }],
     serviceOrderStatus: {
       create: async ({ data }) => { calls.push(["create", data]); return row; },
       findUnique: async () => row,
@@ -479,6 +483,25 @@ test("catálogo de status exige Administrador e audita criação e edição com 
     (error) => codeOf(error) === "SERVICE_ORDER_STATUS_VERSION_CONFLICT");
   await assert.rejects(() => service.create({ name: "X", technicalCompletion: "NOT_COMPLETED" }, { ...actor, isAdmin: false }),
     (error) => codeOf(error) === "PERMISSION_DENIED");
+});
+
+test("atributo técnico de status usado é imutável; status usado pode ser inativado e reativado", async () => {
+  const actor = { id: 7, publicId: "b746784f-671f-4fdb-8b67-13f6e6c56b3f", isAdmin: true };
+  let row = { id: 4, publicId: "652c6498-a270-43b2-8627-4a754bb5fdad", name: "TRIAGEM", technicalCompletion: "NOT_COMPLETED",
+    allowsBudgetWithdrawal: false, isActive: true, everAssigned: true, version: 1, createdAt: new Date(0), updatedAt: new Date(0) };
+  const tx = { $queryRaw: async () => [{ id: row.id }], serviceOrderStatus: {
+    findUnique: async () => row,
+    updateMany: async ({ data }) => { row = { ...row, ...data, version: row.version + 1 }; return { count: 1 }; },
+    findUniqueOrThrow: async () => row,
+  }, adminAuditLog: { create: async () => undefined } };
+  const service = new ServiceOrderStatusesService({ $transaction: async (callback) => callback(tx) });
+  await assert.rejects(() => service.update(row.publicId, { name: row.name, technicalCompletion: "COMPLETED_WITH_REPAIR", expectedVersion: 1 }, actor),
+    (error) => codeOf(error) === "SERVICE_ORDER_STATUS_COMPLETION_IMMUTABLE");
+  await service.update(row.publicId, { name: row.name, technicalCompletion: "NOT_COMPLETED", isActive: false, expectedVersion: 1 }, actor);
+  assert.equal(row.isActive, false);
+  await service.update(row.publicId, { name: row.name, technicalCompletion: "NOT_COMPLETED", isActive: true, expectedVersion: 2 }, actor);
+  assert.equal(row.isActive, true);
+  assert.equal(row.technicalCompletion, "NOT_COMPLETED");
 });
 
 test("filtros de conclusão validam os três estados e OS aguardando retirada", () => {
