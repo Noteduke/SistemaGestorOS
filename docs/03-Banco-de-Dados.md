@@ -11,7 +11,7 @@ Definir os padrões oficiais de modelagem e utilização do banco de dados do Si
 # 2. Tecnologias
 
 - MySQL 8
-- Prisma ORM 7.10.0
+- Prisma ORM 7.10.1 (CLI, Client e adapter MariaDB alinhados na mesma versão)
 - Para MySQL 8 self-hosted, o Prisma Client utiliza o adapter oficial `@prisma/adapter-mariadb`. O banco permanece MySQL 8; o adapter usa o driver Node `mariadb` para conectar-se a MySQL e MariaDB.
 - No Prisma 7, `datasource db` mantém `provider = "mysql"` no `schema.prisma`; a URL `DATABASE_URL` é configurada em `backend/prisma.config.ts`.
 
@@ -233,7 +233,7 @@ Este documento será expandido juntamente com a modelagem do sistema.
 - `schema.prisma` e `prisma/migrations/` permanecem versionados.
 - O datasource continua usando MySQL 8. A configuração da URL e dos caminhos do Prisma fica em `backend/prisma.config.ts`.
 - O `PrismaService` configura o Prisma Client com `@prisma/adapter-mariadb` na aplicação NestJS.
-- `@prisma/adapter-mariadb@7.10.0` fixa `mariadb@3.4.5`, versão com advisories de segurança relevantes ao runtime. Enquanto o adapter oficial estável não utilizar um driver corrigido, `backend/package.json` aplica override restrito para `mariadb@3.4.7`. A combinação foi validada com Prisma 7.10.0 e MySQL 8.0.46. Remover o override quando uma versão oficial estável do adapter passar a utilizar um driver corrigido.
+- `@prisma/adapter-mariadb@7.10.1` fixa `mariadb@3.5.4`, corrigindo o advisory de runtime identificado na versão anterior; por isso, o override temporário para `mariadb@3.4.7` foi removido. O Prisma CLI e suas dependências de configuração são dependências de desenvolvimento; `mysql2` e `deepmerge-ts` pertencem a esse caminho do CLI, enquanto a aplicação usa o adapter MariaDB. Em 16/10/2026, `npm audit` e `npm audit --omit=dev` concluíram sem vulnerabilidades.
 
 # 13. Ambiente local de desenvolvimento
 
