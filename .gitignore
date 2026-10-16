@@ -26,6 +26,7 @@ pnpm-debug.log*
 !.env.example
 !.env.*.example
 .homologation-data/
+scripts/homologation/windows10/artifacts/
 
 # Prisma: artefatos gerados (schema e migrations devem ser versionados)
 prisma/generated/

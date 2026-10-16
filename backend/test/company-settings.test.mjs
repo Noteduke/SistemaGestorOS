@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { ForbiddenException } from "@nestjs/common";
+import sharp from "sharp";
 import { parseCompanySettingsInput } from "../dist/modules/company-settings/company-settings.dto.js";
 import { CompanySettingsService } from "../dist/modules/company-settings/company-settings.service.js";
 import { formatServiceOrderNumber } from "../dist/modules/service-orders/domain/service-order-number-format.js";
@@ -59,7 +60,7 @@ test("registra mudanças administrativas e logo validada em diretório próprio 
     const updated = await service.update({ tradeName: "MARCA CADASTRADA" }, admin);
     assert.equal(updated.data.tradeName, "MARCA CADASTRADA");
     assert.equal(audit[0].eventCode, "COMPANY_SETTINGS_UPDATED");
-    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
     const withLogo = await service.replaceLogo({ buffer: png, size: png.length, mimetype: "image/png" }, admin);
     assert.match(withLogo.data.logoDataUrl, /^data:image\/png;base64,/u);
     assert.equal(withLogo.data.deploymentEnvironment, "homologation");
@@ -67,7 +68,7 @@ test("registra mudanças administrativas e logo validada em diretório próprio 
     assert.equal(audit[1].eventCode, "COMPANY_LOGO_REPLACED");
     assert.equal((await readdir(path.join(directory, "homologation"))).length, 1);
     const firstLogoKey = row.logoStorageKey;
-    const replacementPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    const replacementPng = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
     await service.replaceLogo({ buffer: replacementPng, size: replacementPng.length, mimetype: "image/png" }, admin);
     assert.notEqual(row.logoStorageKey, firstLogoKey);
     assert.equal((await readdir(path.join(directory, "homologation"))).length, 1, "a logo anterior deve ser removida após a substituição");
