@@ -18,14 +18,40 @@
 - Banco de testes automatizados continua separado: `gestor_os_opening_test`.
 - `npm run prisma:safe -- <gestor_os_opening_test|gestor_os_homologation> migrate <status|deploy>` exige alvo explícito e consulta `SELECT DATABASE()` antes de iniciar Prisma. `prisma.config.ts` bloqueia comandos Prisma de banco diretos; o marcador de preflight é passado somente pelo wrapper após a confirmação. `deploy` continua sendo uma operação de escrita e exige revisão/aprovação operacional própria.
 - Para a homologação, o Backend exige `GOS_DEPLOYMENT_ENV=homologation`, destino `gestor_os_homologation` e `GOS_EXTERNAL_EFFECTS_ENABLED=false`. O arquivo exemplo contém apenas placeholders e não deve ser copiado para Git como segredo.
-- O Frontend aceita `VITE_API_TARGET`; o exemplo aponta para uma API local dedicada. Iniciar os serviços em modo homologação requer portas próprias e não deve reutilizar serviços de produção.
+- O exemplo de Backend reserva a porta `3100`, que corresponde ao proxy configurado no exemplo do Frontend. Com o arquivo local `.env.homologation` revisado e preenchido com credencial exclusiva, iniciar o Backend com `$env:GOS_ENV_FILE='.env.homologation'; npm run start:dev`. Iniciar o Frontend separadamente com `npm run dev -- --host 127.0.0.1 --port 5174 --strictPort --mode homologation`. Antes disso, confirmar o banco pelo wrapper `npm run prisma:safe -- gestor_os_homologation migrate status`. Não reutilizar serviços/portas do ambiente principal ou de `gestor_os_opening_test`.
 - O repositório não possui um subsistema geral de anexos/arquivos nem geração de documentos persistida no servidor. A impressão dos documentos é gerada no navegador. Capturas de problemas usam armazenamento local isolado, configurado em `GOS_HOMOLOGATION_FILES_DIR`; essa configuração ainda precisa ser instalada e validada no host da equipe antes de receber arquivos.
 - A captura de tela dos problemas é o primeiro armazenamento de arquivo da homologação e exige `GOS_HOMOLOGATION_FILES_DIR` apontando para diretório local segregado. A política de retenção, expurgo e backup dessas capturas ainda depende de definição operacional; não armazenar dados pessoais ou segredos nos relatos/capturas.
 - Não há neste recorte integrações ativas de e-mail, cobrança, emissão fiscal ou serviços externos. O spike não importado dos Correios não é funcionalidade ativa. Qualquer integração futura deverá falhar fechada no modo de homologação.
 
+## Preservação, backup, atualização e rollback
+
+- Os dados de homologação devem ser preservados entre versões: OS, clientes, equipamentos, produtos, estoque e registros de problemas. É proibido executar `migrate reset`, limpeza geral, truncamento ou reinicialização do banco sem autorização administrativa explícita.
+- Antes de cada atualização que altere o banco, interromper as gravações da homologação e produzir um dump com data/hora, usando conta local restrita ao banco `gestor_os_homologation`, senha solicitada interativamente e sem `--databases`. Armazenar o arquivo em pasta de backup protegida por ACL e disco criptografado; não gravar senha em linha de comando, variável, arquivo ou histórico.
+- Exemplo a adaptar somente depois da escolha do servidor físico e da provisão da conta de backup:
+
+  ```powershell
+  $mysqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin'
+  $backupDir = 'D:\GestorOS\backups\homologation'
+  New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+  icacls $backupDir /inheritance:r /grant:r "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F"
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $dump = Join-Path $backupDir "gestor_os_homologation-$stamp.sql"
+  & "$mysqlBin\mysqldump.exe" --host=127.0.0.1 --port=3306 --user=gos_homologation_backup --password --single-transaction --quick --routines --events --triggers --hex-blob --result-file="$dump" gestor_os_homologation
+  if ($LASTEXITCODE -ne 0) { throw 'Backup falhou; não iniciar a atualização.' }
+  if (-not (Test-Path -LiteralPath $dump) -or (Get-Item -LiteralPath $dump).Length -eq 0) { throw 'Dump vazio/ausente; não iniciar a atualização.' }
+  if (-not (Select-String -LiteralPath $dump -Pattern '^-- Dump completed on ' -Quiet)) { throw 'Dump sem marcador de conclusão; não iniciar a atualização.' }
+  if (Select-String -LiteralPath $dump -Pattern '^\s*(CREATE DATABASE|USE\s)' -Quiet) { throw 'Dump contém seleção/criação de banco; não restaurar até revisar.' }
+  Get-FileHash -Algorithm SHA256 -LiteralPath $dump
+  ```
+
+- A validação de restauração deve ocorrer em um banco novo e isolado, por exemplo `gestor_os_homologation_restore_check`, nunca em `gestor_os`, `gestor_os_opening_test` ou sobre o banco ativo de homologação. Confirmar `SELECT DATABASE()` no mesmo cliente antes de executar `source C:/.../gestor_os_homologation-<data-hora>.sql`; o dump sem `--databases` evita selecionar/criar o banco de origem. Comparar tabelas, contagens e amostras não sensíveis, executar `migrate status` somente depois de configurar um alvo seguro e registrar hash/resultado. A restauração só estará validada após esse ensaio.
+- Atualização: confirmar alvo pelo wrapper `prisma:safe`, fazer backup, conferir hash/rodapé do dump, revisar migration e executar `migrate status`; aplicar migrations aprovadas com parada de escrita e monitoramento; conferir o status e a estrutura no banco de homologação. Não reutilizar `.env` do banco de testes automatizados.
+- Rollback: MySQL pode confirmar implicitamente DDL, portanto não usar `ROLLBACK` como recuperação. Parar o ambiente, preservar o banco possivelmente parcial para diagnóstico e restaurar o backup em um novo banco isolado. Validar essa cópia e somente então, com aprovação administrativa, reconfigurar a homologação para a cópia restaurada. Não apagar ou sobrescrever o original durante a recuperação; não executar `DROP`/reset automaticamente.
+- Este procedimento está documentado, mas ainda não foi executado nem validado. Faltam escolher/provisionar o host MySQL de homologação, conta de backup, banco separado para ensaio de restauração, pasta protegida e política de retenção dos dumps.
+
 ## Consulta pública Dell
 
-O identificador `283NLZ1` não foi associado a um modelo de forma verificável nesta preparação. A página pública Dell indicada apresenta formulário/conteúdo dinâmico carregado por JavaScript; a resposta acessível nesta execução não expôs resultado estático confiável, e o acesso HTTP direto do ambiente de execução foi bloqueado. Nenhum resultado foi inventado, nenhuma API TechDirect ou endpoint interno foi usado e não foi implementado scraper. O preenchimento manual do modelo permanece disponível; a OS não pode depender da disponibilidade Dell. Uma consulta automatizada só deve ser projetada após observar resposta pública documentada e comportamento permitido.
+O identificador `283NLZ1` não foi associado a um modelo de forma verificável nesta preparação. A consulta pelo formulário público da Dell, feita no navegador, após o envio mostrou uma ficha com outro Service Tag; portanto o modelo exibido não foi associado a `283NLZ1` e não foi registrado como resultado. A página carrega conteúdo dinâmico por JavaScript. Nenhum endpoint interno ou API TechDirect foi usado e não foi implementado scraper nem contornado bloqueio. Alternativa provisória para a equipe: confirmar o modelo pela etiqueta física ou informações do próprio equipamento e preenchê-lo manualmente; isso não valida a integração Dell. A OS não pode depender da disponibilidade Dell.
 
 ## Documentos de impressão
 
@@ -57,5 +83,8 @@ Antes de liberar a Homologação 1:
 6. Obter resultado funcional verificável da consulta pública Dell para modelo apenas; preencher manualmente é fallback, não valida a integração.
 7. Validar orçamento A4 visualmente, testar permissões com perfis distintos e o controle exclusivo em duas sessões autenticadas.
 8. Definir formalmente critérios e roteiro completo da Homologação 1 e escopo da Homologação 2. Definir retenção/expurgo de capturas e decidir se os documentos de saída precisam futuramente incluir cobrança registrada; atualmente não há essa informação no sistema.
+9. Escolher e provisionar servidor/instância MySQL exclusivos para homologação, com rede/porta próprias, banco `gestor_os_homologation`, usuário próprio e configuração local ignorada pelo Git. O ambiente atual não tem MySQL escutando na porta local e não possui `.env.homologation`; nenhuma conexão foi tentada porque o wrapper falhou fechado antes de conectar.
+10. Provisionar diretórios segregados para capturas e backups, conta restrita de backup e banco isolado para ensaio de restauração; executar e registrar o primeiro backup e teste de restauração antes de uma atualização de schema.
+11. Completar o ciclo autenticado de cliente, equipamento, OS, orçamento, autorização, aplicação de peças, status, encerramento e saída; testar também cancelamento e encerramento sem reparo, perfis distintos e duas sessões simultâneas. Nenhum endpoint operacional foi chamado nesta preparação, pois não havia serviços ativos nem banco de homologação configurado.
 
 Os testes automatizados, sozinhos, não liberam a homologação.
