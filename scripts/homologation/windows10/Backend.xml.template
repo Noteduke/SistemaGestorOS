@@ -1,0 +1,16 @@
+<service>
+  <id>GestorOSBackendHomologation</id>
+  <startmode>Automatic</startmode>
+  <name>Gestor OS Backend Homologation</name>
+  <description>Backend local do Sistema Gestor OS em homologação</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>dist\main.js</arguments>
+  <workingdirectory>C:\ProgramData\GestorOS\homologation\backend</workingdirectory>
+  <env name="GOS_ENV_FILE" value="C:\ProgramData\GestorOS\homologation\config\.env.homologation" />
+  <serviceaccount>
+    <username>NT AUTHORITY\LocalService</username>
+  </serviceaccount>
+  <logpath>C:\ProgramData\GestorOS\homologation\logs\backend</logpath>
+  <log mode="roll" />
+  <onfailure action="restart" delay="10 sec" />
+</service>

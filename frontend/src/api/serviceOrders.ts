@@ -447,6 +447,26 @@ export function listOpeningEquipmentBrands(page: number, pageSize: number, searc
   return get<Paginated<OpeningCatalogOption>>(`/api/v1/equipment-brands?${query}`, signal);
 }
 
+export type DellModelLookupResult =
+  | { success: true; serviceTag: string; model: string; source: "dell_public_site" }
+  | { success: false; serviceTag: string; error: string; message: string };
+
+export async function lookupDellModel(serviceTag: string, csrfToken: string): Promise<DellModelLookupResult> {
+  const response = await fetch("/api/v1/equipment/dell-model-lookup", {
+    method: "POST", credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ serviceTag }),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const root = isRecord(body) ? body : undefined;
+    const error = root && isRecord(root.error) ? root.error : root;
+    throw new ApiError(response.status, typeof error?.code === "string" ? error.code : undefined,
+      typeof error?.message === "string" ? error.message : "Não foi possível consultar o modelo Dell.");
+  }
+  return body as DellModelLookupResult;
+}
+
 export async function updateServiceOrderOpeningCustomer(
   publicId: string,
   customerPublicId: string,

@@ -52,7 +52,19 @@
 
 ## Consulta pública Dell
 
-O identificador `283NLZ1` não foi associado a um modelo de forma verificável nesta preparação. A consulta pelo formulário público da Dell, feita no navegador, após o envio mostrou uma ficha com outro Service Tag; portanto o modelo exibido não foi associado a `283NLZ1` e não foi registrado como resultado. A página carrega conteúdo dinâmico por JavaScript. Nenhum endpoint interno ou API TechDirect foi usado e não foi implementado scraper nem contornado bloqueio. Alternativa provisória para a equipe: confirmar o modelo pela etiqueta física ou informações do próprio equipamento e preenchê-lo manualmente; isso não valida a integração Dell. A OS não pode depender da disponibilidade Dell.
+GT63PT3 foi associado manualmente ao modelo Latitude 3420 em observação anterior; a requisição HTTP direta atual recebeu 403. Para 283NLZ1 a requisição HTTP direta também recebeu 403 e o modelo permanece desconhecido. O 403 não trouxe HTML/redirect para inspeção, então não há conclusão verificável sobre campo no HTML inicial ou dependência de JavaScript. Implementado endpoint com timeout, redirect manual e extração conservadora de JSON-LD associado à mesma tag, mais ação explícita na tela de novo equipamento Dell. Sem associação verificável, devolve falha; não consulta garantia, proprietário ou histórico, não usa TechDirect e não contorna bloqueios. A aplicação do modelo requer confirmação do operador e substituição de modelo já preenchido requer confirmação adicional. Consulta indisponível não bloqueia preenchimento manual nem abertura da OS. A extração real online continua pendente.
+
+## Preparação nativa do Windows 10
+
+Foram preparados scripts em `scripts/homologation/windows10`: verificação de pré-requisitos, build do Frontend em `homologation`, staging de artefatos, preparação de diretórios persistentes, instalação explícita de serviços WinSW e verificação de início automático/portas. Os templates Caddy usam HTTPS interno, bind LAN, bloqueio de IPs fora de faixas privadas e proxy para Backend em loopback. Os serviços usam a conta Windows LocalService com ACLs de leitura e gravação limitadas aos diretórios necessários. O instalador exige `-Apply`, elevação administrativa, binários Caddy/WinSW fornecidos localmente, arquivo de configuração local e validação do Caddyfile. Nenhuma instalação ou criação de diretório foi executada nesta preparação. No host atual falta Caddy, WinSW, MySQL ativo e o banco de homologação. A implantação precisa ainda configurar DNS/hosts para `gestor-os.home.arpa`, confiar a CA interna do Caddy nos clientes LAN, revisar ACLs dos arquivos/segredos e validar firewall e inicialização após reinicialização.
+
+Referências oficiais consultadas para preparar a configuração: [WinSW v3 — arquivo XML e conta de serviço](https://github.com/winsw/winsw/blob/v3/docs/xml-config-file.md), [Caddy — matcher `remote_ip`](https://caddyserver.com/docs/caddyfile/matchers) e [Caddy — TLS interno](https://caddyserver.com/docs/caddyfile/directives/tls). A CA raiz interna precisa ser confiada explicitamente nos computadores clientes; nenhum certificado/CA foi distribuído nesta preparação.
+
+Para usar no host escolhido: primeiro provisionar `gestor_os_homologation` e conta exclusiva, preencher o arquivo local ignorado pelo Git com URL somente desse banco, revisar caminho/ACLs, executar os scripts de build e staging, copiar os templates para `config`, validar o Caddyfile e somente então considerar `Install-HomologationServices.ps1 -Apply` em PowerShell elevado. Este documento é preparação; não significa que o host esteja pronto.
+
+## Validação de logo e preservação
+
+O backend agora decodifica completamente PNG/JPEG com Sharp após verificar assinatura/MIME, limitando arquivo a 2 MiB, largura e altura a 6.000 pixels, total a 16 megapixels e rejeitando animação/múltiplas páginas. O armazenamento continua privado e separado por ambiente. O diretório local ainda precisa ser provisionado e ACL/backup configurados no host.
 
 ## Documentos de impressão
 

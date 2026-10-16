@@ -1,0 +1,15 @@
+<service>
+  <id>GestorOSCaddyHomologation</id>
+  <startmode>Automatic</startmode>
+  <name>Gestor OS Caddy Homologation</name>
+  <description>Proxy HTTPS interno da Homologação 1</description>
+  <executable>C:\Program Files\GestorOS\caddy.exe</executable>
+  <arguments>run --config C:\ProgramData\GestorOS\homologation\config\Caddyfile</arguments>
+  <workingdirectory>C:\ProgramData\GestorOS\homologation\config</workingdirectory>
+  <serviceaccount>
+    <username>NT AUTHORITY\LocalService</username>
+  </serviceaccount>
+  <logpath>C:\ProgramData\GestorOS\homologation\logs\caddy</logpath>
+  <log mode="roll" />
+  <onfailure action="restart" delay="10 sec" />
+</service>

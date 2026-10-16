@@ -841,6 +841,60 @@ describe("ServiceOrderOpeningPage", () => {
     expect(calledUrls.every((url) => !/\/equipment(?:\?|$)|\/equipment-types(?:\/|\?|$)|\/equipment-brands(?:\/|\?|$)/.test(url) || /^(?:\/api\/v1\/equipment-types|\/api\/v1\/equipment-brands)/.test(url))).toBe(true);
   });
 
+  it("consulta somente ao selecionar Dell e exige confirmação ao substituir modelo preenchido", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "DELL" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ success: true, serviceTag: "GT63PT3", model: "Latitude 3420", source: "dell_public_site" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await user.selectOptions(await screen.findByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Modelo"), "Modelo digitado");
+    await user.type(screen.getByLabelText("Número de série"), "GT63PT3");
+    await user.click(screen.getByRole("button", { name: "Consultar modelo na Dell" }));
+    await screen.findByText("Latitude 3420");
+    await user.click(screen.getByRole("button", { name: "Usar este modelo" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText("Modelo")).toHaveValue("Modelo digitado");
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/equipment/dell-model-lookup", expect.objectContaining({
+      method: "POST", credentials: "include", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }), body: JSON.stringify({ serviceTag: "GT63PT3" }),
+    }));
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Usar este modelo" }));
+    expect(screen.getByLabelText("Modelo")).toHaveValue("Latitude 3420");
+    confirmSpy.mockRestore();
+  });
+
+  it("mantém preenchimento manual disponível quando a consulta Dell falha", async () => {
+    const type = { publicId: "type-public-id", name: "NOTEBOOK" };
+    const brand = { publicId: "brand-public-id", name: "Dell" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: linkedOpening }))
+      .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ success: false, serviceTag: "GT63PT3", error: "ACCESS_BLOCKED", message: "A consulta pública da Dell está bloqueada no momento." }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ServiceOrderOpeningPage csrfToken="csrf-session" canCreateEquipment canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByText("Cliente Atual");
+    await user.click(screen.getByRole("button", { name: "Novo equipamento" }));
+    await user.selectOptions(await screen.findByLabelText("Tipo do equipamento"), type.publicId);
+    await user.selectOptions(screen.getByLabelText("Marca"), brand.publicId);
+    await user.type(screen.getByLabelText("Número de série"), "GT63PT3");
+    await user.click(screen.getByRole("button", { name: "Consultar modelo na Dell" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("A consulta pública da Dell está bloqueada no momento.");
+    await user.type(screen.getByLabelText("Modelo"), "Latitude informado manualmente");
+    expect(screen.getByLabelText("Modelo")).toHaveValue("Latitude informado manualmente");
+  });
+
   it("envia serialNumber nulo quando a série é marcada como não identificada", async () => {
     const type = { publicId: "type-public-id", name: "NOTEBOOK" };
     const brand = { publicId: "brand-public-id", name: "NÃO INFORMADA" };

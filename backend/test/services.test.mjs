@@ -17,9 +17,49 @@ import { parseServiceOrderStatusInput, parseServiceOrderStatusPatch } from "../d
 import { classifyTechnicalCompletionTransition } from "../dist/modules/service-orders/domain/technical-completion-transition.js";
 import { ServiceOrderStatusesService } from "../dist/modules/service-orders/service-order-statuses.service.js";
 import { parseListServiceOrdersQuery } from "../dist/modules/service-orders/dto/list-service-orders-query.dto.js";
+import { DellPublicLookupService } from "../dist/modules/equipment/dell-public-lookup.service.js";
+import { validateCompanyLogoImage } from "../dist/modules/company-settings/company-settings.service.js";
+import sharp from "sharp";
 
 function codeOf(error) { return error.getResponse()?.code; }
 function rejectsCode(fn, code) { assert.throws(fn, (error) => codeOf(error) === code); }
+
+test("Dell lookup validates tags and only accepts a structured record bound to the same tag", async () => {
+  const lookup = new DellPublicLookupService();
+  assert.equal((await lookup.lookup("ABC-123")).error, "INVALID_SERVICE_TAG");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response('<script type="application/ld+json">{"serviceTag":"GT63PT3","model":"Latitude 3420"}</script>', { status: 200 });
+    assert.deepEqual(await lookup.lookup(" gt63pt3 "), { success: true, serviceTag: "GT63PT3", model: "Latitude 3420", source: "dell_public_site" });
+    globalThis.fetch = async () => new Response('<script type="application/ld+json">{"serviceTag":"OTHER01","model":"Latitude 3420"}</script><h1>Inspiron 15</h1>', { status: 200 });
+    assert.equal((await lookup.lookup("GT63PT3")).error, "MODEL_NOT_FOUND");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Dell lookup fails closed on 403, unexpected redirects, timeout and network errors", async () => {
+  const lookup = new DellPublicLookupService();
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response("blocked", { status: 403 });
+    assert.equal((await lookup.lookup("GT63PT3")).error, "ACCESS_BLOCKED");
+    globalThis.fetch = async () => new Response(null, { status: 302, headers: { Location: "https://www.dell.com/other" } });
+    assert.equal((await lookup.lookup("GT63PT3")).error, "UNEXPECTED_REDIRECT");
+    globalThis.fetch = (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+    assert.equal((await lookup.lookup("GT63PT3")).error, "TIMEOUT");
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    assert.equal((await lookup.lookup("GT63PT3")).error, "NETWORK_ERROR");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("logo exige PNG/JPEG decodificável dentro dos limites de dimensão", async () => {
+  const validPng = await sharp({ create: { width: 16, height: 16, channels: 4, background: "#ffffff" } }).png().toBuffer();
+  await validateCompanyLogoImage(validPng, "image/png");
+  await assert.rejects(() => validateCompanyLogoImage(validPng.subarray(0, 40), "image/png"), (error) => codeOf(error) === "INVALID_COMPANY_LOGO");
+  const tooWide = await sharp({ create: { width: 6_001, height: 1, channels: 4, background: "#ffffff" } }).png().toBuffer();
+  await assert.rejects(() => validateCompanyLogoImage(tooWide, "image/png"), (error) => codeOf(error) === "INVALID_COMPANY_LOGO");
+  const tooManyPixels = await sharp({ create: { width: 4_097, height: 4_097, channels: 4, background: "#ffffff" } }).png().toBuffer();
+  await assert.rejects(() => validateCompanyLogoImage(tooManyPixels, "image/png"), (error) => codeOf(error) === "INVALID_COMPANY_LOGO");
+});
 
 test("limpeza preserva grafia, acento e pontuação e limita 120 após limpeza", () => {
   assert.equal(cleanServiceName("  Reparo   de Placa-Mãe  "), "Reparo de Placa-Mãe");

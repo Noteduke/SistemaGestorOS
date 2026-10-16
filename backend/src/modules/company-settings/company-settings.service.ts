@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { Prisma, type CompanySettings } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
@@ -11,6 +12,9 @@ import type { CompanySettingsInput } from "./company-settings.dto.js";
 
 const SINGLETON_ID = 1;
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const MAX_LOGO_WIDTH = 6_000;
+const MAX_LOGO_HEIGHT = 6_000;
+const MAX_LOGO_PIXELS = 16_000_000;
 const LOGO_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg)$/iu;
 const SETTINGS_SELECT = {
   id: true, legalName: true, tradeName: true, cnpj: true, fullAddress: true, phone: true, email: true,
@@ -52,6 +56,7 @@ export class CompanySettingsService {
     if (!mime || !["image/png", "image/jpeg"].includes(file.mimetype) || file.size !== file.buffer.length || file.size > MAX_LOGO_BYTES) {
       throw new BadRequestException({ code: "INVALID_COMPANY_LOGO", message: "A logo deve ser uma imagem PNG ou JPEG válida de até 2 MiB." });
     }
+    await validateCompanyLogoImage(file.buffer, mime);
     const root = this.storageRoot();
     await mkdir(root, { recursive: true });
     const key = `${randomUUID()}${mime === "image/png" ? ".png" : ".jpg"}`;
@@ -168,4 +173,20 @@ function sniffImage(buffer: Buffer): "image/png" | "image/jpeg" | null {
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
   return null;
+}
+
+export async function validateCompanyLogoImage(buffer: Buffer, expectedMime: "image/png" | "image/jpeg"): Promise<void> {
+  try {
+    const image = sharp(buffer, { limitInputPixels: MAX_LOGO_PIXELS, failOn: "truncated", animated: false });
+    const metadata = await image.metadata();
+    if ((metadata.format === "png" ? "image/png" : metadata.format === "jpeg" ? "image/jpeg" : null) !== expectedMime
+      || !metadata.width || !metadata.height || metadata.width > MAX_LOGO_WIDTH || metadata.height > MAX_LOGO_HEIGHT
+      || metadata.width * metadata.height > MAX_LOGO_PIXELS || (metadata.pages ?? 1) !== 1) {
+      throw new Error("Image format or dimensions rejected");
+    }
+    // Force a complete decode; header/signature-only checks accept truncated or malformed images.
+    await image.rotate().raw().toBuffer();
+  } catch {
+    throw new BadRequestException({ code: "INVALID_COMPANY_LOGO", message: "A logo deve ser uma imagem PNG ou JPEG íntegra, com até 6.000 × 6.000 pixels e 16 megapixels." });
+  }
 }

@@ -10,6 +10,7 @@ import {
   listOpeningCustomers,
   listOpeningEquipment,
   listOpeningEquipmentTypes,
+  lookupDellModel,
   updateServiceOrderOpeningOwnership,
   updateServiceOrderOpeningCustomer,
   updateServiceOrderOpeningEquipment,
@@ -179,8 +180,12 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const [savingEquipmentDraft, setSavingEquipmentDraft] = useState(false);
   const [equipmentDraftError, setEquipmentDraftError] = useState<string | null>(null);
   const [equipmentDraftNotice, setEquipmentDraftNotice] = useState<string | null>(null);
+  const [lookingUpDell, setLookingUpDell] = useState(false);
+  const [dellLookupResult, setDellLookupResult] = useState<{ model: string; serviceTag: string } | null>(null);
+  const [dellLookupMessage, setDellLookupMessage] = useState<string | null>(null);
   const started = useRef(false);
   const confirmingRef = useRef(false);
+  const dellLookupSequence = useRef(0);
 
   async function loadOrCreateOpening() {
     setLoading(true);
@@ -213,6 +218,9 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setEquipmentCatalogError(null);
     setEquipmentDraftError(null);
     setEquipmentDraftNotice(null);
+    setDellLookupResult(null);
+    setDellLookupMessage(null);
+    dellLookupSequence.current += 1;
 
     try {
       try {
@@ -434,6 +442,9 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setEquipmentSaveNotice(null);
     setEquipmentDraftError(null);
     setEquipmentDraftNotice(null);
+    dellLookupSequence.current += 1;
+    setDellLookupResult(null);
+    setDellLookupMessage(null);
     setEditingEquipment(true);
     if (mode === "new") {
       const savedDraft = opening?.equipmentDraft ?? null;
@@ -472,6 +483,30 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
       setEquipmentDraftError(saveEquipmentDraftErrorMessage(reason));
     } finally {
       setSavingEquipmentDraft(false);
+    }
+  }
+
+  async function consultDellModel() {
+    const serial = equipmentDraftForm.serialNumber?.trim() ?? "";
+    if (lookingUpDell || !serial) return;
+    const sequence = ++dellLookupSequence.current;
+    setLookingUpDell(true);
+    setDellLookupResult(null);
+    setDellLookupMessage(null);
+    try {
+      const result = await lookupDellModel(serial, csrfToken);
+      if (sequence === dellLookupSequence.current) {
+        if (result.success) setDellLookupResult({ model: result.model, serviceTag: result.serviceTag });
+        else setDellLookupMessage(result.message);
+      }
+    } catch (reason) {
+      if (sequence === dellLookupSequence.current) {
+        setDellLookupMessage(reason instanceof ApiError && reason.status === 401
+          ? "Sua sessão expirou. Entre novamente para consultar a Dell."
+          : "Não foi possível consultar o modelo Dell. Preencha o modelo manualmente.");
+      }
+    } finally {
+      setLookingUpDell(false);
     }
   }
 
@@ -840,10 +875,27 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                       {equipmentTypes.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
                     </select>
                     <label htmlFor="opening-equipment-brand">Marca</label>
-                    <select id="opening-equipment-brand" value={equipmentDraftForm.brandPublicId} onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, brandPublicId: event.target.value }))} required disabled={loadingEquipmentCatalogs || equipmentBrands.length === 0}>
+                    <select id="opening-equipment-brand" value={equipmentDraftForm.brandPublicId} onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, brandPublicId: event.target.value })); }} required disabled={loadingEquipmentCatalogs || equipmentBrands.length === 0}>
                       <option value="">Selecione uma marca</option>
                       {equipmentBrands.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
                     </select>
+                    {equipmentBrands.find((item) => item.publicId === equipmentDraftForm.brandPublicId)?.name.trim().toLocaleLowerCase("pt-BR") === "dell"
+                      && equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && Boolean(equipmentDraftForm.serialNumber?.trim()) && (
+                      <div>
+                        <button className="text-button" type="button" onClick={() => void consultDellModel()} disabled={lookingUpDell}>
+                          {lookingUpDell ? "Consultando Dell…" : "Consultar modelo na Dell"}
+                        </button>
+                        {dellLookupMessage && <p className="form-message form-message--error" role="status">{dellLookupMessage} Você ainda pode preencher o modelo manualmente.</p>}
+                        {dellLookupResult && dellLookupResult.serviceTag === equipmentDraftForm.serialNumber?.trim().toUpperCase() && <div className="form-message form-message--success" role="status">
+                          <span>Modelo sugerido pela Dell: <strong>{dellLookupResult.model}</strong>.</span>
+                          <button className="text-button" type="button" onClick={() => {
+                            if (equipmentDraftForm.model.trim() && !window.confirm(`Substituir o modelo atual “${equipmentDraftForm.model.trim()}” por “${dellLookupResult.model}”?`)) return;
+                            setEquipmentDraftForm((current) => ({ ...current, model: dellLookupResult.model }));
+                            setDellLookupResult(null);
+                          }}>Usar este modelo</button>
+                        </div>}
+                      </div>
+                    )}
                     <label htmlFor="opening-equipment-model">Modelo</label>
                     <div className="opening-equipment__model-field">
                       <input id="opening-equipment-model" value={equipmentDraftForm.model} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, model: event.target.value }))} />
@@ -852,9 +904,9 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                     <fieldset>
                       <legend>Número de série</legend>
                       <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED"} onChange={() => setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "IDENTIFIED", serialNumber: current.serialNumber ?? "" }))} /> Série identificada</label>
-                      <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED"} onChange={() => setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null }))} /> Série não identificada</label>
+                      <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED"} onChange={() => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null })); }} /> Série não identificada</label>
                       {equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && (
-                        <input aria-label="Número de série" value={equipmentDraftForm.serialNumber ?? ""} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, serialNumber: event.target.value }))} />
+                        <input aria-label="Número de série" value={equipmentDraftForm.serialNumber ?? ""} maxLength={191} required onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, serialNumber: event.target.value })); }} />
                       )}
                     </fieldset>
                   </div>
