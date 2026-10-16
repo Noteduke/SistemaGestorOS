@@ -66,6 +66,12 @@ test("registra mudanças administrativas e logo validada em diretório próprio 
     assert.equal(row.logoMime, "image/png");
     assert.equal(audit[1].eventCode, "COMPANY_LOGO_REPLACED");
     assert.equal((await readdir(path.join(directory, "homologation"))).length, 1);
+    const firstLogoKey = row.logoStorageKey;
+    const replacementPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    await service.replaceLogo({ buffer: replacementPng, size: replacementPng.length, mimetype: "image/png" }, admin);
+    assert.notEqual(row.logoStorageKey, firstLogoKey);
+    assert.equal((await readdir(path.join(directory, "homologation"))).length, 1, "a logo anterior deve ser removida após a substituição");
+    assert.equal(audit[2].eventCode, "COMPANY_LOGO_REPLACED");
     const invalidImage = Buffer.from("not an image");
     await assert.rejects(service.replaceLogo({ buffer: invalidImage, size: invalidImage.length, mimetype: "image/png" }, admin),
       (error) => error.response.code === "INVALID_COMPANY_LOGO");
