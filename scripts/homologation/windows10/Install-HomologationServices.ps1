@@ -61,6 +61,22 @@ function Test-OrdinalLineSequence {
   return $true
 }
 
+function Get-UniqueCaddyLineIndex {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Lines,
+    [Parameter(Mandatory = $true)][string]$ExpectedLine
+  )
+
+  $foundIndex = -1
+  for ($index = 0; $index -lt $Lines.Count; $index++) {
+    if (-not [string]::Equals($Lines[$index], $ExpectedLine, [StringComparison]::Ordinal)) { continue }
+    if ($foundIndex -ge 0) { throw 'O template oficial do Caddyfile contém diretiva estrutural duplicada; conteúdo omitido.' }
+    $foundIndex = $index
+  }
+  if ($foundIndex -lt 0) { throw 'O template oficial do Caddyfile não contém a estrutura obrigatória; conteúdo omitido.' }
+  return $foundIndex
+}
+
 function Assert-HomologationCaddyfileContent {
   param(
     [Parameter(Mandatory = $true)][string]$CaddyfileText,
@@ -70,33 +86,51 @@ function Assert-HomologationCaddyfileContent {
 
   $templateLines = @(Get-NormalizedCaddyfileLines -Text $TemplateText)
   $actualLines = @(Get-NormalizedCaddyfileLines -Text $CaddyfileText)
-  $requiredLines = @(
+  $orderedDirectives = @(
     'gestor-os.home.arpa {'
     'bind 0.0.0.0'
     'tls internal'
+    'encode zstd gzip'
+    "root * $ExpectedFrontendRoot"
     'route {'
     '@outsideLan not remote_ip private_ranges'
-    ''
-    'encode zstd gzip'
     '@api path /api/v1/*'
     'reverse_proxy @api 127.0.0.1:3100'
-    "root * $ExpectedFrontendRoot"
     'try_files {path} /index.html'
     'file_server'
-    '}'
-    '}'
   )
 
+  $directiveIndices = @()
+  foreach ($directive in $orderedDirectives) {
+    $directiveIndices += Get-UniqueCaddyLineIndex -Lines $templateLines -ExpectedLine $directive
+  }
   $denyPrefix = 'respond @outsideLan "'
   $denySuffix = '" 403'
-  if ($templateLines.Count -ne $requiredLines.Count -or
-      -not $templateLines[5].StartsWith($denyPrefix, [StringComparison]::Ordinal) -or
-      -not $templateLines[5].EndsWith($denySuffix, [StringComparison]::Ordinal)) {
-    throw 'O template oficial do Caddyfile não corresponde à política segura aprovada; conteúdo omitido.'
+  $denyIndices = @()
+  for ($index = 0; $index -lt $templateLines.Count; $index++) {
+    if ($templateLines[$index].StartsWith($denyPrefix, [StringComparison]::Ordinal) -and
+        $templateLines[$index].EndsWith($denySuffix, [StringComparison]::Ordinal)) {
+      $denyIndices += $index
+    }
   }
-  $requiredLines[5] = $templateLines[5]
-  if (-not (Test-OrdinalLineSequence -Expected $requiredLines -Actual $templateLines)) {
-    throw 'O template oficial do Caddyfile não corresponde à política segura aprovada; conteúdo omitido.'
+  if ($denyIndices.Count -ne 1) { throw 'O template oficial do Caddyfile não possui uma única resposta 403 para o bloqueio de rede; conteúdo omitido.' }
+
+  $orderedIndices = @($directiveIndices[0..6]) + @($denyIndices[0]) + @($directiveIndices[7..($directiveIndices.Count - 1)])
+  for ($index = 1; $index -lt $orderedIndices.Count; $index++) {
+    if ($orderedIndices[$index] -le $orderedIndices[$index - 1]) {
+      throw 'O template oficial do Caddyfile não preserva a ordem segura dos handlers; conteúdo omitido.'
+    }
+  }
+
+  $openingBraces = @()
+  $closingBraces = @()
+  for ($index = 0; $index -lt $templateLines.Count; $index++) {
+    if ($templateLines[$index].EndsWith('{', [StringComparison]::Ordinal)) { $openingBraces += $index }
+    if ([string]::Equals($templateLines[$index], '}', [StringComparison]::Ordinal)) { $closingBraces += $index }
+  }
+  if ($openingBraces.Count -ne 2 -or $openingBraces[0] -ne $directiveIndices[0] -or $openingBraces[1] -ne $directiveIndices[5] -or
+      $closingBraces.Count -ne 2 -or $closingBraces[0] -ne ($templateLines.Count - 2) -or $closingBraces[1] -ne ($templateLines.Count - 1)) {
+    throw 'O template oficial do Caddyfile não possui blocos de site e route balanceados; conteúdo omitido.'
   }
   if (-not (Test-OrdinalLineSequence -Expected $templateLines -Actual $actualLines)) {
     throw 'Caddyfile incompatível com o template oficial ou com a ordem segura dos handlers; conteúdo omitido.'
