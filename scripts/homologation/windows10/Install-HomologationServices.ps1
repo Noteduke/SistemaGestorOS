@@ -151,6 +151,12 @@ function Assert-RequiredDirectory {
   }
 }
 
+function Get-ExistingInstallerTargets {
+  param([Parameter(Mandatory = $true)][string[]]$CandidatePaths)
+
+  return @($CandidatePaths | Where-Object { Test-Path -LiteralPath $_ })
+}
+
 function Read-EnvironmentFileSafely {
   param([string]$Path)
 
@@ -428,7 +434,7 @@ $script:icaclsExe = $icaclsCommand.Source
 $serviceNames = @('GestorOSBackendHomologation', 'GestorOSCaddyHomologation')
 $existingServices = @(Get-Service -Name $serviceNames -ErrorAction SilentlyContinue)
 if ($existingServices.Count -gt 0) { throw 'Já existe ao menos um serviço com o nome reservado; revise manualmente antes de instalar ou substituir arquivos.' }
-$existingTargets = @($caddyInstalled, $backendWrapper, $caddyWrapper, $backendXml, $caddyXml, "$backendWrapper.config", "$caddyWrapper.config") | Where-Object { Test-Path -LiteralPath $_ }
+$existingTargets = @(Get-ExistingInstallerTargets -CandidatePaths @($caddyInstalled, $backendWrapper, $caddyWrapper, $backendXml, $caddyXml, "$backendWrapper.config", "$caddyWrapper.config"))
 if ($existingTargets.Count -gt 0) {
   throw 'Há artefatos de uma instalação anterior, incluindo possíveis configurações legadas .exe.config; revise manualmente. Nenhum arquivo será sobrescrito ou removido.'
 }
