@@ -35,6 +35,74 @@ $caddyInstalled = Join-Path $expectedProgramRoot 'caddy.exe'
 $backendXml = Join-Path $expectedProgramRoot 'GestorOSBackend.xml'
 $caddyXml = Join-Path $expectedProgramRoot 'GestorOSCaddy.xml'
 
+function Get-NormalizedCaddyfileLines {
+  param([Parameter(Mandatory = $true)][string]$Text)
+
+  $lines = [regex]::Split($Text, '\r\n|\n|\r')
+  $normalized = @()
+  foreach ($line in $lines) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#', [StringComparison]::Ordinal)) { continue }
+    $normalized += $trimmed
+  }
+  return $normalized
+}
+
+function Test-OrdinalLineSequence {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Expected,
+    [Parameter(Mandatory = $true)][string[]]$Actual
+  )
+
+  if ($Expected.Count -ne $Actual.Count) { return $false }
+  for ($index = 0; $index -lt $Expected.Count; $index++) {
+    if (-not [string]::Equals($Expected[$index], $Actual[$index], [StringComparison]::Ordinal)) { return $false }
+  }
+  return $true
+}
+
+function Assert-HomologationCaddyfileContent {
+  param(
+    [Parameter(Mandatory = $true)][string]$CaddyfileText,
+    [Parameter(Mandatory = $true)][string]$TemplateText,
+    [Parameter(Mandatory = $true)][string]$ExpectedFrontendRoot
+  )
+
+  $templateLines = @(Get-NormalizedCaddyfileLines -Text $TemplateText)
+  $actualLines = @(Get-NormalizedCaddyfileLines -Text $CaddyfileText)
+  $requiredLines = @(
+    'gestor-os.home.arpa {'
+    'bind 0.0.0.0'
+    'tls internal'
+    'route {'
+    '@outsideLan not remote_ip private_ranges'
+    ''
+    'encode zstd gzip'
+    '@api path /api/v1/*'
+    'reverse_proxy @api 127.0.0.1:3100'
+    "root * $ExpectedFrontendRoot"
+    'try_files {path} /index.html'
+    'file_server'
+    '}'
+    '}'
+  )
+
+  $denyPrefix = 'respond @outsideLan "'
+  $denySuffix = '" 403'
+  if ($templateLines.Count -ne $requiredLines.Count -or
+      -not $templateLines[5].StartsWith($denyPrefix, [StringComparison]::Ordinal) -or
+      -not $templateLines[5].EndsWith($denySuffix, [StringComparison]::Ordinal)) {
+    throw 'O template oficial do Caddyfile não corresponde à política segura aprovada; conteúdo omitido.'
+  }
+  $requiredLines[5] = $templateLines[5]
+  if (-not (Test-OrdinalLineSequence -Expected $requiredLines -Actual $templateLines)) {
+    throw 'O template oficial do Caddyfile não corresponde à política segura aprovada; conteúdo omitido.'
+  }
+  if (-not (Test-OrdinalLineSequence -Expected $templateLines -Actual $actualLines)) {
+    throw 'Caddyfile incompatível com o template oficial ou com a ordem segura dos handlers; conteúdo omitido.'
+  }
+}
+
 function Assert-RequiredFile {
   param([string]$Path, [string]$Description)
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -266,6 +334,7 @@ Assert-RequiredFile -Path $winSwSource -Description 'executável WinSW previamen
 Assert-RequiredFile -Path $nodeExe -Description 'Node.js 24 no caminho fixo de instalação'
 Assert-RequiredFile -Path (Join-Path $scriptRoot 'Backend.xml.template') -Description 'template XML do Backend'
 Assert-RequiredFile -Path (Join-Path $scriptRoot 'Caddy.xml.template') -Description 'template XML do Caddy'
+Assert-RequiredFile -Path (Join-Path $scriptRoot 'Caddyfile.homologation.template') -Description 'template oficial do Caddyfile'
 Assert-RequiredFile -Path (Join-Path $scriptRoot '../../../tools/gestoros-diagnostico/Homologation.Rules.psd1') -Description 'regras locais de homologação'
 Assert-RequiredFile -Path (Join-Path $configRoot '.env.homologation') -Description 'arquivo local de ambiente homologation'
 Assert-RequiredFile -Path $caddyfile -Description 'Caddyfile de homologação'
@@ -292,24 +361,9 @@ foreach ($key in @('GOS_DEPLOYMENT_ENV', 'GOS_DATABASE_TARGET', 'GOS_EXTERNAL_EF
 }
 
 $expectedFrontendRoot = ($frontendDist -replace '\\', '/')
-$expectedCaddyfileLines = @(
-  'gestor-os.home.arpa {'
-  'bind 0.0.0.0'
-  'tls internal'
-  '@outsideLan not remote_ip private_ranges'
-  'respond @outsideLan "Acesso restrito à rede local." 403'
-  'encode zstd gzip'
-  '@api path /api/v1/*'
-  'reverse_proxy @api 127.0.0.1:3100'
-  "root * $expectedFrontendRoot"
-  'try_files {path} /index.html'
-  'file_server'
-  '}'
-)
-$actualCaddyfileLines = @(Get-Content -LiteralPath $caddyfile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-if (($actualCaddyfileLines -join "`n") -cne ($expectedCaddyfileLines -join "`n")) {
-  throw 'Caddyfile incompatível: confirme TLS interno, limite de rede local, proxy loopback e raiz do Frontend; conteúdo omitido.'
-}
+$caddyfileText = [IO.File]::ReadAllText($caddyfile, [Text.Encoding]::UTF8)
+$caddyTemplateText = [IO.File]::ReadAllText((Join-Path $scriptRoot 'Caddyfile.homologation.template'), [Text.Encoding]::UTF8)
+Assert-HomologationCaddyfileContent -CaddyfileText $caddyfileText -TemplateText $caddyTemplateText -ExpectedFrontendRoot $expectedFrontendRoot
 
 $rules = Import-PowerShellDataFile (Join-Path $scriptRoot '../../../tools/gestoros-diagnostico/Homologation.Rules.psd1')
 $backendPackage = Get-Content -LiteralPath (Join-Path $backendRoot 'package.json') -Raw | ConvertFrom-Json
