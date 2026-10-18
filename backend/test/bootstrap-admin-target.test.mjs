@@ -61,15 +61,19 @@ test("recusa ambiente, banco, efeitos ou arquivo diferentes sem revelar configur
 
 test("guard do Prisma recusa banco ou host não local antes de criar o adapter", () => {
   assert.throws(
-    () => assertDatabaseTarget(new URL("mysql://fixture@localhost:3306/gestor_os"), "gestor_os_homologation", "homologation", "false"),
+    () => assertDatabaseTarget(new URL("mysql://gos_homologation_app@localhost:3306/gestor_os"), "gestor_os_homologation", "homologation", "false"),
     /Destino do banco não corresponde a GOS_DATABASE_TARGET/,
   );
   assert.throws(
-    () => assertDatabaseTarget(new URL("mysql://fixture@192.0.2.10:3306/gestor_os_homologation"), "gestor_os_homologation", "homologation", "false"),
+    () => assertDatabaseTarget(new URL("mysql://gos_homologation_app@192.0.2.10:3306/gestor_os_homologation"), "gestor_os_homologation", "homologation", "false"),
     /conexão local/,
   );
+  assert.throws(
+    () => assertDatabaseTarget(new URL("mysql://root@localhost:3306/gestor_os_homologation"), "gestor_os_homologation", "homologation", "false"),
+    /usuário gos_homologation_app/,
+  );
   assert.equal(
-    assertDatabaseTarget(new URL("mysql://fixture@[::1]:3306/gestor_os_homologation"), "gestor_os_homologation", "homologation", "false"),
+    assertDatabaseTarget(new URL("mysql://gos_homologation_app@[::1]:3306/gestor_os_homologation"), "gestor_os_homologation", "homologation", "false"),
     "gestor_os_homologation",
   );
 });
