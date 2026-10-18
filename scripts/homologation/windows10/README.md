@@ -44,6 +44,27 @@ Se a prévia passar e os caminhos/artefatos forem revisados, execute em PowerShe
 & .\scripts\homologation\windows10\Verify-HomologationServices.ps1
 ```
 
+## Primeiro Administrador da Homologação 1
+
+Depois de implantar os artefatos atualizados, abra PowerShell no host de homologação. O comando abaixo usa o bootstrap oficial, exige configuração explícita de homologação e recusa bancos que não sejam locais e `gestor_os_homologation`. Ele aborta antes de pedir credenciais se já houver Administrador ativo. A senha é digitada duas vezes em prompt sem eco; não a coloque em comando, variável, arquivo ou Git.
+
+```powershell
+Push-Location 'C:\ProgramData\GestorOS\homologation\backend'
+try {
+  $env:GOS_ENV_FILE = 'C:\ProgramData\GestorOS\homologation\config\.env.homologation'
+  $env:GOS_DEPLOYMENT_ENV = 'homologation'
+  $env:GOS_DATABASE_TARGET = 'gestor_os_homologation'
+  $env:GOS_EXTERNAL_EFFECTS_ENABLED = 'false'
+  npm run auth:bootstrap-homologation-admin
+  if ($LASTEXITCODE -ne 0) { throw 'Bootstrap do Administrador falhou; consulte a mensagem segura acima.' }
+} finally {
+  Remove-Item Env:GOS_ENV_FILE, Env:GOS_DEPLOYMENT_ENV, Env:GOS_DATABASE_TARGET, Env:GOS_EXTERNAL_EFFECTS_ENABLED -ErrorAction SilentlyContinue
+  Pop-Location
+}
+```
+
+O bootstrap não roda na inicialização do serviço e não tem endpoint HTTP. Ele reutiliza `AuthService.bootstrapFirstAdmin`, que normaliza e valida o username, aplica Argon2id, atribui `isAdmin` conforme a política central e grava auditoria na mesma transação. O comando de implantação executa o JavaScript já compilado e não precisa de ferramentas de desenvolvimento no servidor.
+
 Antes da primeira alteração, a instalação real confirma Node.js 24, adapta sintaticamente o Caddyfile sem iniciar o serviço, valida estruturalmente os dois XMLs e verifica a identidade do banco configurado sem abrir conexão SQL. A validação não usa `caddy validate`, que também provisiona módulos. Os XMLs são copiados ao lado dos executáveis como `GestorOSBackend.xml` e `GestorOSCaddy.xml`, nomes que o WinSW procura automaticamente. Se houver serviços ou arquivos de uma tentativa anterior, inclusive configurações `.exe.config`, o script para para revisão manual e não os sobrescreve nem remove. Os dois serviços usam início automático e conta `NT AUTHORITY\LocalService`; o usuário da conexão MySQL do Backend deve ser `gos_homologation_app`, no banco `gestor_os_homologation`, com efeitos externos desativados. O Frontend é estático; o Backend escuta somente em `127.0.0.1:3100`; Caddy publica HTTPS interno e restringe a requisição a IP de origem de faixa privada. O instalador não cria regras de Firewall. Em PowerShell elevado, informe a sub-rede privada real da equipe, confira a prévia e então aplique somente a regra TCP/443:
 
 ```powershell

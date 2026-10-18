@@ -2,6 +2,7 @@ import { Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/com
 import { ConfigService } from "@nestjs/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../../generated/prisma/client.js";
+import { assertDatabaseTarget } from "../homologation-database-target.js";
 
 @Injectable()
 export class PrismaService
@@ -29,24 +30,20 @@ export class PrismaService
       throw new Error("DATABASE_URL deve ser uma URL MySQL válida.");
     }
 
+    const databaseName = assertDatabaseTarget(
+      databaseUrl,
+      configService.get<string>("GOS_DATABASE_TARGET"),
+      configService.get<string>("GOS_DEPLOYMENT_ENV"),
+      configService.get<string>("GOS_EXTERNAL_EFFECTS_ENABLED"),
+    );
+
     const adapter = new PrismaMariaDb({
       host: databaseUrl.hostname,
       port: Number(databaseUrl.port || 3306),
       user: decodeURIComponent(databaseUrl.username),
       password: decodeURIComponent(databaseUrl.password),
-      database: decodeURIComponent(databaseUrl.pathname.slice(1)),
+      database: databaseName,
     });
-
-    const databaseName = decodeURIComponent(databaseUrl.pathname.slice(1));
-    const declaredTarget = configService.get<string>("GOS_DATABASE_TARGET");
-    const deploymentEnvironment = configService.get<string>("GOS_DEPLOYMENT_ENV");
-    if (declaredTarget && declaredTarget !== databaseName) {
-      throw new Error("Destino do banco não corresponde a GOS_DATABASE_TARGET.");
-    }
-    if (deploymentEnvironment === "homologation" &&
-      (databaseName !== "gestor_os_homologation" || configService.get<string>("GOS_EXTERNAL_EFFECTS_ENABLED") !== "false")) {
-      throw new Error("Homologação exige banco exclusivo gestor_os_homologation e efeitos externos desativados.");
-    }
 
     super({ adapter });
   }

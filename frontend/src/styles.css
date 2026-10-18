@@ -234,6 +234,7 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 28px 16px; background: radial-gradient(ellipse at top, #e6f1f4 0, #f4f6f8 56%); }
 .login-card { width: min(100%, 420px); padding: 38px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: 0 18px 55px rgba(22, 43, 62, .09); }
 .login-brand-mark { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 28px; border-radius: 15px; color: #fff; background: linear-gradient(145deg, #2588a4, #14506b); box-shadow: 0 6px 14px #176b8733; font-size: 24px; font-weight: 800; }
+.login-environment-badge { margin: -12px 0 20px; padding: 10px 12px; border: 1px solid #c06a16; border-radius: 8px; color: #713900; background: #fff0d6; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-align: center; }
 .login-card h1 { margin-bottom: 8px; font-size: 28px; letter-spacing: -.04em; }
 .login-intro { margin-bottom: 26px; color: var(--muted); font-size: 14px; }
 .login-form { display: grid; gap: 10px; }

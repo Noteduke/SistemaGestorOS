@@ -32,6 +32,9 @@ export function LoginPage({ onLogin, sessionMessage }: LoginPageProps) {
       <section className="login-card" aria-labelledby="login-title">
         <div className="login-brand-mark" aria-hidden="true">G</div>
         <p className="eyebrow">Sistema interno</p>
+        {import.meta.env.MODE === "homologation" && (
+          <p className="login-environment-badge" role="note">AMBIENTE DE HOMOLOGAÇÃO</p>
+        )}
         <h1 id="login-title">Acesse sua conta</h1>
         <p className="login-intro">Entre para continuar no Gestor OS.</p>
         {sessionMessage && <p className="login-notice" role="status">{sessionMessage}</p>}

@@ -5,8 +5,10 @@ import { AppModule } from "../app.module.js";
 import { PrismaService } from "../infrastructure/prisma/prisma.service.js";
 import { AuthService } from "../modules/auth/auth.service.js";
 import { safeDiagnosticMessage } from "../infrastructure/safe-diagnostic.js";
+import { assertHomologationBootstrapTarget } from "./bootstrap-admin-target.js";
 
 async function main(): Promise<void> {
+  assertHomologationBootstrapTarget(process.env);
   if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
     throw new Error("O bootstrap exige terminal interativo para solicitar a senha sem eco.");
   }
