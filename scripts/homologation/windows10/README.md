@@ -27,7 +27,7 @@ No host de destino, abra PowerShell elevado e revise os diretórios com `-WhatIf
 & .\scripts\homologation\windows10\Prepare-HomologationDirectories.ps1 -Confirm
 ```
 
-Copie ou clone o repositório para uma pasta de staging local. A partir da raiz dessa cópia, execute `Deploy-HomologationArtifacts.ps1` apontando `-RepositoryRoot` para ela. Copie `Homologation.env.template` para `C:\ProgramData\GestorOS\homologation\config\.env.homologation`, substitua a senha localmente sem colocá-la em comando/histórico/Git, confirme que a URL seleciona somente `gestor_os_homologation` e mantenha a ACL restrita. Copie `Caddyfile.homologation.template` para a mesma pasta como `Caddyfile` e confira IPs, hostname e caminho `root`.
+Para a instalação inicial, copie ou clone o repositório para uma pasta de staging local. A partir da raiz dessa cópia, execute `Deploy-HomologationArtifacts.ps1` apontando `-RepositoryRoot` para ela. Esse deploy copia diretamente e não oferece rollback transacional; não o use para atualizar uma instalação existente. Copie `Homologation.env.template` para `C:\ProgramData\GestorOS\homologation\config\.env.homologation`, substitua a senha localmente sem colocá-la em comando/histórico/Git, confirme que a URL seleciona somente `gestor_os_homologation` e mantenha a ACL restrita. Copie `Caddyfile.homologation.template` para a mesma pasta como `Caddyfile` e confira IPs, hostname e caminho `root`.
 
 O script de build confirma que o bundle contém `DOCUMENTO DE TESTE — HOMOLOGAÇÃO` e grava `build-info.json` com ambiente, versão e commit de origem. O deploy recusa artefatos sem esse marcador/manifests. O diretório de artefatos é ignorado pelo Git.
 
@@ -85,5 +85,137 @@ npm run prisma:safe -- gestor_os_homologation migrate deploy
 ```
 
 Separar usuário de runtime e usuário de migration quando possível; não conceder privilégios globais. Parar gravações, fazer backup apenas de `gestor_os_homologation`, conferir hash/conclusão e restaurar primeiro em banco separado de ensaio. Nenhum comando de migration foi executado nesta preparação.
+
+### Atualização de artefatos da versão 1f98609
+
+O atualizador `Update-HomologationRelease.ps1` é específico para o pacote `GestorOS-Homologation1-update-1f98609.zip`. No host de homologação, copie somente esses dois arquivos para `C:\staging`:
+
+- `Update-HomologationRelease.ps1`;
+- `GestorOS-Homologation1-update-1f98609.zip`.
+
+Abra o Windows PowerShell 5.1 como Administrador, confira o SHA256 recebido por um canal independente e execute primeiro a pré-validação. Ela inspeciona a configuração local em memória, sem imprimir os valores da conexão, e não conecta ao MySQL:
+
+```powershell
+$Updater = 'C:\staging\Update-HomologationRelease.ps1'
+$Package = 'C:\staging\GestorOS-Homologation1-update-1f98609.zip'
+$ExpectedSha256 = 'e141f2ffe8af84f3c1cb3f46540af9e06a083c1b887a650485ee0425d52db7e6'
+$ActualSha256 = (Get-FileHash -LiteralPath $Package -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($ActualSha256 -cne $ExpectedSha256) { throw 'SHA256 do pacote não confere; atualização cancelada.' }
+& $Updater -PackagePath $Package
+```
+
+Revise a pré-validação e simule o caminho de aplicação. `-Apply -WhatIf` repete as verificações, mas retorna antes de criar staging, lock ou journal, parar serviços, alterar ACLs ou substituir arquivos:
+
+```powershell
+& $Updater -PackagePath $Package -Apply -WhatIf
+```
+
+Somente após a revisão administrativa do resultado, solicite a atualização real:
+
+```powershell
+& $Updater -PackagePath $Package -Apply -Confirm
+```
+
+O atualizador confere o hash externo e os hashes internos, a versão/commit e os marcadores de homologação, o `.env.homologation`, as dependências já instaladas, os serviços e as ACLs. Ele altera somente `backend\dist`, `backend\package.json`, `frontend\dist` e `frontend\build-info.json`. Preserva `.env.homologation`, `node_modules`, Caddyfile, certificados, contas de serviço, diretórios persistentes e o banco. Não executa SQL, migration, seed ou bootstrap.
+
+O backup é criado em `C:\ProgramData\GestorOS\homologation\updates\backup-<UTC>-<GUID>` e o caminho exato aparece no resultado. Ele contém os quatro artefatos anteriores e `journal.json`; em uma falha de validação, os artefatos novos ficam sob `failed-new`. A troca renomeia componentes individualmente no mesmo volume, com os dois serviços parados, e não é atômica como um único conjunto. Em falha, o script tenta restaurar todos os artefatos anteriores, reiniciar os serviços e verificar HTTPS local e a resposta protegida da API. Se informar `ROLLBACK INCOMPLETO`, não inicie os serviços: preserve o backup e faça recuperação administrativa manual.
+
+#### Recuperação manual
+
+Use o caminho de backup exato impresso pelo atualizador. Antes de mover qualquer arquivo, confirme que o `journal.json` corresponde à tentativa, que existem os quatro backups (`backend\dist`, `backend\package.json`, `frontend\dist`, `frontend\build-info.json`) e que os quatro destinos ativos existem. Se algo estiver ausente, ambíguo ou em uso, pare e investigue; não sobrescreva arquivos.
+
+Em PowerShell elevado, substitua o valor de `$BackupRoot` pelo caminho exato impresso pelo atualizador. O bloco abaixo valida os quatro backups e destinos antes de parar os serviços, preserva a versão ativa em uma pasta exclusiva, restaura os quatro componentes sem sobrescrever e só então tenta iniciar e validar a versão anterior:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$InstallRoot = 'C:\ProgramData\GestorOS\homologation'
+$BackupRoot = 'C:\ProgramData\GestorOS\homologation\updates\backup-<UTC>-<GUID>'
+$UpdatesPrefix = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'updates')).TrimEnd('\') + '\'
+$BackupRoot = [IO.Path]::GetFullPath($BackupRoot)
+if (-not $BackupRoot.StartsWith($UpdatesPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not (Split-Path -Leaf $BackupRoot).StartsWith('backup-', [StringComparison]::OrdinalIgnoreCase)) { throw 'Caminho de backup fora da instalação homologation.' }
+$PathCursor = $BackupRoot
+while (-not [string]::IsNullOrWhiteSpace($PathCursor)) {
+  if (Test-Path -LiteralPath $PathCursor -and ((Get-Item -LiteralPath $PathCursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Caminho de backup contém reparse point.' }
+  $PathParent = Split-Path -Parent $PathCursor
+  if ([string]::IsNullOrWhiteSpace($PathParent) -or $PathParent -eq $PathCursor) { break }
+  $PathCursor = $PathParent
+}
+$Artifacts = @(
+  @{ Relative = 'backend\dist'; IsDirectory = $true }
+  @{ Relative = 'backend\package.json'; IsDirectory = $false }
+  @{ Relative = 'frontend\dist'; IsDirectory = $true }
+  @{ Relative = 'frontend\build-info.json'; IsDirectory = $false }
+)
+foreach ($item in $Artifacts) {
+  $active = Join-Path $InstallRoot $item.Relative
+  $saved = Join-Path $BackupRoot $item.Relative
+  $kind = if ($item.IsDirectory) { 'Container' } else { 'Leaf' }
+  if (-not (Test-Path -LiteralPath $active -PathType $kind) -or -not (Test-Path -LiteralPath $saved -PathType $kind)) { throw "Artefato ausente ou tipo incorreto; nenhum serviço foi parado: $($item.Relative)" }
+}
+$JournalPath = Join-Path $BackupRoot 'journal.json'
+$Journal = Get-Content -LiteralPath $JournalPath -Raw | ConvertFrom-Json -ErrorAction Stop
+if ($Journal.environment -cne 'homologation' -or $Journal.sourceCommit -cne '1f98609e778757aaa5c4488e4d8787040396d62c') { throw 'Journal não corresponde à atualização homologation esperada.' }
+$FailedRoot = Join-Path $BackupRoot ('failed-new-manual-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N'))
+if (Test-Path -LiteralPath $FailedRoot) { throw 'Destino de preservação já existe; nenhum serviço foi parado.' }
+function Save-ManualRollbackJournal {
+  param([string]$Path, [psobject]$Value)
+  $suffix = [guid]::NewGuid().ToString('N')
+  $temporary = $Path + '.' + $suffix + '.tmp'
+  $previous = $Path + '.' + $suffix + '.previous'
+  try {
+    [IO.File]::WriteAllText($temporary, (ConvertTo-Json -InputObject $Value -Depth 8), (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::Replace($temporary, $Path, $previous)
+  } finally {
+    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force -ErrorAction SilentlyContinue }
+  }
+}
+$ServiceNames = @('GestorOSBackendHomologation', 'GestorOSCaddyHomologation')
+$ServiceStates = @{}
+foreach ($serviceName in $ServiceNames) {
+  $ServiceStates[$serviceName] = [string](Get-Service -Name $serviceName -ErrorAction Stop).Status
+  if ($ServiceStates[$serviceName] -notin @('Running', 'Stopped')) { throw "Serviço $serviceName está em transição; nenhum serviço foi parado." }
+}
+try {
+  if ($ServiceStates['GestorOSCaddyHomologation'] -eq 'Running') { Stop-Service -Name GestorOSCaddyHomologation }
+  if ($ServiceStates['GestorOSBackendHomologation'] -eq 'Running') { Stop-Service -Name GestorOSBackendHomologation }
+  (Get-Service GestorOSCaddyHomologation).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(45))
+  (Get-Service GestorOSBackendHomologation).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(45))
+  foreach ($item in $Artifacts) {
+    $active = Join-Path $InstallRoot $item.Relative
+    $failed = Join-Path $FailedRoot $item.Relative
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $failed))
+    Move-Item -LiteralPath $active -Destination $failed
+  }
+  foreach ($item in $Artifacts) {
+    $saved = Join-Path $BackupRoot $item.Relative
+    $active = Join-Path $InstallRoot $item.Relative
+    Move-Item -LiteralPath $saved -Destination $active
+  }
+  $Journal.status = 'manual-rollback-files-restored'
+  $Journal.message = 'Artefatos anteriores restaurados manualmente; aguardando validação dos serviços.'
+  $Journal.updatedAtUtc = [DateTime]::UtcNow.ToString('o')
+  Save-ManualRollbackJournal -Path $JournalPath -Value $Journal
+  Start-Service -Name GestorOSBackendHomologation
+  (Get-Service GestorOSBackendHomologation).WaitForStatus('Running', [TimeSpan]::FromSeconds(45))
+  Start-Service -Name GestorOSCaddyHomologation
+  (Get-Service GestorOSCaddyHomologation).WaitForStatus('Running', [TimeSpan]::FromSeconds(45))
+  $frontend = & curl.exe --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 --resolve 'gestor-os.home.arpa:443:127.0.0.1' --output 'NUL' --write-out '%{http_code}|%{content_type}' 'https://gestor-os.home.arpa/'
+  if ($LASTEXITCODE -ne 0 -or (($frontend -join '') -notmatch '^200\|text/html')) { throw 'Validação do Frontend após rollback falhou.' }
+  $api = & curl.exe --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 --resolve 'gestor-os.home.arpa:443:127.0.0.1' --output 'NUL' --write-out '%{http_code}|%{content_type}' 'https://gestor-os.home.arpa/api/v1/auth/me'
+  if ($LASTEXITCODE -ne 0 -or (($api -join '') -notmatch '^401\|application/json')) { throw 'Validação da API após rollback falhou.' }
+  $Journal.status = 'manual-rollback-success'
+  $Journal.message = 'Versão anterior restaurada manualmente; serviços e verificações locais aprovados.'
+  $Journal.updatedAtUtc = [DateTime]::UtcNow.ToString('o')
+  Save-ManualRollbackJournal -Path $JournalPath -Value $Journal
+} catch {
+  foreach ($serviceName in @('GestorOSCaddyHomologation', 'GestorOSBackendHomologation')) {
+    try { Stop-Service -Name $serviceName -ErrorAction SilentlyContinue } catch { }
+  }
+  throw 'Recuperação manual incompleta. Mantenha os serviços parados, preserve o backup e a pasta failed-new-manual, e continue a recuperação administrativa sem sobrescrever arquivos.'
+}
+```
+
+O exemplo mantém os serviços parados e sinaliza falhas para recuperação assistida. Se o journal ou qualquer artefato não passar na pré-validação, não execute o bloco; preserve os arquivos e investigue. A recuperação restaura somente artefatos e não acessa nem altera o banco.
 
 Depois de instalar/atualizar, valide o início automático após reiniciar o host, login, OS numerada `HOS-*`, dois usuários concorrentes, impressões, upload privado do logo, backup e restauração. Não considere a H1 liberada apenas por build/teste automatizado.
