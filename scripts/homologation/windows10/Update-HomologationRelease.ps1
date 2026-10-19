@@ -487,8 +487,11 @@ function Assert-UpdateDestination {
   }
   $nodePath = 'C:\Program Files\nodejs\node.exe'
   if (-not (Test-Path -LiteralPath $nodePath)) { throw 'Node.js do serviço não foi encontrado no caminho instalado.' }
-  $nodeVersion = (& $nodePath --version 2>$null | Select-Object -First 1)
-  if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v24\.') { throw 'Node.js instalado não é compatível com a versão 24 exigida.' }
+  # Wait for the native process before selecting output; -First can stop it early in PowerShell 5.1.
+  $nodeVersionOutput = @(& $nodePath --version 2>$null)
+  $nodeExitCode = $LASTEXITCODE
+  $nodeVersion = $nodeVersionOutput | Select-Object -First 1
+  if ($nodeExitCode -ne 0 -or $nodeVersion -notmatch '^v24\.') { throw 'Node.js instalado não é compatível com a versão 24 exigida.' }
   $installedPackage = Get-Content -LiteralPath (Join-Path $InstallRoot 'backend\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
   [void](Assert-DependencyUpdateContract -InstalledPackage $installedPackage -PackageInfo $PackageInfo)
   if ($PackageInfo.CompleteRuntime) {

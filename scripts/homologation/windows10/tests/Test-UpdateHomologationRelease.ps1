@@ -52,6 +52,7 @@ function Assert-Throws {
 function New-TestZip {
   param(
     [string]$Name,
+    [string]$NodeVersion = 'v24.21.0',
     [switch]$BadEnvironment,
     [switch]$OmitBootstrap,
     [switch]$WrongInternalHash,
@@ -79,7 +80,7 @@ function New-TestZip {
     sourceCommit = $script:TestCommit
     backendVersion = '0.1.0'
     frontendVersion = '0.1.0'
-    nodeVersion = 'v24.21.0'
+    nodeVersion = $NodeVersion
     runtimeDependenciesIncluded = $false
     runtimeDependenciesUnchanged = $true
     payload = @('backend/package.json', 'backend/dist/**', 'frontend/dist/**', 'frontend/build-info.json')
@@ -257,6 +258,61 @@ try {
   [void][IO.Directory]::CreateDirectory($script:TestRoot)
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+  # Exercise the updater's actual expressions, including native exit-code handling.
+  # A doubled backslash in a single-quoted PowerShell regex does not escape a dot.
+  $versionChecks = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.BinaryExpressionAst] -and
+      $node.Operator -eq [System.Management.Automation.Language.TokenKind]::Inotmatch -and
+      $node.Left.Extent.Text -in @('$nodeVersion', '$manifest.nodeVersion')
+  }, $true))
+  Assert-Test ($versionChecks.Count -eq 2) 'Expected both installed/runtime manifest Node.js version checks.'
+  $installedCheck = @($versionChecks | Where-Object { $_.Left.Extent.Text -ceq '$nodeVersion' })[0]
+  $installedCondition = [scriptblock]::Create($installedCheck.Parent.Extent.Text)
+  foreach ($check in $versionChecks) {
+    Assert-Test ($check.Right.Value -ceq '^v24\.') 'Node.js regex must contain exactly one backslash before the dot.'
+  }
+  $versionCases = @(
+    @{ Version = 'v24.22.0'; Accepted = $true },
+    @{ Version = 'v24.21.0'; Accepted = $true },
+    @{ Version = 'v23.11.0'; Accepted = $false },
+    @{ Version = 'v25.0.0'; Accepted = $false },
+    @{ Version = 'invalid-version'; Accepted = $false },
+    @{ Version = 'v24X22X0'; Accepted = $false }
+  )
+  foreach ($case in $versionCases) {
+    $nodeVersion = $case.Version
+    $nodeExitCode = 0
+    Assert-Test ((-not (& $installedCondition)) -eq $case.Accepted) ('Installed Node.js decision incorrect: ' + $case.Version)
+    $versionZip = New-TestZip -Name ('node-version-' + $case.Version) -NodeVersion $case.Version
+    if ($case.Accepted) {
+      [void](Get-TestPackageInfo -Path $versionZip)
+    } else {
+      Assert-Throws { Get-TestPackageInfo -Path $versionZip } '*Manifesto incompatível*'
+    }
+  }
+  $nodeVersion = 'v24.22.0'
+  $nodeExitCode = 1
+  Assert-Test ([bool](& $installedCondition)) 'Nonzero node --version exit code must still reject the runtime.'
+  $nodeCommandStatements = @()
+  foreach ($variableName in @('$nodeVersionOutput', '$nodeExitCode', '$nodeVersion')) {
+    $assignment = $ast.Find({
+      param($node)
+      $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left.Extent.Text -ceq $variableName
+    }, $true)
+    Assert-Test ($null -ne $assignment) ('Installed Node.js command statement missing: ' + $variableName)
+    $nodeCommandStatements += $assignment.Extent.Text
+  }
+  Assert-Test ($nodeCommandStatements[0] -notmatch 'Select-Object') 'Do not short-circuit the native Node.js output pipeline.'
+  $nodeCommand = [scriptblock]::Create(($nodeCommandStatements -join [Environment]::NewLine))
+  $nodePath = 'C:\Program Files\nodejs\node.exe'
+  foreach ($iteration in 1..20) {
+    . $nodeCommand
+    Assert-Test (-not (& $installedCondition)) ('Actual local Node.js --version command was rejected: version=' + $nodeVersion + ', exit=' + $nodeExitCode + '.')
+  }
+  Write-Output ('PASS: Node.js version checks (installed runtime and ZIP manifest), six version cases, native failure and 20 real commands: ' + $nodeVersion + '.')
 
   $validZip = New-TestZip -Name 'valid'
   $validInfo = Get-TestPackageInfo -Path $validZip
