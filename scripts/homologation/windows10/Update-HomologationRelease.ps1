@@ -331,7 +331,7 @@ function Set-StageDirectoryAcl {
     if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $source) { throw 'Não foi possível localizar ACL de origem para o staging.' }
     $source = $parent
   }
-  Set-Acl -LiteralPath $StageDirectory -AclObject (Get-Acl -LiteralPath $source)
+  Set-Acl -LiteralPath $StageDirectory -AclObject (Get-Acl -LiteralPath $source) -Confirm:$false
 }
 
 function Expand-ValidatedUpdatePackage {
@@ -387,11 +387,11 @@ function Expand-ValidatedUpdatePackage {
         try { $sourceStream.CopyTo($destStream) } finally { $destStream.Dispose() }
       } finally { $sourceStream.Dispose() }
       if (Test-Path -LiteralPath $mapping.Target -PathType Leaf) {
-        Set-Acl -LiteralPath $mapping.Stage -AclObject (Get-Acl -LiteralPath $mapping.Target)
+        Set-Acl -LiteralPath $mapping.Stage -AclObject (Get-Acl -LiteralPath $mapping.Target) -Confirm:$false
       }
     }
   } catch {
-    if (Test-Path -LiteralPath $StageRoot) { Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    # Preserve partial staging for diagnosis. Only the successful apply path removes its own stage.
     throw
   } finally {
     if ($zip) { $zip.Dispose() }
@@ -580,6 +580,73 @@ function Move-UpdateArtifact {
   }
 }
 
+function Get-UpdateArtifactFingerprint {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  Assert-NoReparseChain -Path $Path
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  $root = Get-Item -LiteralPath $Path -Force
+  if (-not $root.PSIsContainer) { return ('file:' + (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()) }
+  $records = New-Object System.Collections.Generic.List[string]
+  $pending = New-Object System.Collections.Generic.Stack[string]
+  $pending.Push($root.FullName)
+  while ($pending.Count -gt 0) {
+    foreach ($entry in Get-ChildItem -LiteralPath ($pending.Pop()) -Force) {
+      if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Fingerprint recusado: artefato contém reparse point.' }
+      $relative = $entry.FullName.Substring($root.FullName.TrimEnd('\').Length + 1)
+      if ($entry.PSIsContainer) {
+        $records.Add('dir:' + $relative)
+        $pending.Push($entry.FullName)
+      } else {
+        $records.Add('file:' + $relative + ':' + (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
+      }
+    }
+  }
+  $ordered = $records.ToArray()
+  [array]::Sort($ordered, [StringComparer]::Ordinal)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return ('dir:' + ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($ordered -join "`n"))))).Replace('-', '').ToLowerInvariant()) }
+  finally { $sha.Dispose() }
+}
+
+function Restore-UpdateArtifacts {
+  param([object[]]$Items, [string]$JournalPath, [string]$SourceCommit, [hashtable]$Operations)
+  $restoreItems = @($Items)
+  [array]::Reverse($restoreItems)
+  $errors = New-Object System.Collections.Generic.List[string]
+  foreach ($item in $restoreItems) {
+    try {
+      if ([string]::IsNullOrWhiteSpace($item.OriginalFingerprint)) { throw 'Identidade anterior não registrada; exige inspeção manual.' }
+      $activeFingerprint = Get-UpdateArtifactFingerprint -Path $item.TargetPath
+      $backupFingerprint = Get-UpdateArtifactFingerprint -Path $item.BackupPath
+      if ($activeFingerprint -ceq $item.OriginalFingerprint -and -not $item.NewActive -and
+          (-not $item.OldMoved -or $backupFingerprint -ceq '')) {
+        # Already restored (including a journal write interrupted after the rename), or never moved.
+        if ($item.OldMoved) { $item.Restored = $true }
+        $item.OldMoved = $false
+        $item.NewActive = $false
+        continue
+      }
+      if ($backupFingerprint -cne $item.OriginalFingerprint) { throw 'Backup anterior ausente ou divergente.' }
+      if ($activeFingerprint -cne '' -and $activeFingerprint -cne $item.PreparedFingerprint) { throw 'Destino ativo ambíguo; não será movido.' }
+      $item.OldMoved = $true
+      Write-UpdateJournal -Path $JournalPath -Status ('restore-intent:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message 'Restaurando artefato anterior verificado.'
+      if ($activeFingerprint -cne '') {
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $item.FailedPath))
+        & $Operations.MoveArtifact $item.TargetPath $item.FailedPath
+        $item.NewActive = $false
+        Write-UpdateJournal -Path $JournalPath -Status ('failed-new-preserved:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message 'Artefato novo preservado.'
+      }
+      & $Operations.MoveArtifact $item.BackupPath $item.TargetPath
+      $item.OldMoved = $false
+      $item.NewActive = $false
+      $item.Restored = $true
+      if ((Get-UpdateArtifactFingerprint -Path $item.TargetPath) -cne $item.OriginalFingerprint) { throw 'Restauração não corresponde ao original.' }
+      Write-UpdateJournal -Path $JournalPath -Status ('restored:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message 'Artefato anterior restaurado e conferido.'
+    } catch { $errors.Add('Falha ao restaurar o artefato ' + $item.Name + ': ' + $_.Exception.Message) }
+  }
+  if ($errors.Count -gt 0) { throw ($errors -join ' ') }
+}
+
 function Write-UpdateJournal {
   param([string]$Path, [string]$Status, [string]$SourceCommit, [object[]]$Items, [string]$Message)
   $journal = [ordered]@{
@@ -598,6 +665,8 @@ function Write-UpdateJournal {
         previousMovedToBackup = [bool]$_.OldMoved
         newArtifactActive = [bool]$_.NewActive
         previousRestored = [bool]$_.Restored
+        originalFingerprint = if ($_.PSObject.Properties['OriginalFingerprint']) { $_.OriginalFingerprint } else { $null }
+        preparedFingerprint = if ($_.PSObject.Properties['PreparedFingerprint']) { $_.PreparedFingerprint } else { $null }
       }
     })
   }
@@ -607,7 +676,7 @@ function Write-UpdateJournal {
   if (Test-Path -LiteralPath $Path) {
     $previous = $Path + '.' + [guid]::NewGuid().ToString('N') + '.previous'
     try { [System.IO.File]::Replace($temporary, $Path, $previous) } finally {
-      if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force -ErrorAction SilentlyContinue }
+      if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force -Confirm:$false -ErrorAction SilentlyContinue }
     }
   } else {
     [System.IO.File]::Move($temporary, $Path)
@@ -622,8 +691,17 @@ function Invoke-ArtifactSwapTransaction {
     [Parameter(Mandatory = $true)][hashtable]$Operations
   )
   $status = 'starting'
+  $servicesStopRequested = $false
   try {
+    foreach ($item in $Items) {
+      $original = Get-UpdateArtifactFingerprint -Path $item.TargetPath
+      $prepared = Get-UpdateArtifactFingerprint -Path $item.PreparedPath
+      if ($original -ceq '' -or $prepared -ceq '') { throw 'Artefato ativo ou preparado ausente antes da troca.' }
+      $item | Add-Member -NotePropertyName OriginalFingerprint -NotePropertyValue $original -Force
+      $item | Add-Member -NotePropertyName PreparedFingerprint -NotePropertyValue $prepared -Force
+    }
     Write-UpdateJournal -Path $JournalPath -Status $status -SourceCommit $SourceCommit -Items $Items -Message 'Iniciando atualização controlada.'
+    $servicesStopRequested = $true
     & $Operations.StopServices
     & $Operations.WaitServicesStopped
     $status = 'services-stopped'
@@ -649,38 +727,42 @@ function Invoke-ArtifactSwapTransaction {
     return [pscustomobject]@{ Success = $true; RollbackSucceeded = $false; JournalPath = $JournalPath }
   } catch {
     $failureMessage = $_.Exception.Message
+    if (-not $servicesStopRequested) {
+      Write-UpdateJournal -Path $JournalPath -Status 'preparation-failed' -SourceCommit $SourceCommit -Items $Items -Message 'Pré-condições da troca não foram concluídas; nenhum serviço ou artefato ativo foi alterado.'
+      throw ('Preparação da troca falhou antes de parar serviços. Motivo: ' + $failureMessage)
+    }
+    $movementObserved = @($Items | Where-Object { $_.OldMoved -or $_.NewActive }).Count -gt 0
+    try {
+      foreach ($item in $Items) {
+        if (-not $item.PSObject.Properties['OriginalFingerprint']) { throw 'Identidade anterior não foi registrada.' }
+        if ((Get-UpdateArtifactFingerprint -Path $item.TargetPath) -cne $item.OriginalFingerprint) { $movementObserved = $true }
+      }
+    } catch {
+      Write-UpdateJournal -Path $JournalPath -Status 'recovery-required' -SourceCommit $SourceCommit -Items $Items -Message 'Não foi possível comprovar a identidade dos artefatos; exige inspeção manual.'
+      throw 'RECUPERAÇÃO NÃO COMPROVADA. Preserve journal, staging e backup; nenhuma recuperação deve ser presumida.'
+    }
+    if (-not $movementObserved) {
+      try {
+        if ($servicesStopRequested) {
+          & $Operations.StartServices
+          & $Operations.WaitServicesRunning
+          & $Operations.ValidateHttp
+        }
+      } catch {
+        Write-UpdateJournal -Path $JournalPath -Status 'pre-activation-recovery-incomplete' -SourceCommit $SourceCommit -Items $Items -Message ('Artefatos originais intactos; disponibilidade não comprovada. Falha original: ' + $failureMessage)
+        throw 'RECUPERAÇÃO INCOMPLETA ANTES DA ATIVAÇÃO. Não houve troca de artefatos; valide os serviços manualmente.'
+      }
+      Write-UpdateJournal -Path $JournalPath -Status 'failed-before-activation-recovered' -SourceCommit $SourceCommit -Items $Items -Message ('Falha anterior à troca; originais conferidos e disponibilidade validada. Falha original: ' + $failureMessage)
+      throw ('Atualização falhou antes de mover artefatos; versão anterior validada, sem rollback de arquivos. Motivo: ' + $failureMessage)
+    }
     $rollbackErrors = New-Object System.Collections.Generic.List[string]
     try { & $Operations.StopServices } catch { $rollbackErrors.Add('Falha ao parar serviços durante rollback.') }
     if ($rollbackErrors.Count -eq 0) {
       try { & $Operations.WaitServicesStopped } catch { $rollbackErrors.Add('Serviços/processos não encerraram para rollback.') }
     }
     if ($rollbackErrors.Count -eq 0) {
-      $rollbackItems = @($Items)
-      [array]::Reverse($rollbackItems)
-      foreach ($item in $rollbackItems) {
-        try {
-          if ($item.OldMoved) {
-            Write-UpdateJournal -Path $JournalPath -Status ('restore-intent:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Restaurando versão anterior: ' + $item.Name)
-          }
-          if ($item.OldMoved -and (Test-Path -LiteralPath $item.TargetPath)) {
-            [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $item.FailedPath))
-            & $Operations.MoveArtifact $item.TargetPath $item.FailedPath
-            $item.NewActive = $false
-            Write-UpdateJournal -Path $JournalPath -Status ('failed-new-preserved:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Artefato novo preservado para diagnóstico: ' + $item.Name)
-          }
-          if ($item.OldMoved -and (Test-Path -LiteralPath $item.BackupPath)) {
-            & $Operations.MoveArtifact $item.BackupPath $item.TargetPath
-            $item.OldMoved = $false
-            $item.NewActive = $false
-            $item.Restored = $true
-          } elseif ($item.OldMoved -or -not (Test-Path -LiteralPath $item.TargetPath)) {
-            throw 'Versão anterior ausente no destino e no backup.'
-          }
-          if ($item.Restored) {
-            Write-UpdateJournal -Path $JournalPath -Status ('restored:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Versão anterior restaurada: ' + $item.Name)
-          }
-        } catch { $rollbackErrors.Add('Falha ao restaurar o artefato ' + $item.Name + '.') }
-      }
+      try { Restore-UpdateArtifacts -Items $Items -JournalPath $JournalPath -SourceCommit $SourceCommit -Operations $Operations }
+      catch { $rollbackErrors.Add($_.Exception.Message) }
     }
     if ($rollbackErrors.Count -eq 0) {
       try {
@@ -774,13 +856,16 @@ function New-ServiceOperations {
   $serviceNames = @($BackendService, $CaddyService)
   $loginMarker = $script:LoginMarker
   $documentMarker = $script:DocumentMarker
+  # GetNewClosure creates a dynamic module; bind script-local functions before entering it.
+  $moveArtifactCommand = Get-Command Move-UpdateArtifact -CommandType Function -ErrorAction Stop
+  $validateInstalledCommand = Get-Command Assert-InstalledReleaseArtifacts -CommandType Function -ErrorAction Stop
   $operations = @{
-    MoveArtifact = { param($Source, $Destination) Move-UpdateArtifact -Source $Source -Destination $Destination }
+    MoveArtifact = { param($Source, $Destination) & $moveArtifactCommand -Source $Source -Destination $Destination }
     StopServices = {
       foreach ($name in @($CaddyService, $BackendService)) {
         $service = Get-Service -Name $name -ErrorAction Stop
         if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-          Stop-Service -Name $name -ErrorAction Stop
+          Stop-Service -Name $name -Confirm:$false -ErrorAction Stop
         }
       }
     }
@@ -802,13 +887,13 @@ function New-ServiceOperations {
       }
     }
     StartServices = {
-      Start-Service -Name $BackendService -ErrorAction Stop
+      Start-Service -Name $BackendService -Confirm:$false -ErrorAction Stop
       $service = Get-Service -Name $BackendService
       $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
-      Start-Service -Name $CaddyService -ErrorAction Stop
+      Start-Service -Name $CaddyService -Confirm:$false -ErrorAction Stop
     }
     ValidateInstalledVersion = {
-      Assert-InstalledReleaseArtifacts -InstallRoot $InstallRoot -PackageInfo $PackageInfo -LoginMarker $loginMarker -DocumentMarker $documentMarker
+      & $validateInstalledCommand -InstallRoot $InstallRoot -PackageInfo $PackageInfo -LoginMarker $loginMarker -DocumentMarker $documentMarker
     }
     WaitServicesRunning = {
       foreach ($name in $serviceNames) {
@@ -862,15 +947,24 @@ function Invoke-HomologationUpdateApply {
   $lock = $null
   $stageRoot = Join-Path $updatesRoot ('stage-' + $updateId)
   $backupRoot = Join-Path $updatesRoot ('backup-' + $updateId)
-  $stageCreated = $false
-  $rollbackIncomplete = $false
+  $completed = $false
+  $transactionStarted = $false
+  $journalPath = $null
+  $items = @()
   try {
     $lock = Open-ExclusiveUpdateLock -Path $lockPath -UpdateId $updateId
     if ([System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($InstallRoot)) -cne [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($updatesRoot))) { throw 'Staging e instalação não estão no mesmo volume.' }
 
     Assert-UpdateDestination -InstallRoot $InstallRoot -PackageInfo $PackageInfo
+    $backupRoot = New-ExclusiveUpdateDirectory -Path $backupRoot
+    $backupParents = if ($PackageInfo.CompleteRuntime) { @('frontend') } else { @('backend', 'frontend') }
+    foreach ($relativeDirectory in $backupParents) {
+      [void][System.IO.Directory]::CreateDirectory((Join-Path $backupRoot $relativeDirectory))
+    }
+    $items = @(New-ReleaseArtifactItems -InstallRoot $InstallRoot -StageRoot $stageRoot -BackupRoot $backupRoot -CompleteRuntime $PackageInfo.CompleteRuntime)
+    $journalPath = Join-Path $backupRoot 'journal.json'
+    Write-UpdateJournal -Path $journalPath -Status 'preparing' -SourceCommit $PackageInfo.SourceCommit -Items $items -Message 'Preparando staging; serviços e artefatos ativos ainda não foram alterados.'
     Expand-ValidatedUpdatePackage -ZipPath $ZipPath -StageRoot $stageRoot -InstallRoot $InstallRoot -PackageInfo $PackageInfo
-    $stageCreated = $true
     foreach ($path in @(
       (Join-Path $stageRoot 'backend\dist'), (Join-Path $stageRoot 'backend\package.json'),
       (Join-Path $stageRoot 'frontend\dist'), (Join-Path $stageRoot 'frontend\build-info.json'),
@@ -887,29 +981,24 @@ function Invoke-HomologationUpdateApply {
     $oldPackage = Get-Content -LiteralPath (Join-Path $InstallRoot 'backend\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
     [void](Assert-DependencyUpdateContract -InstalledPackage $oldPackage -PackageInfo $PackageInfo)
     if ($PackageInfo.CompleteRuntime) { Invoke-OfflineRuntimeValidation -BackendRoot (Join-Path $stageRoot 'backend') }
-    $backupRoot = New-ExclusiveUpdateDirectory -Path $backupRoot
-    $backupParents = if ($PackageInfo.CompleteRuntime) { @('frontend') } else { @('backend', 'frontend') }
-    foreach ($relativeDirectory in $backupParents) {
-      [void][System.IO.Directory]::CreateDirectory((Join-Path $backupRoot $relativeDirectory))
-    }
-    $items = @(New-ReleaseArtifactItems -InstallRoot $InstallRoot -StageRoot $stageRoot -BackupRoot $backupRoot -CompleteRuntime $PackageInfo.CompleteRuntime)
     if ($items | Where-Object { -not (Test-Path -LiteralPath $_.TargetPath) -or -not (Test-Path -LiteralPath $_.PreparedPath) }) { throw 'Um artefato ativo ou preparado está ausente.' }
-    $journalPath = Join-Path $backupRoot 'journal.json'
-    try {
-      [void](Invoke-ArtifactSwapTransaction -Items $items -JournalPath $journalPath -SourceCommit $PackageInfo.SourceCommit -Operations $Operations)
-    } catch {
-      if ($_.Exception.Message -like 'ROLLBACK INCOMPLETO*') { $rollbackIncomplete = $true }
-      throw
-    }
+    $transactionStarted = $true
+    [void](Invoke-ArtifactSwapTransaction -Items $items -JournalPath $journalPath -SourceCommit $PackageInfo.SourceCommit -Operations $Operations)
+    $completed = $true
     Write-Output ('Atualização concluída. Versão: ' + $PackageInfo.SourceCommit + '. Backup preservado: ' + $backupRoot)
     Write-Output 'A troca usou renomeações por componente e rollback coordenado; não é uma transação atômica entre todos os diretórios. Pacotes completos preservam também todo o node_modules anterior.'
+  } catch {
+    if (-not $transactionStarted -and $null -ne $journalPath) {
+      Write-UpdateJournal -Path $journalPath -Status 'preparation-failed' -SourceCommit $PackageInfo.SourceCommit -Items $items -Message 'Preparação falhou; serviços e artefatos ativos não foram alterados. Preserve staging e backup para inspeção.'
+    }
+    throw
   } finally {
     if ($lock) {
       $lock.Dispose()
-      if (Test-Path -LiteralPath $lockPath) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
+      if (Test-Path -LiteralPath $lockPath) { Remove-Item -LiteralPath $lockPath -Force -Confirm:$false -ErrorAction SilentlyContinue }
     }
-    if ($stageCreated -and -not $rollbackIncomplete -and (Test-Path -LiteralPath $stageRoot)) {
-      Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if ($completed -and (Test-Path -LiteralPath $stageRoot)) {
+      Remove-Item -LiteralPath $stageRoot -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue
     }
   }
 }

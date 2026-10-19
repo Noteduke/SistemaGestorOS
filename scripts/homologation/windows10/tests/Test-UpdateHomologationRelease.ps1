@@ -22,7 +22,8 @@ $requiredFunctions = @(
   'Get-ArtifactMapping', 'Set-StageDirectoryAcl', 'Expand-ValidatedUpdatePackage',
   'Assert-HomologationEnvironmentFile', 'New-ExclusiveUpdateDirectory', 'Open-ExclusiveUpdateLock', 'Move-UpdateArtifact', 'Write-UpdateJournal',
   'Invoke-ArtifactSwapTransaction', 'Test-SemVerRequirement', 'Assert-InstalledReleaseArtifacts',
-  'Get-DependencySignature', 'Read-PackageLockJson', 'Assert-LockMatchesPackage', 'Assert-DependencyUpdateContract', 'New-ReleaseArtifactItems', 'Invoke-OfflineRuntimeValidation'
+  'Get-DependencySignature', 'Read-PackageLockJson', 'Assert-LockMatchesPackage', 'Assert-DependencyUpdateContract', 'New-ReleaseArtifactItems', 'Invoke-OfflineRuntimeValidation',
+  'Assert-NoReparseChain', 'Get-UpdateArtifactFingerprint', 'Restore-UpdateArtifacts'
 )
 foreach ($functionName in $requiredFunctions) {
   $functionAst = $ast.Find({
@@ -387,7 +388,7 @@ try {
   Assert-Throws {
     Expand-ValidatedUpdatePackage -ZipPath $validZip -StageRoot $stage -InstallRoot (Join-Path $script:TestRoot 'install') -PackageInfo $validInfo -BeforeWrite { throw 'simulated staging failure' }
   } '*simulated staging failure*'
-  Assert-Test (-not (Test-Path -LiteralPath $stage)) 'Staging parcial não foi removido após falha.'
+  Assert-Test (Test-Path -LiteralPath $stage) 'Staging parcial não foi preservado para diagnóstico.'
   $occupied = Join-Path $script:TestRoot 'backup-occupied'
   [IO.File]::WriteAllText($occupied, 'preserve-me')
   Assert-Throws { New-ExclusiveUpdateDirectory -Path $occupied } '*já existe*'
@@ -400,7 +401,7 @@ try {
   $lockTwo = Open-ExclusiveUpdateLock -Path $lockPath -UpdateId 'test-two'
   $lockTwo.Dispose()
   Remove-Item -LiteralPath $lockPath -Force
-  Write-Output 'PASS: falha no preparo limpa somente o staging próprio; destino de backup existente é preservado.'
+  Write-Output 'PASS: falha no preparo preserva staging parcial e destino de backup existente.'
   Write-Output 'PASS: lock exclusivo impede duas atualizações concorrentes.'
 
   $envFile = Join-Path $script:TestRoot 'valid.env'
@@ -444,7 +445,7 @@ try {
   [void][IO.Directory]::CreateDirectory((Join-Path $backupFailCase.Backup 'backend\dist'))
   [IO.File]::WriteAllText((Join-Path $backupFailCase.Backup 'backend\dist\preserve.txt'), 'existing-backup')
   $backupFailState = @{ MoveCount = 0; StopCount = 0; StoppedWaitCount = 0; StartCount = 0; RunningWaitCount = 0; HttpCount = 0; FailMoveCalls = @{}; FailFirstStart = $false; FailFirstHttp = $false }
-  Invoke-ExpectedRollback -Case $backupFailCase -State $backupFailState
+  Invoke-ExpectedRollback -Case $backupFailCase -State $backupFailState -ExpectedError '*antes de mover artefatos*'
   Assert-Test ((Get-Content -LiteralPath (Join-Path $backupFailCase.Install 'backend\dist\app.js') -Raw) -ceq 'old-backend') 'Backup failure changed the active Backend.'
   Assert-Test ((Get-Content -LiteralPath (Join-Path $backupFailCase.Backup 'backend\dist\preserve.txt') -Raw) -ceq 'existing-backup') 'Backup failure overwrote an existing backup artifact.'
   Write-Output 'PASS: colisão/falha ao criar o backup não troca nem sobrescreve artefatos.'
@@ -541,9 +542,14 @@ param([string]$PackagePath, [switch]$Apply)
     } $preview $previewPackage
   }
   Write-Output 'PASS: entrada real -Apply -WhatIf executada para formatos legado/completo com destino e serviços simulados; nenhuma mutação foi alcançada.'
+  & (Join-Path $PSScriptRoot 'Test-UpdateHomologationRealScope.ps1') -VerifyBrokenClosureRegression
+  & (Join-Path $PSScriptRoot 'Test-UpdateHomologationRealScope.ps1')
   Write-Output 'PASS: todos os cenários foram executados em PowerShell sem serviços ou bancos reais.'
 } finally {
   if ($env:GOS_TEST_KEEP_ARTIFACTS -ne '1' -and (Test-Path -LiteralPath $script:TestRoot)) {
-    Remove-Item -LiteralPath $script:TestRoot -Recurse -Force
+    $cleanupRoot = [IO.Path]::GetFullPath($script:TestRoot)
+    $tempPrefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    if (-not $cleanupRoot.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not (Split-Path -Leaf $cleanupRoot).StartsWith('GestorOS-UpdateTests-')) { throw 'Unsafe test cleanup path.' }
+    Remove-Item -LiteralPath $cleanupRoot -Recurse -Force -Confirm:$false
   }
 }
