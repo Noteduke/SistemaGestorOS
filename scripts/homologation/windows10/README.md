@@ -86,45 +86,60 @@ npm run prisma:safe -- gestor_os_homologation migrate deploy
 
 Separar usuário de runtime e usuário de migration quando possível; não conceder privilégios globais. Parar gravações, fazer backup apenas de `gestor_os_homologation`, conferir hash/conclusão e restaurar primeiro em banco separado de ensaio. Nenhum comando de migration foi executado nesta preparação.
 
-### Atualização de artefatos da versão 1f98609
+### Atualização com dependências e rollback
 
-O atualizador `Update-HomologationRelease.ps1` é específico para o pacote `GestorOS-Homologation1-update-1f98609.zip`. No host de homologação, copie somente esses dois arquivos para `C:\staging`:
+As versões Prisma 7.10.1 e a remoção do override temporário foram aprovadas no commit `ebd6b90`: o adapter oficial já fixa `mariadb 3.5.4`. O pacote antigo `GestorOS-Homologation1-update-1f98609.zip` não contém dependências e não serve para trocar uma instalação com Prisma 7.10.0. Sua recusa pelo atualizador é uma proteção esperada.
+
+No computador de build Windows x64 com Node.js 24, gere um pacote completo a partir dos arquivos Backend/Frontend rastreados e sem modificações em relação ao HEAD:
+
+```powershell
+& .\scripts\homologation\windows10\Build-HomologationRelease.ps1
+```
+
+O processo cria um workspace exclusivo sob `artifacts\packages\runtime-<commit>-<UTC>`, usa o lockfile versionado com `npm ci`, gera o Prisma Client e compila o Backend nesse workspace. Executa os testes unitários, prepara outro `node_modules` isolado com omissão de dev/peer e remove somente os pacotes que não pertencem ao grafo de dependências runtime do lock. Isso também remove CLI Prisma/TypeScript que o npm pode manter por relações de peer. Não há nova resolução de versões ou alteração do lockfile. Testa Argon2, Sharp, Client gerado e imports compilados de Auth/Prisma, bloqueando sockets; não executa bootstrap ou cria contexto Nest. O Frontend é recompilado em `homologation` sem ler arquivos `.env` do projeto. As auditorias são gravadas fora do ZIP; qualquer advisory impede a conclusão do pacote.
+
+O resultado fica em `build-result.json`, incluindo commit de origem, SHA256 do ZIP e validação do runtime. O ZIP contém `backend\dist`, `package.json`, `package-lock.json`, `node_modules`, `runtime-info.json`, o verificador offline e o Frontend homologation. Não contém credenciais, configuração de ambiente, dados, migrations ou fontes. Os hashes de todos os arquivos constam em `SHA256SUMS.txt`. O manifesto registra também hashes do empacotador e do verificador. Copie ao host de homologação somente:
 
 - `Update-HomologationRelease.ps1`;
-- `GestorOS-Homologation1-update-1f98609.zip`.
+- o novo ZIP completo indicado no resultado do build.
 
 Abra o Windows PowerShell 5.1 como Administrador, confira o SHA256 recebido por um canal independente e execute primeiro a pré-validação. Ela inspeciona a configuração local em memória, sem imprimir os valores da conexão, e não conecta ao MySQL:
 
 ```powershell
 $Updater = 'C:\staging\Update-HomologationRelease.ps1'
-$Package = 'C:\staging\GestorOS-Homologation1-update-1f98609.zip'
-$ExpectedSha256 = 'e141f2ffe8af84f3c1cb3f46540af9e06a083c1b887a650485ee0425d52db7e6'
+$Package = 'C:\staging\GestorOS-Homologation1-runtime-<commit>.zip'
+$ExpectedSha256 = '<SHA256 recebido e conferido por canal independente>'
+$ExpectedCommit = '<commit de origem completo recebido com o pacote>'
 $ActualSha256 = (Get-FileHash -LiteralPath $Package -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($ActualSha256 -cne $ExpectedSha256) { throw 'SHA256 do pacote não confere; atualização cancelada.' }
-& $Updater -PackagePath $Package
+& $Updater -PackagePath $Package -ExpectedPackageSha256 $ExpectedSha256 -ExpectedSourceCommit $ExpectedCommit
 ```
 
 Revise a pré-validação e simule o caminho de aplicação. `-Apply -WhatIf` repete as verificações, mas retorna antes de criar staging, lock ou journal, parar serviços, alterar ACLs ou substituir arquivos:
 
 ```powershell
-& $Updater -PackagePath $Package -Apply -WhatIf
+& $Updater -PackagePath $Package -ExpectedPackageSha256 $ExpectedSha256 -ExpectedSourceCommit $ExpectedCommit -Apply -WhatIf
 ```
 
 Somente após a revisão administrativa do resultado, solicite a atualização real:
 
 ```powershell
-& $Updater -PackagePath $Package -Apply -Confirm
+& $Updater -PackagePath $Package -ExpectedPackageSha256 $ExpectedSha256 -ExpectedSourceCommit $ExpectedCommit -Apply -Confirm
 ```
 
-O atualizador confere o hash externo e os hashes internos, a versão/commit e os marcadores de homologação, o `.env.homologation`, as dependências já instaladas, os serviços e as ACLs. Ele altera somente `backend\dist`, `backend\package.json`, `frontend\dist` e `frontend\build-info.json`. Preserva `.env.homologation`, `node_modules`, Caddyfile, certificados, contas de serviço, diretórios persistentes e o banco. Não executa SQL, migration, seed ou bootstrap.
+O atualizador confere o hash externo e os hashes internos, a versão/commit, o lockfile e os marcadores de homologação, o `.env.homologation`, os serviços e as ACLs. O formato completo prepara e valida o novo Backend antes de parar os serviços. Depois troca `backend` inteiro (incluindo dependências), `frontend\dist` e `frontend\build-info.json`. O formato legado de quatro componentes continua aceito somente quando as declarações de dependências, devDependencies e overrides forem idênticas às instaladas e as versões runtime forem compatíveis. Não basta acrescentar node_modules a um ZIP legado: são exigidos o manifesto completo, lockfile, metadados e validação offline.
 
-O backup é criado em `C:\ProgramData\GestorOS\homologation\updates\backup-<UTC>-<GUID>` e o caminho exato aparece no resultado. Ele contém os quatro artefatos anteriores e `journal.json`; em uma falha de validação, os artefatos novos ficam sob `failed-new`. A troca renomeia componentes individualmente no mesmo volume, com os dois serviços parados, e não é atômica como um único conjunto. Em falha, o script tenta restaurar todos os artefatos anteriores, reiniciar os serviços e verificar HTTPS local e a resposta protegida da API. Se informar `ROLLBACK INCOMPLETO`, não inicie os serviços: preserve o backup e faça recuperação administrativa manual.
+Não se executa npm na instalação ativa. Configuração `.env.homologation`, Caddyfile, certificados, contas/XML WinSW, firewall, logos, anexos, logs, backups e banco permanecem fora da troca. Se o diretório Backend ativo contiver entradas fora de `dist`, `node_modules`, `package.json`, `package-lock.json`, `runtime-info.json` e `release`, a atualização completa para antes de qualquer troca para revisão da preservação. Nenhum arquivo desconhecido é descartado. Não são executados SQL, migration, seed ou bootstrap.
+
+O backup exclusivo fica em `C:\ProgramData\GestorOS\homologation\updates\backup-<UTC>-<GUID>`, com caminho exato no resultado e etapas no `journal.json`. No formato completo, preserva todo o Backend anterior, inclusive o node_modules 7.10.0 existente, e os dois artefatos do Frontend. Uma falha preserva artefatos novos em `failed-new` e restaura o conjunto anterior. As ACLs acompanham os diretórios renomeados; os novos arquivos recebem ACLs correspondentes e leitura/execução de LocalService é verificada antes da ativação. A troca não é atômica como um único conjunto: usa renomeações por componente no mesmo volume com serviços parados. Em falha, o script tenta restaurar, reiniciar a versão anterior e validar HTTPS e a API. Se informar `ROLLBACK INCOMPLETO`, preserve backup/journal/staging e mantenha os serviços parados para recuperação administrativa.
+
+Reserve espaço para o runtime novo descompactado e o anterior. O ZIP é limitado a 1 GiB descompactado/50 MiB por arquivo. A simulação verifica pacote e destino, mas não escreve staging nem executa seu teste nativo; a compatibilidade nativa é testada no build e novamente no staging durante `-Apply`, antes de parar serviços. Um processo interrompido abruptamente pode deixar `artifact-update.lock`; só remova um lock residual após confirmar que não há atualizador em execução e revisar o journal. Falha de energia ou encerramento forçado exige recuperação assistida.
 
 #### Recuperação manual
 
-Use o caminho de backup exato impresso pelo atualizador. Antes de mover qualquer arquivo, confirme que o `journal.json` corresponde à tentativa, que existem os quatro backups (`backend\dist`, `backend\package.json`, `frontend\dist`, `frontend\build-info.json`) e que os quatro destinos ativos existem. Se algo estiver ausente, ambíguo ou em uso, pare e investigue; não sobrescreva arquivos.
+Use o caminho de backup exato impresso pelo atualizador. Revise o journal e confirme que os artefatos anteriores e os destinos ativos existem. O exemplo reconhece os três componentes completos ou os quatro legados. Se o rollback automático já restaurou parte dos componentes, faltarem backups/destinos ou houver ambiguidade, pare e investigue cada registro do journal; não execute restauração integral por cima dos arquivos.
 
-Em PowerShell elevado, substitua o valor de `$BackupRoot` pelo caminho exato impresso pelo atualizador. O bloco abaixo valida os quatro backups e destinos antes de parar os serviços, preserva a versão ativa em uma pasta exclusiva, restaura os quatro componentes sem sobrescrever e só então tenta iniciar e validar a versão anterior:
+Em PowerShell elevado, use o `$ExpectedCommit` da atualização e substitua `$BackupRoot` pelo caminho exato registrado. O bloco valida todos os backups e destinos antes de parar serviços, preserva a versão ativa em uma pasta exclusiva e restaura o conjunto anterior, inclusive dependências, antes de reiniciar:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -132,29 +147,26 @@ $InstallRoot = 'C:\ProgramData\GestorOS\homologation'
 $BackupRoot = 'C:\ProgramData\GestorOS\homologation\updates\backup-<UTC>-<GUID>'
 $UpdatesPrefix = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'updates')).TrimEnd('\') + '\'
 $BackupRoot = [IO.Path]::GetFullPath($BackupRoot)
-if (-not $BackupRoot.StartsWith($UpdatesPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not (Split-Path -Leaf $BackupRoot).StartsWith('backup-', [StringComparison]::OrdinalIgnoreCase)) { throw 'Caminho de backup fora da instalação homologation.' }
+if (-not $BackupRoot.StartsWith($UpdatesPrefix, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetDirectoryName($BackupRoot) -ine $UpdatesPrefix.TrimEnd('\') -or -not (Split-Path -Leaf $BackupRoot).StartsWith('backup-', [StringComparison]::OrdinalIgnoreCase)) { throw 'Caminho de backup fora da instalação homologation.' }
 $PathCursor = $BackupRoot
 while (-not [string]::IsNullOrWhiteSpace($PathCursor)) {
-  if (Test-Path -LiteralPath $PathCursor -and ((Get-Item -LiteralPath $PathCursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Caminho de backup contém reparse point.' }
+  if ((Test-Path -LiteralPath $PathCursor) -and ((Get-Item -LiteralPath $PathCursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Caminho de backup contém reparse point.' }
   $PathParent = Split-Path -Parent $PathCursor
   if ([string]::IsNullOrWhiteSpace($PathParent) -or $PathParent -eq $PathCursor) { break }
   $PathCursor = $PathParent
 }
-$Artifacts = @(
-  @{ Relative = 'backend\dist'; IsDirectory = $true }
-  @{ Relative = 'backend\package.json'; IsDirectory = $false }
-  @{ Relative = 'frontend\dist'; IsDirectory = $true }
-  @{ Relative = 'frontend\build-info.json'; IsDirectory = $false }
-)
+$JournalPath = Join-Path $BackupRoot 'journal.json'
+$Journal = Get-Content -LiteralPath $JournalPath -Raw | ConvertFrom-Json -ErrorAction Stop
+if ($Journal.environment -cne 'homologation' -or $Journal.sourceCommit -cne $ExpectedCommit) { throw 'Journal não corresponde à atualização homologation esperada.' }
+$Names = @($Journal.artifacts | ForEach-Object { $_.name })
+if (($Names -join ';') -cne 'backend;frontend/dist;frontend/build-info.json' -and ($Names -join ';') -cne 'backend/dist;backend/package.json;frontend/dist;frontend/build-info.json') { throw 'Conjunto inesperado de artefatos no journal.' }
+$Artifacts = @($Names | ForEach-Object { @{ Relative = ($_ -replace '/', '\'); IsDirectory = ($_ -in @('backend', 'backend/dist', 'frontend/dist')) } })
 foreach ($item in $Artifacts) {
   $active = Join-Path $InstallRoot $item.Relative
   $saved = Join-Path $BackupRoot $item.Relative
   $kind = if ($item.IsDirectory) { 'Container' } else { 'Leaf' }
   if (-not (Test-Path -LiteralPath $active -PathType $kind) -or -not (Test-Path -LiteralPath $saved -PathType $kind)) { throw "Artefato ausente ou tipo incorreto; nenhum serviço foi parado: $($item.Relative)" }
 }
-$JournalPath = Join-Path $BackupRoot 'journal.json'
-$Journal = Get-Content -LiteralPath $JournalPath -Raw | ConvertFrom-Json -ErrorAction Stop
-if ($Journal.environment -cne 'homologation' -or $Journal.sourceCommit -cne '1f98609e778757aaa5c4488e4d8787040396d62c') { throw 'Journal não corresponde à atualização homologation esperada.' }
 $FailedRoot = Join-Path $BackupRoot ('failed-new-manual-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $FailedRoot) { throw 'Destino de preservação já existe; nenhum serviço foi parado.' }
 function Save-ManualRollbackJournal {
@@ -181,6 +193,8 @@ try {
   if ($ServiceStates['GestorOSBackendHomologation'] -eq 'Running') { Stop-Service -Name GestorOSBackendHomologation }
   (Get-Service GestorOSCaddyHomologation).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(45))
   (Get-Service GestorOSBackendHomologation).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(45))
+  if (@(Get-CimInstance Win32_Service | Where-Object { $_.Name -in $ServiceNames -and $_.ProcessId -ne 0 }).Count -gt 0) { throw 'Processo WinSW ainda ativo.' }
+  if (@(Get-NetTCPConnection -State Listen -LocalPort 3100,443 -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Portas ainda ocupadas; nenhum artefato deve ser movido.' }
   foreach ($item in $Artifacts) {
     $active = Join-Path $InstallRoot $item.Relative
     $failed = Join-Path $FailedRoot $item.Relative
@@ -217,5 +231,11 @@ try {
 ```
 
 O exemplo mantém os serviços parados e sinaliza falhas para recuperação assistida. Se o journal ou qualquer artefato não passar na pré-validação, não execute o bloco; preserve os arquivos e investigue. A recuperação restaura somente artefatos e não acessa nem altera o banco.
+
+### Validação e auditoria do empacotamento (19/10/2026)
+
+O Backend compilado em workspace isolado passou em 94 testes unitários. Os cinco testes do contrato de dependências cobrem lockfile divergente, Prisma desalinhado, dependência transitiva ausente/adulterada e origem não aprovada. A suíte Windows PowerShell 5.1 valida formatos legado/completo, falhas de preparo, ativação, inicialização/HTTP e rollback; verifica a restauração conjunta de código, lockfile e node_modules e a preservação de configurações/arquivos persistentes. O caminho real de entrada `-Apply -WhatIf` é exercitado com destino e serviços simulados, sem alcançar operações mutáveis. A leitura do lockfile usa o serializador .NET para preservar `packages[""]`, que `ConvertFrom-Json` do PowerShell 5.1 não aceita.
+
+O teste do ZIP completo inclui hashes, extração e execução do verificador offline no Backend extraído, sem contexto Nest, bootstrap ou conexão SQL. Argon2 e Sharp são testados de fato com os binários Windows x64 instalados no staging. A auditoria de dependências completa e a de runtime reportaram zero advisories na data acima; essa é uma fotografia do registry consultado, não uma garantia permanente. A validação final dos serviços reais, confiança TLS e operação autenticada permanece para a atualização administrada no servidor. Não houve execução no servidor, acesso a banco real ou liberação da Homologação 1 nessa preparação.
 
 Depois de instalar/atualizar, valide o início automático após reiniciar o host, login, OS numerada `HOS-*`, dois usuários concorrentes, impressões, upload privado do logo, backup e restauração. Não considere a H1 liberada apenas por build/teste automatizado.

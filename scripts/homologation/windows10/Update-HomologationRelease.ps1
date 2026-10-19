@@ -3,14 +3,18 @@ param(
   [Parameter(Mandatory = $true)]
   [ValidateNotNullOrEmpty()]
   [string]$PackagePath,
+  [ValidatePattern('^[a-fA-F0-9]{64}$')]
+  [string]$ExpectedPackageSha256 = 'e141f2ffe8af84f3c1cb3f46540af9e06a083c1b887a650485ee0425d52db7e6',
+  [ValidatePattern('^[a-fA-F0-9]{40}$')]
+  [string]$ExpectedSourceCommit = '1f98609e778757aaa5c4488e4d8787040396d62c',
   [switch]$Apply
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:ExpectedPackageSha256 = 'e141f2ffe8af84f3c1cb3f46540af9e06a083c1b887a650485ee0425d52db7e6'
-$script:ExpectedSourceCommit = '1f98609e778757aaa5c4488e4d8787040396d62c'
+$script:ExpectedPackageSha256 = $ExpectedPackageSha256.ToLowerInvariant()
+$script:ExpectedSourceCommit = $ExpectedSourceCommit.ToLowerInvariant()
 $script:ExpectedInstallRoot = 'C:\ProgramData\GestorOS\homologation'
 $script:ExpectedHost = 'gestor-os.home.arpa'
 $script:ExpectedServices = @('GestorOSBackendHomologation', 'GestorOSCaddyHomologation')
@@ -54,9 +58,97 @@ function Assert-SafeZipEntryPath {
     }
     if ($part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') { throw 'Pacote recusado: nome reservado pelo Windows.' }
   }
-  if ($Name -match '(^|/)(\.env[^/]*|node_modules|backups?)(/|$)' -or $Name -match 'Usuarios e senhas\.txt') {
+  if ($Name -match '(^|/)(\.env[^/]*|\.npmrc|backups?)(/|$)' -or $Name -match 'Usuarios e senhas\.txt') {
     throw 'Pacote recusado: contém caminho de configuração, dependências, backup ou arquivo de usuário.'
   }
+}
+
+function Get-DependencySignature {
+  param([psobject]$Package)
+  $parts = @()
+  foreach ($section in @('dependencies', 'devDependencies', 'optionalDependencies', 'overrides')) {
+    $property = $Package.PSObject.Properties[$section]
+    if ($null -eq $property) { continue }
+    foreach ($entry in @($property.Value.PSObject.Properties | Sort-Object Name)) {
+      $parts += $section + ':' + $entry.Name + '=' + (ConvertTo-Json -InputObject $entry.Value -Compress -Depth 12)
+    }
+  }
+  return $parts -join ';'
+}
+
+function Read-PackageLockJson {
+  param([string]$Text)
+  # ConvertFrom-Json in Windows PowerShell 5.1 rejects packages[""].
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+  $serializer.MaxJsonLength = 16777216
+  $serializer.RecursionLimit = 200
+  return ,$serializer.DeserializeObject($Text)
+}
+
+function Assert-LockMatchesPackage {
+  param([psobject]$Package, [psobject]$Lock)
+  if ($Lock.lockfileVersion -ne 3 -or -not $Lock.packages.ContainsKey('') -or $Lock.name -cne $Package.name -or $Lock.version -cne $Package.version) {
+    throw 'Lockfile incompatível com package.json.'
+  }
+  $root = $Lock.packages['']
+  foreach ($section in @('dependencies', 'devDependencies', 'optionalDependencies')) {
+    $packageValues = @()
+    $lockValues = @()
+    if ($null -ne $Package.PSObject.Properties[$section]) {
+      $packageValues = @($Package.$section.PSObject.Properties | Sort-Object Name | ForEach-Object { $_.Name + '=' + $_.Value })
+    }
+    if ($root.ContainsKey($section)) {
+      $lockValues = @($root[$section].Keys | Sort-Object | ForEach-Object { $_ + '=' + $root[$section][$_] })
+    }
+    if (($packageValues -join ';') -cne ($lockValues -join ';')) { throw 'Lockfile incompatível com as dependências declaradas.' }
+  }
+  $prismaVersion = $Package.dependencies.'@prisma/client'
+  if ($prismaVersion -notmatch '^7\.10\.\d+$' -or $Package.dependencies.'@prisma/adapter-mariadb' -cne $prismaVersion -or $Package.devDependencies.prisma -cne $prismaVersion) {
+    throw 'Prisma Client, adapter e CLI precisam estar alinhados.'
+  }
+}
+
+function Assert-DependencyUpdateContract {
+  param([psobject]$InstalledPackage, [psobject]$PackageInfo)
+  if ($InstalledPackage.name -cne 'sistema-gestor-os-backend') { throw 'Backend instalado não corresponde ao produto esperado.' }
+  $changed = (Get-DependencySignature $InstalledPackage) -cne (Get-DependencySignature $PackageInfo.BackendPackage)
+  if ($changed -and -not $PackageInfo.CompleteRuntime) { throw 'Dependências declaradas mudaram; é obrigatório pacote completo com lockfile e node_modules validados.' }
+  return $changed
+}
+
+function Invoke-OfflineRuntimeValidation {
+  param([string]$BackendRoot, [string]$NodePath = 'C:\Program Files\nodejs\node.exe')
+  $verifier = Join-Path $BackendRoot 'release\Verify-BackendRuntime.mjs'
+  if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) { throw 'Validador offline de runtime ausente.' }
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $NodePath
+  $start.Arguments = '"' + $verifier + '"'
+  $start.WorkingDirectory = $BackendRoot
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $start.RedirectStandardOutput = $true
+  $start.RedirectStandardError = $true
+  $start.EnvironmentVariables.Clear()
+  foreach ($key in @('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA')) {
+    $value = [Environment]::GetEnvironmentVariable($key)
+    if ($null -ne $value) { $start.EnvironmentVariables[$key] = $value }
+  }
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $start
+  try {
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(90000)) { $process.Kill(); throw 'Validação offline excedeu o prazo; somente o processo de verificação foi encerrado.' }
+    $stdout = $stdoutTask.Result
+    [void]$stderrTask.Result
+    if ($process.ExitCode -ne 0) { throw 'Dependências de staging/runtime, lockfile, código compilado ou módulos nativos incompatíveis.' }
+    $report = $stdout | ConvertFrom-Json -ErrorAction Stop
+    if ($report.platform -cne 'win32' -or $report.arch -cne 'x64' -or $report.argon2 -cne 'passed' -or $report.sharp -cne 'passed' -or $report.bootstrapGuard -cne 'passed') {
+      throw 'Relatório de validação offline incompleto.'
+    }
+  } finally { $process.Dispose() }
 }
 
 function Get-ValidatedPackageInfo {
@@ -91,7 +183,7 @@ function Get-ValidatedPackageInfo {
       $unixType = ($entry.ExternalAttributes -shr 16) -band 0xF000
       if ($unixType -eq 0xA000) { throw 'Pacote recusado: links simbólicos não são permitidos.' }
       if ($isDirectory) {
-        if (-not ($key -ceq 'backend' -or $key.StartsWith('backend/dist/', [StringComparison]::Ordinal) -or $key -ceq 'backend/dist' -or
+        if (-not ($key -ceq 'backend' -or $key -match '^backend/(dist|node_modules|release)(/|$)' -or
             $key -ceq 'frontend' -or $key.StartsWith('frontend/dist/', [StringComparison]::Ordinal) -or $key -ceq 'frontend/dist')) {
           throw 'Pacote recusado: diretório fora dos artefatos aprovados.'
         }
@@ -100,9 +192,10 @@ function Get-ValidatedPackageInfo {
       }
       if ($entry.Length -gt 52428800) { throw 'Pacote recusado: um arquivo excede o limite individual de 50 MiB.' }
       $totalLength += $entry.Length
-      if ($totalLength -gt 262144000) { throw 'Pacote recusado: tamanho descompactado excede 250 MiB.' }
+      if ($totalLength -gt 1073741824) { throw 'Pacote recusado: tamanho descompactado excede 1 GiB.' }
       if (-not ($key -eq 'release-manifest.json' -or $key -eq 'SHA256SUMS.txt' -or $key -eq 'backend/package.json' -or
-          $key.StartsWith('backend/dist/', [StringComparison]::Ordinal) -or $key -eq 'frontend/build-info.json' -or
+          $key.StartsWith('backend/dist/', [StringComparison]::Ordinal) -or $key.StartsWith('backend/node_modules/', [StringComparison]::Ordinal) -or
+          $key -eq 'backend/package-lock.json' -or $key -eq 'backend/runtime-info.json' -or $key -eq 'backend/release/Verify-BackendRuntime.mjs' -or $key -eq 'frontend/build-info.json' -or
           $key.StartsWith('frontend/dist/', [StringComparison]::Ordinal))) {
         throw 'Pacote recusado: contém arquivo fora dos artefatos aprovados.'
       }
@@ -119,10 +212,22 @@ function Get-ValidatedPackageInfo {
 
     $manifestText = Get-ZipEntryText -Entry $files['release-manifest.json']
     $manifest = $manifestText | ConvertFrom-Json -ErrorAction Stop
-    if ($manifest.environment -cne 'homologation' -or $manifest.releaseType -cne 'artifact-update' -or
-        $manifest.sourceCommit -cne $ExpectedCommit -or $manifest.runtimeDependenciesIncluded -ne $false -or
-        $manifest.runtimeDependenciesUnchanged -ne $true -or $manifest.nodeVersion -notmatch '^v24\.') {
+    $completeRuntime = $manifest.releaseType -ceq 'complete-runtime-update'
+    $legacyRuntime = $manifest.releaseType -ceq 'artifact-update'
+    if ($manifest.environment -cne 'homologation' -or (-not $completeRuntime -and -not $legacyRuntime) -or
+        $manifest.sourceCommit -cne $ExpectedCommit -or $manifest.nodeVersion -notmatch '^v24\.') {
       throw 'Manifesto incompatível com esta atualização de homologação.'
+    }
+    if ($completeRuntime) {
+      if ($manifest.runtimeDependenciesIncluded -ne $true -or $manifest.platform -cne 'win32' -or $manifest.architecture -cne 'x64') { throw 'Manifesto não confirma runtime Windows x64 completo.' }
+      foreach ($required in @('backend/package-lock.json', 'backend/runtime-info.json', 'backend/release/Verify-BackendRuntime.mjs',
+          'backend/node_modules/@prisma/client/package.json', 'backend/node_modules/@prisma/adapter-mariadb/package.json',
+          'backend/node_modules/argon2/package.json', 'backend/node_modules/sharp/package.json')) {
+        if (-not $files.ContainsKey($required)) { throw 'Pacote completo não contém todas as dependências e metadados obrigatórios.' }
+      }
+    } elseif ($manifest.runtimeDependenciesIncluded -ne $false -or $manifest.runtimeDependenciesUnchanged -ne $true -or
+        @($files.Keys | Where-Object { $_ -match '^backend/(node_modules/|release/|package-lock.json$|runtime-info.json$)' }).Count -gt 0) {
+      throw 'Pacote legado não pode conter dependências ou declarar alterações de runtime.'
     }
     $buildInfo = (Get-ZipEntryText -Entry $files['frontend/build-info.json']) | ConvertFrom-Json -ErrorAction Stop
     if ($buildInfo.environment -cne 'homologation' -or $buildInfo.sourceCommit -cne $ExpectedCommit -or
@@ -133,6 +238,18 @@ function Get-ValidatedPackageInfo {
     $backendPackage = (Get-ZipEntryText -Entry $files['backend/package.json']) | ConvertFrom-Json -ErrorAction Stop
     if ($backendPackage.name -cne 'sistema-gestor-os-backend' -or $backendPackage.version -cne $manifest.backendVersion) {
       throw 'package.json do Backend não corresponde ao manifesto.'
+    }
+    if ($completeRuntime) {
+      $lock = Read-PackageLockJson -Text (Get-ZipEntryText -Entry $files['backend/package-lock.json'])
+      Assert-LockMatchesPackage -Package $backendPackage -Lock $lock
+      $lockStream = $files['backend/package-lock.json'].Open()
+      try { $lockHash = Get-StreamSha256 -Stream $lockStream } finally { $lockStream.Dispose() }
+      $runtimeInfo = (Get-ZipEntryText -Entry $files['backend/runtime-info.json']) | ConvertFrom-Json
+      if ($lockHash -cne $manifest.lockSha256 -or $runtimeInfo.lockSha256 -cne $lockHash -or
+          $runtimeInfo.sourceCommit -cne $ExpectedCommit -or $runtimeInfo.platform -cne 'win32' -or $runtimeInfo.arch -cne 'x64' -or
+          $runtimeInfo.nodeMajor -ne 24 -or $runtimeInfo.prismaVersion -cne $backendPackage.dependencies.'@prisma/client' -or $runtimeInfo.omit -cne 'dev,peer') {
+        throw 'Lockfile ou runtime-info incompatível com o manifesto.'
+      }
     }
 
     $sumText = Get-ZipEntryText -Entry $files['SHA256SUMS.txt']
@@ -172,6 +289,8 @@ function Get-ValidatedPackageInfo {
       FrontendVersion = [string]$manifest.frontendVersion
       NodeVersion = [string]$manifest.nodeVersion
       BackendDependencies = $backendPackage.dependencies
+      BackendPackage = $backendPackage
+      CompleteRuntime = $completeRuntime
       Entries = @($files.Keys | Sort-Object)
     }
   } finally {
@@ -181,7 +300,10 @@ function Get-ValidatedPackageInfo {
 }
 
 function Get-ArtifactMapping {
-  param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$InstallRoot, [Parameter(Mandatory = $true)][string]$StageRoot)
+  param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$InstallRoot, [Parameter(Mandatory = $true)][string]$StageRoot, [bool]$CompleteRuntime = $false)
+  if ($CompleteRuntime -and $Name.StartsWith('backend/', [StringComparison]::Ordinal)) {
+    return [pscustomobject]@{ Stage = Join-Path $StageRoot ($Name -replace '/', '\'); Target = Join-Path $InstallRoot ($Name -replace '/', '\'); StageRoot = Join-Path $StageRoot 'backend'; TargetRoot = Join-Path $InstallRoot 'backend' }
+  }
   if ($Name.StartsWith('backend/dist/', [StringComparison]::Ordinal)) {
     $relative = $Name.Substring('backend/dist/'.Length)
     return [pscustomobject]@{ Stage = Join-Path (Join-Path $StageRoot 'backend\dist') ($relative -replace '/', '\'); Target = Join-Path (Join-Path $InstallRoot 'backend\dist') ($relative -replace '/', '\'); StageRoot = Join-Path $StageRoot 'backend\dist'; TargetRoot = Join-Path $InstallRoot 'backend\dist' }
@@ -243,7 +365,7 @@ function Expand-ValidatedUpdatePackage {
         } finally { $sourceStream.Dispose() }
         continue
       }
-      $mapping = Get-ArtifactMapping -Name $name -InstallRoot $InstallRoot -StageRoot $StageRoot
+      $mapping = Get-ArtifactMapping -Name $name -InstallRoot $InstallRoot -StageRoot $StageRoot -CompleteRuntime $PackageInfo.CompleteRuntime
       $stageDirectory = Split-Path -Parent $mapping.Stage
       $targetDirectory = Split-Path -Parent $mapping.Target
       $relativeDirectories = @()
@@ -368,15 +490,15 @@ function Assert-UpdateDestination {
   $nodeVersion = (& $nodePath --version 2>$null | Select-Object -First 1)
   if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v24\.') { throw 'Node.js instalado não é compatível com a versão 24 exigida.' }
   $installedPackage = Get-Content -LiteralPath (Join-Path $InstallRoot 'backend\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-  if ($installedPackage.name -cne 'sistema-gestor-os-backend' -or $installedPackage.version -cne $PackageInfo.BackendVersion) {
-    throw 'Backend instalado não corresponde ao pacote esperado.'
-  }
-  $installedDependencies = @($installedPackage.dependencies.PSObject.Properties | Sort-Object Name | ForEach-Object { $_.Name + '=' + [string]$_.Value }) -join ';'
-  $incomingDependencies = @($PackageInfo.BackendDependencies.PSObject.Properties | Sort-Object Name | ForEach-Object { $_.Name + '=' + [string]$_.Value }) -join ';'
-  if ($installedDependencies -cne $incomingDependencies) {
-    throw 'Dependências declaradas mudaram; atualização recusada para preservar node_modules.'
-  }
-  foreach ($dependency in $PackageInfo.BackendDependencies.PSObject.Properties) {
+  [void](Assert-DependencyUpdateContract -InstalledPackage $installedPackage -PackageInfo $PackageInfo)
+  if ($PackageInfo.CompleteRuntime) {
+    foreach ($item in Get-ChildItem -LiteralPath (Join-Path $InstallRoot 'backend') -Force) {
+      if ($item.Name -cnotin @('dist', 'node_modules', 'package.json', 'package-lock.json', 'runtime-info.json', 'release')) {
+        throw 'Backend ativo contém arquivo/pasta fora do runtime; revise sua preservação antes da troca integral.'
+      }
+    }
+  } else {
+   foreach ($dependency in $PackageInfo.BackendDependencies.PSObject.Properties) {
     $relativePackage = 'node_modules\' + ($dependency.Name -replace '/', '\') + '\package.json'
     $dependencyPackagePath = Join-Path (Join-Path $InstallRoot 'backend') $relativePackage
     if (-not (Test-Path -LiteralPath $dependencyPackagePath)) {
@@ -386,6 +508,7 @@ function Assert-UpdateDestination {
     if (-not (Test-SemVerRequirement -Required ([string]$dependency.Value) -Actual ([string]$installedDependency.version))) {
       throw "Versão instalada incompatível com a dependência declarada: $($dependency.Name)"
     }
+   }
   }
 
   $serviceRows = @(Get-CimInstance Win32_Service | Where-Object Name -in $script:ExpectedServices)
@@ -550,7 +673,7 @@ function Invoke-ArtifactSwapTransaction {
           } elseif ($item.OldMoved -or -not (Test-Path -LiteralPath $item.TargetPath)) {
             throw 'Versão anterior ausente no destino e no backup.'
           }
-          if ($item.OldMoved) {
+          if ($item.Restored) {
             Write-UpdateJournal -Path $JournalPath -Status ('restored:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Versão anterior restaurada: ' + $item.Name)
           }
         } catch { $rollbackErrors.Add('Falha ao restaurar o artefato ' + $item.Name + '.') }
@@ -627,6 +750,14 @@ function Assert-InstalledReleaseArtifacts {
     if ($content.Contains($DocumentMarker)) { $documentMarkerFound = $true }
   }
   if (-not $loginMarkerFound -or -not $documentMarkerFound) { throw 'Bundle instalado não contém os marcadores obrigatórios de homologação.' }
+  if ($PackageInfo.CompleteRuntime) {
+    $backendRoot = Join-Path $InstallRoot 'backend'
+    $lock = Read-PackageLockJson -Text (Get-Content -LiteralPath (Join-Path $backendRoot 'package-lock.json') -Raw)
+    Assert-LockMatchesPackage -Package $backendPackage -Lock $lock
+    $runtimeInfo = Get-Content -LiteralPath (Join-Path $backendRoot 'runtime-info.json') -Raw | ConvertFrom-Json
+    if ($runtimeInfo.sourceCommit -cne $PackageInfo.SourceCommit) { throw 'Runtime instalado não corresponde ao commit aprovado.' }
+    Invoke-OfflineRuntimeValidation -BackendRoot $backendRoot
+  }
 }
 
 function Assert-Administrator {
@@ -638,6 +769,8 @@ function Assert-Administrator {
 function New-ServiceOperations {
   param([string]$HostName, [string]$BackendService, [string]$CaddyService, [string]$InstallRoot, [psobject]$PackageInfo)
   $serviceNames = @($BackendService, $CaddyService)
+  $loginMarker = $script:LoginMarker
+  $documentMarker = $script:DocumentMarker
   $operations = @{
     MoveArtifact = { param($Source, $Destination) Move-UpdateArtifact -Source $Source -Destination $Destination }
     StopServices = {
@@ -672,7 +805,7 @@ function New-ServiceOperations {
       Start-Service -Name $CaddyService -ErrorAction Stop
     }
     ValidateInstalledVersion = {
-      Assert-InstalledReleaseArtifacts -InstallRoot $InstallRoot -PackageInfo $PackageInfo -LoginMarker $script:LoginMarker -DocumentMarker $script:DocumentMarker
+      Assert-InstalledReleaseArtifacts -InstallRoot $InstallRoot -PackageInfo $PackageInfo -LoginMarker $loginMarker -DocumentMarker $documentMarker
     }
     WaitServicesRunning = {
       foreach ($name in $serviceNames) {
@@ -703,6 +836,17 @@ function New-ServiceOperations {
     $operations[$operationName] = $operations[$operationName].GetNewClosure()
   }
   return $operations
+}
+
+function New-ReleaseArtifactItems {
+  param([string]$InstallRoot, [string]$StageRoot, [string]$BackupRoot, [bool]$CompleteRuntime)
+  $names = if ($CompleteRuntime) { @('backend', 'frontend/dist', 'frontend/build-info.json') } else { @('backend/dist', 'backend/package.json', 'frontend/dist', 'frontend/build-info.json') }
+  foreach ($name in $names) {
+    $relative = $name -replace '/', '\'
+    [pscustomobject]@{ Name = $name; TargetPath = Join-Path $InstallRoot $relative; PreparedPath = Join-Path $StageRoot $relative;
+      BackupPath = Join-Path $BackupRoot $relative; FailedPath = Join-Path (Join-Path $BackupRoot 'failed-new') $relative;
+      OldMoved = $false; NewActive = $false; Restored = $false }
+  }
 }
 
 function Invoke-HomologationUpdateApply {
@@ -737,23 +881,15 @@ function Invoke-HomologationUpdateApply {
         Test-LocalServiceReadExecute -Path $entry.FullName
       }
     }
-    $newPackage = Get-Content -LiteralPath (Join-Path $stageRoot 'backend\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
     $oldPackage = Get-Content -LiteralPath (Join-Path $InstallRoot 'backend\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-    $newDeps = @($newPackage.dependencies.PSObject.Properties | Sort-Object Name | ForEach-Object { $_.Name + '=' + [string]$_.Value }) -join ';'
-    $oldDeps = @($oldPackage.dependencies.PSObject.Properties | Sort-Object Name | ForEach-Object { $_.Name + '=' + [string]$_.Value }) -join ';'
-    if ($newPackage.name -cne $oldPackage.name -or $newPackage.version -cne $oldPackage.version -or $newDeps -cne $oldDeps) {
-      throw 'package.json diverge do Backend instalado; atualização exigiria revisão das dependências.'
-    }
+    [void](Assert-DependencyUpdateContract -InstalledPackage $oldPackage -PackageInfo $PackageInfo)
+    if ($PackageInfo.CompleteRuntime) { Invoke-OfflineRuntimeValidation -BackendRoot (Join-Path $stageRoot 'backend') }
     $backupRoot = New-ExclusiveUpdateDirectory -Path $backupRoot
-    foreach ($relativeDirectory in @('backend', 'frontend')) {
+    $backupParents = if ($PackageInfo.CompleteRuntime) { @('frontend') } else { @('backend', 'frontend') }
+    foreach ($relativeDirectory in $backupParents) {
       [void][System.IO.Directory]::CreateDirectory((Join-Path $backupRoot $relativeDirectory))
     }
-    $items = @(
-      [pscustomobject]@{ Name = 'backend/dist'; TargetPath = Join-Path $InstallRoot 'backend\dist'; PreparedPath = Join-Path $stageRoot 'backend\dist'; BackupPath = Join-Path $backupRoot 'backend\dist'; FailedPath = Join-Path $backupRoot 'failed-new\backend\dist'; OldMoved = $false; NewActive = $false; Restored = $false }
-      [pscustomobject]@{ Name = 'backend/package.json'; TargetPath = Join-Path $InstallRoot 'backend\package.json'; PreparedPath = Join-Path $stageRoot 'backend\package.json'; BackupPath = Join-Path $backupRoot 'backend\package.json'; FailedPath = Join-Path $backupRoot 'failed-new\backend\package.json'; OldMoved = $false; NewActive = $false; Restored = $false }
-      [pscustomobject]@{ Name = 'frontend/dist'; TargetPath = Join-Path $InstallRoot 'frontend\dist'; PreparedPath = Join-Path $stageRoot 'frontend\dist'; BackupPath = Join-Path $backupRoot 'frontend\dist'; FailedPath = Join-Path $backupRoot 'failed-new\frontend\dist'; OldMoved = $false; NewActive = $false; Restored = $false }
-      [pscustomobject]@{ Name = 'frontend/build-info.json'; TargetPath = Join-Path $InstallRoot 'frontend\build-info.json'; PreparedPath = Join-Path $stageRoot 'frontend\build-info.json'; BackupPath = Join-Path $backupRoot 'frontend\build-info.json'; FailedPath = Join-Path $backupRoot 'failed-new\frontend\build-info.json'; OldMoved = $false; NewActive = $false; Restored = $false }
-    )
+    $items = @(New-ReleaseArtifactItems -InstallRoot $InstallRoot -StageRoot $stageRoot -BackupRoot $backupRoot -CompleteRuntime $PackageInfo.CompleteRuntime)
     if ($items | Where-Object { -not (Test-Path -LiteralPath $_.TargetPath) -or -not (Test-Path -LiteralPath $_.PreparedPath) }) { throw 'Um artefato ativo ou preparado está ausente.' }
     $journalPath = Join-Path $backupRoot 'journal.json'
     try {
@@ -763,7 +899,7 @@ function Invoke-HomologationUpdateApply {
       throw
     }
     Write-Output ('Atualização concluída. Versão: ' + $PackageInfo.SourceCommit + '. Backup preservado: ' + $backupRoot)
-    Write-Output 'A troca usou renomeações por componente e rollback coordenado; não é uma transação atômica entre todos os diretórios.'
+    Write-Output 'A troca usou renomeações por componente e rollback coordenado; não é uma transação atômica entre todos os diretórios. Pacotes completos preservam também todo o node_modules anterior.'
   } finally {
     if ($lock) {
       $lock.Dispose()
@@ -779,7 +915,7 @@ $installRoot = $script:ExpectedInstallRoot
 $packageInfo = Get-ValidatedPackageInfo -Path $PackagePath -ExpectedSha256 $script:ExpectedPackageSha256 -ExpectedCommit $script:ExpectedSourceCommit -LoginMarker $script:LoginMarker -DocumentMarker $script:DocumentMarker
 Assert-UpdateDestination -InstallRoot $installRoot -PackageInfo $packageInfo
 Write-Output ('Pré-validação aprovada: homologation, commit ' + $packageInfo.SourceCommit + ', Backend ' + $packageInfo.BackendVersion + ', Frontend ' + $packageInfo.FrontendVersion + '.')
-Write-Output 'Nenhuma conexão com banco foi aberta; ambiente, Caddyfile, certificados, node_modules, serviços e arquivos persistentes foram apenas verificados.'
+Write-Output 'Nenhuma conexão com banco foi aberta; configuração de destino, serviços e permissões foram verificados sem alterar arquivos persistentes.'
 
 if (-not $Apply) {
   Write-Output 'Modo somente validação. Use -Apply -Confirm para solicitar a atualização.'
