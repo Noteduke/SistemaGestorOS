@@ -2,7 +2,7 @@ import { Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/com
 import { ConfigService } from "@nestjs/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../../generated/prisma/client.js";
-import { assertDatabaseTarget } from "../homologation-database-target.js";
+import { buildMysqlConnectionOptions } from "./mysql-connection-options.js";
 
 @Injectable()
 export class PrismaService
@@ -10,40 +10,7 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor(configService: ConfigService) {
-    const connectionString = configService.get<string>("DATABASE_URL");
-    if (!connectionString?.trim()) {
-      throw new Error("DATABASE_URL é obrigatória para iniciar a persistência.");
-    }
-
-    let databaseUrl: URL;
-    try {
-      databaseUrl = new URL(connectionString);
-      if (
-        databaseUrl.protocol !== "mysql:" ||
-        !databaseUrl.hostname ||
-        !databaseUrl.username ||
-        databaseUrl.pathname.length <= 1
-      ) {
-        throw new Error("Invalid database URL");
-      }
-    } catch {
-      throw new Error("DATABASE_URL deve ser uma URL MySQL válida.");
-    }
-
-    const databaseName = assertDatabaseTarget(
-      databaseUrl,
-      configService.get<string>("GOS_DATABASE_TARGET"),
-      configService.get<string>("GOS_DEPLOYMENT_ENV"),
-      configService.get<string>("GOS_EXTERNAL_EFFECTS_ENABLED"),
-    );
-
-    const adapter = new PrismaMariaDb({
-      host: databaseUrl.hostname,
-      port: Number(databaseUrl.port || 3306),
-      user: decodeURIComponent(databaseUrl.username),
-      password: decodeURIComponent(databaseUrl.password),
-      database: databaseName,
-    });
+    const adapter = new PrismaMariaDb(buildMysqlConnectionOptions(configService));
 
     super({ adapter });
   }
@@ -51,6 +18,8 @@ export class PrismaService
   async onModuleInit(): Promise<void> {
     try {
       await this.$connect();
+      // The adapter can absorb capability-probe failures; require a successful read as well.
+      await this.$queryRaw`SELECT 1`;
     } catch {
       throw new Error("Não foi possível conectar ao banco configurado; detalhes de conexão foram omitidos.");
     }

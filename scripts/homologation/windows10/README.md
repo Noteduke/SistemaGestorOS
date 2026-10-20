@@ -46,6 +46,8 @@ Se a prévia passar e os caminhos/artefatos forem revisados, execute em PowerShe
 
 ## Primeiro Administrador da Homologação 1
 
+Antes do bootstrap, configurar e validar a [autenticação MySQL compartilhada](MySQL-Authentication.md): TLS com CA/identidade verificadas é preferido; RSA pública fixada por SHA-256 é alternativa explícita somente local. Não usar os certificados do Caddy para MySQL nem habilitar recuperação indiscriminada da chave pela rede. O novo Backend recusa homologação sem configuração/material aprovado; nenhum bootstrap ou deploy é executado por essa preparação.
+
 Depois de implantar os artefatos atualizados, abra PowerShell no host de homologação. O comando abaixo usa o bootstrap oficial, exige configuração explícita de homologação e recusa bancos que não sejam locais e `gestor_os_homologation`. Ele aborta antes de pedir credenciais se já houver Administrador ativo. A senha é digitada duas vezes em prompt sem eco; não a coloque em comando, variável, arquivo ou Git.
 
 ```powershell
