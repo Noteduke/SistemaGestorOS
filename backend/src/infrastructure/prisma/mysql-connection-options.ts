@@ -107,11 +107,19 @@ export function buildMysqlConnectionOptions(config: MysqlConfigReader): MysqlCon
     if (caFile || caHash || serverName) throw new Error("Não misture configuração TLS e chave RSA MySQL.");
     const pem = readVerifiedPublicPem(rsaFile, rsaHash);
     try {
-      if (!/^-----BEGIN PUBLIC KEY-----\s+[A-Za-z0-9+/=\s]+-----END PUBLIC KEY-----$/u.test(pem)) throw new Error();
+      const match = /^-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY)-----\s+([A-Za-z0-9+/=\s]+)-----END \1-----$/u.exec(pem);
+      if (!match) throw new Error();
       const key = createPublicKey(pem);
-      if (key.asymmetricKeyType !== "rsa" || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new Error();
-      options.cachingRsaPublicKey = key.export({ format: "pem", type: "spki" }).toString();
-    } catch { throw new Error("Chave pública MySQL inválida; exige PUBLIC KEY RSA de pelo menos 2048 bits."); }
+      if (key.asymmetricKeyType !== "rsa" || key.asymmetricKeyDetails?.modulusLength !== 2048) throw new Error();
+      const type = match[1] === "PUBLIC KEY" ? "spki" : "pkcs1";
+      const base64 = match[2].replace(/\s/gu, "");
+      const der = Buffer.from(base64, "base64");
+      const spki = key.export({ format: "pem", type: "spki" }).toString();
+      // Re-import SPKI before canonical comparison: some Windows Node/OpenSSL builds
+      // cannot export PKCS#1 DER directly from a key originally imported as PKCS#1 PEM.
+      if (der.toString("base64") !== base64 || !createPublicKey(spki).export({ format: "der", type }).equals(der)) throw new Error();
+      options.cachingRsaPublicKey = spki;
+    } catch { throw new Error("Chave pública MySQL inválida; exige SPKI ou PKCS#1 RSA de 2048 bits."); }
   } else {
     throw new Error("Configure GOS_MYSQL_AUTH_MODE=tls (preferido) ou rsa-pinned com material público MySQL conferido.");
   }

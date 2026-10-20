@@ -8,6 +8,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { after, test } from 'node:test';
 import mariadb from 'mariadb';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { buildMysqlConnectionOptions } from '../dist/infrastructure/prisma/mysql-connection-options.js';
 import { PrismaService } from '../dist/infrastructure/prisma/prisma.service.js';
 
@@ -22,6 +23,8 @@ run(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'other-ca-key.p
 const keyPair = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const publicPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 writeFileSync(path.join(root, 'public.pem'), publicPem);
+const pkcs1Pem=keyPair.publicKey.export({type:'pkcs1',format:'pem'}).toString();
+writeFileSync(path.join(root,'pkcs1.pem'),pkcs1Pem);
 const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 const file = name => path.join(root, name);
 const values = {
@@ -50,6 +53,23 @@ test('RSA pública fixada é carregada em memória, sem TLS ou recuperação aut
   assert.equal(options.allowPublicKeyRetrieval, false);
   const ipv6 = buildMysqlConnectionOptions(config({ ...rsaConfig, DATABASE_URL: values.DATABASE_URL.replace('127.0.0.1', '[::1]') }));
   assert.equal(ipv6.host, '::1');
+});
+test('SPKI e PKCS#1 preservam hash original e normalizam somente em memória', () => {
+  for (const name of ['public.pem','pkcs1.pem']) {
+    const original=readFileSync(file(name));
+    const options=buildMysqlConnectionOptions(config({...rsaConfig,GOS_MYSQL_RSA_PUBLIC_KEY_FILE:file(name),GOS_MYSQL_RSA_PUBLIC_KEY_SHA256:hash(file(name))}));
+    assert.equal(options.cachingRsaPublicKey,publicPem);
+    assert.deepEqual(readFileSync(file(name)),original);
+  }
+  assert.notEqual(hash(file('public.pem')),hash(file('pkcs1.pem')));
+  assert.throws(() => buildMysqlConnectionOptions(config({...rsaConfig,GOS_MYSQL_RSA_PUBLIC_KEY_FILE:file('pkcs1.pem')})));
+  const invalids=[publicPem+pkcs1Pem,pkcs1Pem.replace('END RSA PUBLIC KEY','END PUBLIC KEY'),
+    keyPair.privateKey.export({type:'pkcs1',format:'pem'}).toString(),
+    generateKeyPairSync('rsa',{modulusLength:3072}).publicKey.export({type:'spki',format:'pem'}).toString()];
+  for (const pem of invalids) {
+    writeFileSync(file('invalid-rsa.pem'),pem);
+    assert.throws(() => buildMysqlConnectionOptions(config({...rsaConfig,GOS_MYSQL_RSA_PUBLIC_KEY_FILE:file('invalid-rsa.pem'),GOS_MYSQL_RSA_PUBLIC_KEY_SHA256:hash(file('invalid-rsa.pem'))})));
+  }
 });
 
 test('recusa modo ausente, mistura, caminhos inválidos, hash diferente e material malformado sem expor credenciais', () => {
@@ -131,9 +151,10 @@ test('TLS real em porta efêmera aceita CA/identidade corretas e rejeita CA desc
 // Minimal authentication-only MySQL protocol fixture. It is not a database and never
 // listens on 3306. Full caching_sha2_password authentication must use the pinned RSA key.
 function packet(payload, sequence) { const header = Buffer.alloc(4); header.writeUIntLE(payload.length, 0, 3); header[3] = sequence; return Buffer.concat([header, payload]); }
-async function rsaProbe({ wrongPassword = false, wrongKey = false, missingKey = false } = {}) {
+async function rsaProbe({ wrongPassword = false, wrongKey = false, missingKey = false, pkcs1=false, adapter=false } = {}) {
   const seed = Buffer.from('abcdefghijklmnopqrst');
   let retrievalRequested = false;
+  let acceptedAuthentications = 0;
   const sockets = new Set();
   const server = net.createServer(socket => {
     sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.on('error', () => {});
@@ -160,23 +181,28 @@ async function rsaProbe({ wrongPassword = false, wrongKey = false, missingKey = 
             for (let i=0; i<decoded.length; i++) decoded[i] ^= seed[i % seed.length];
             valid = decoded.equals(Buffer.from('fixture@value%\0'));
           } catch {}
+          if (valid) acceptedAuthentications++;
           socket.write(packet(valid ? Buffer.from([0,0,0,2,0,0,0]) : Buffer.concat([Buffer.from([255,21,4]), Buffer.from('#28000Access denied')]), 6));
         } else if (data[0] === 1) { socket.end(); }
         else { socket.write(packet(Buffer.from([0,0,0,2,0,0,0]), 1)); }
       }
     });
   });
+  const options = buildMysqlConnectionOptions(config(pkcs1 ? {...rsaConfig,GOS_MYSQL_RSA_PUBLIC_KEY_FILE:file('pkcs1.pem'),GOS_MYSQL_RSA_PUBLIC_KEY_SHA256:hash(file('pkcs1.pem'))} : rsaConfig));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const options = buildMysqlConnectionOptions(config(rsaConfig));
   if (wrongPassword) options.password = 'incorrect-fixture';
   if (wrongKey) options.cachingRsaPublicKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }).toString();
   if (missingKey) delete options.cachingRsaPublicKey;
   let connection;
   try {
     // Only this synthetic protocol port is used; never the configured/real 3306.
-    connection = await mariadb.createConnection({ ...options, port: server.address().port, connectTimeout: 2000, socketTimeout: 3000 });
+    const fixtureOptions={ ...options, port: server.address().port, connectTimeout: 2000, acquireTimeout:3000, socketTimeout: 3000, connectionLimit:1 };
+    if (adapter) {
+      connection=await new PrismaMariaDb(fixtureOptions).connect();
+      assert.ok(acceptedAuthentications > 0, 'Adapter capability probe must actually authenticate, not merely absorb a pool failure.');
+    } else connection = await mariadb.createConnection(fixtureOptions);
   } finally {
-    if (connection) await connection.end();
+    if (connection) { if (adapter) await connection.dispose(); else await connection.end(); }
     for (const socket of sockets) socket.destroy();
     await new Promise(resolve => server.close(resolve));
     assert.equal(retrievalRequested, false, 'Driver must not request a server public key from the network.');
@@ -185,9 +211,14 @@ async function rsaProbe({ wrongPassword = false, wrongKey = false, missingKey = 
 
 test('driver instalado completa autenticação RSA fixada e rejeita senha/chave incorretas e ausência da chave', async () => {
   await rsaProbe();
+  await rsaProbe({pkcs1:true});
   await assert.rejects(() => rsaProbe({ wrongPassword: true }), error => error.errno === 1045);
   await assert.rejects(() => rsaProbe({ wrongKey: true }), error => error.errno === 1045);
   await assert.rejects(() => rsaProbe({ missingKey: true }), error => error.errno === 45044);
+});
+test('Prisma Adapter instalado autentica com os dois envelopes contra simulador isolado', async () => {
+  await rsaProbe({adapter:true});
+  await rsaProbe({adapter:true,pkcs1:true});
 });
 
 after(() => {
