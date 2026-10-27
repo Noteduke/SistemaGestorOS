@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$VerifyBrokenClosureRegression)
+param([switch]$VerifyBrokenClosureRegression, [switch]$BackendOnly)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -73,7 +73,7 @@ $runspace.Open()
 $engine = [Management.Automation.PowerShell]::Create()
 $engine.Runspace = $runspace
 $harness = @'
-param($Definitions, $Root, $Entrypoint)
+param($Definitions, $Root, $Entrypoint, $BackendOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 # Match an invoked .ps1: helpers live in a child scope, not the global session.
@@ -91,6 +91,7 @@ $ErrorActionPreference = 'Stop'
   # Real production closures resolve only OS boundary fakes through the isolated global scope.
   $global:ServiceState = @{}
   $global:ServiceCalls = 0
+  $global:ForbidCaddyChanges = [bool]$BackendOnly
   function global:Get-Service { param($Name)
     $service = [pscustomobject]@{ Name = $Name; Status = $global:ServiceState[$Name] }
     $service | Add-Member ScriptMethod WaitForStatus { param($Expected, $Timeout)
@@ -100,11 +101,13 @@ $ErrorActionPreference = 'Stop'
   }
   function global:Stop-Service {
     [CmdletBinding(SupportsShouldProcess=$true)] param($Name)
+    if ($global:ForbidCaddyChanges -and $Name -eq 'fixture-caddy') { throw 'Backend-only stopped Caddy.' }
     if (-not $PSBoundParameters.ContainsKey('Confirm') -or $PSBoundParameters['Confirm']) { throw 'Internal stop must explicitly suppress a second confirmation.' }
     if ($PSCmdlet.ShouldProcess($Name, 'Stop fixture')) { $global:ServiceState[$Name] = [ServiceProcess.ServiceControllerStatus]::Stopped; $global:ServiceCalls++ }
   }
   function global:Start-Service {
     [CmdletBinding(SupportsShouldProcess=$true)] param($Name)
+    if ($global:ForbidCaddyChanges -and $Name -eq 'fixture-caddy') { throw 'Backend-only started Caddy.' }
     if (-not $PSBoundParameters.ContainsKey('Confirm') -or $PSBoundParameters['Confirm']) { throw 'Internal start must explicitly suppress a second confirmation.' }
     if ($PSCmdlet.ShouldProcess($Name, 'Start fixture')) { $global:ServiceState[$Name] = [ServiceProcess.ServiceControllerStatus]::Running; $global:ServiceCalls++ }
   }
@@ -131,7 +134,7 @@ $ErrorActionPreference = 'Stop'
       $info = @{ environment='homologation'; sourceCommit=$commit; frontendVersion='0.1.0'; homologationMarkerVerified=$true }
       [IO.File]::WriteAllText((Join-Path $part 'frontend/build-info.json'), (ConvertTo-Json $info))
     }
-    $items = @(New-ReleaseArtifactItems -InstallRoot (Join-Path $base 'active') -StageRoot (Join-Path $base 'stage') -BackupRoot (Join-Path $base 'backup') -CompleteRuntime $true)
+    $items = @(New-ReleaseArtifactItems -InstallRoot (Join-Path $base 'active') -StageRoot (Join-Path $base 'stage') -BackupRoot (Join-Path $base 'backup') -CompleteRuntime $true -BackendOnly ([bool]$BackendOnly))
     return [pscustomobject]@{ Root=$base; Items=$items; Journal=(Join-Path $base 'backup/journal.json') }
   }
   foreach ($scenario in @('success','before-move','after-first','after-unrecorded-move','http','rollback-failure','preactivation-http-failure')) {
@@ -140,16 +143,16 @@ $ErrorActionPreference = 'Stop'
     $global:ServiceState['fixture-caddy'] = [ServiceProcess.ServiceControllerStatus]::Running
     # Actual validator and its helper chain run against tiny artifacts; native runtime validation
     # is independently covered with the complete release ZIP by the main suite.
-    $package = [pscustomobject]@{ CompleteRuntime=$false; SourceCommit=$commit; BackendVersion='0.1.0'; FrontendVersion='0.1.0' }
+    $package = [pscustomobject]@{ CompleteRuntime=$false; BackendOnly=[bool]$BackendOnly; SourceCommit=$commit; BackendVersion='0.1.0'; FrontendVersion='0.1.0' }
     $ops = New-ServiceOperations -HostName 'fixture.invalid' -BackendService 'fixture-backend' -CaddyService 'fixture-caddy' -InstallRoot (Join-Path $case.Root 'active') -PackageInfo $package
     $realMove = $ops.MoveArtifact
-    $fault = @{ Moves=0; HttpCalls=0; Scenario=$scenario }
+    $fault = @{ Moves=0; HttpCalls=0; Scenario=$scenario; RollbackMoves=$(if ($BackendOnly) { @(3,4) } else { @(5,6) }) }
     $ops.MoveArtifact = {
       param($Source, $Destination)
       $fault.Moves++
       if (($fault.Scenario -in @('before-move','preactivation-http-failure') -and $fault.Moves -eq 1) -or
           ($fault.Scenario -eq 'after-first' -and $fault.Moves -eq 2) -or
-          ($fault.Scenario -eq 'rollback-failure' -and $fault.Moves -in @(5,6))) { throw 'injected move failure' }
+          ($fault.Scenario -eq 'rollback-failure' -and ($fault.Moves -in $fault.RollbackMoves -or ($BackendOnly -and $fault.Moves -eq 2)))) { throw 'injected move failure' }
       & $realMove $Source $Destination
       if ($fault.Scenario -eq 'after-unrecorded-move' -and $fault.Moves -eq 1) { throw 'interrupted after native move, before flag' }
     }.GetNewClosure()
@@ -160,17 +163,19 @@ $ErrorActionPreference = 'Stop'
     $failure = $null
     try { [void](Invoke-ArtifactSwapTransaction -Items $case.Items -JournalPath $case.Journal -SourceCommit $commit -Operations $ops) } catch { $failure = $_.Exception.Message }
     $journal = [IO.File]::ReadAllText($case.Journal) | ConvertFrom-Json
-    Assert-Test (@($journal.artifacts).Count -eq 3) 'Complete runtime must swap three artifacts.'
+    $expectedCount = if ($BackendOnly) { 1 } else { 3 }
+    Assert-Test (@($journal.artifacts).Count -eq $expectedCount) 'Unexpected artifact count.'
     if ($scenario -eq 'success') {
       Assert-Test ($null -eq $failure -and $journal.status -ceq 'success') ('Real factory activation failed: ' + $failure)
-      Assert-Test ($fault.Moves -eq 6) 'Three backups plus three activations required.'
+      Assert-Test ($fault.Moves -eq (2 * $expectedCount)) 'One backup and one activation per artifact required.'
       Assert-Test ([IO.File]::ReadAllText((Join-Path $case.Root 'active/backend/node_modules/fixture/version')) -ceq '7.10.1') 'New node_modules not active.'
       Assert-Test ([IO.File]::ReadAllText((Join-Path $case.Root 'backup/backend/node_modules/fixture/version')) -ceq '7.10.0') 'Original node_modules not preserved.'
     } elseif ($scenario -eq 'preactivation-http-failure') {
-      Assert-Test ($journal.status -ceq 'pre-activation-recovery-incomplete') 'Do not call service-only recovery failure an artifact rollback failure.'
+      Assert-Test ($journal.status -ceq 'pre-activation-https-validation-failed' -and $journal.recovery.artifactsVerified -and $journal.recovery.servicesVerified -and -not $journal.recovery.httpsVerified) 'Do not call HTTPS-only recovery failure an artifact rollback failure.'
     } elseif ($scenario -eq 'rollback-failure') {
       Assert-Test ($journal.status -ceq 'rollback-incomplete') 'Real incomplete rollback must remain blocked.'
       # Authorized recovery simulation only in this temporary fixture, then rehydrate the journal.
+      $fault.Scenario = 'recovery'
       Restore-UpdateArtifacts -Items $case.Items -JournalPath $case.Journal -SourceCommit $commit -Operations $ops
     } else {
       $expected = if ($scenario -eq 'before-move') { 'failed-before-activation-recovered' } else { 'rolled-back' }
@@ -198,6 +203,7 @@ $ErrorActionPreference = 'Stop'
   }
 
   # Exercise the real apply/preparation path. Inject only the write failure, not the
+  $global:ForbidCaddyChanges = $false
   # extractor, journal writer or staging cleanup, and never read a server env file.
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -278,7 +284,7 @@ $ErrorActionPreference = 'Stop'
 '@
 try {
   [void][IO.Directory]::CreateDirectory($testRoot)
-  [void]$engine.AddScript($harness).AddArgument($definitions).AddArgument($testRoot).AddArgument($entrypoint)
+  [void]$engine.AddScript($harness).AddArgument($definitions).AddArgument($testRoot).AddArgument($entrypoint).AddArgument([bool]$BackendOnly)
   if ($VerifyBrokenClosureRegression) {
     $expectedFailure = ''
     try { [void]$engine.Invoke() } catch { $expectedFailure = $_.Exception.Message }

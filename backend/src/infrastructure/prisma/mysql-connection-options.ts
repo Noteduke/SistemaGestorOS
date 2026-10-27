@@ -20,6 +20,25 @@ export interface MysqlConnectionOptions {
   restrictedAuth?: string[];
 }
 
+// Trust is established by the original file's pin, not by comparing an OpenSSL
+// re-encoding with its input. Equivalent ASN.1 encodings need not be byte-identical.
+export function normalizePinnedRsaPublicKey(input: string): string {
+  const pem = input.trim();
+  const label = pem.includes("-----BEGIN PUBLIC KEY-----") ? "PUBLIC KEY"
+    : pem.includes("-----BEGIN RSA PUBLIC KEY-----") ? "RSA PUBLIC KEY" : undefined;
+  if (!label || !pem.includes(`-----END ${label}-----`) ||
+      pem.split("-----BEGIN ").length !== 2 || pem.split("-----END ").length !== 2 || pem.includes("PRIVATE KEY")) {
+    throw Object.assign(new Error("PUBLIC_KEY_ENVELOPE"), { code: "PUBLIC_KEY_ENVELOPE" });
+  }
+  let key;
+  try { key = createPublicKey(pem); }
+  catch { throw Object.assign(new Error("PUBLIC_KEY_PARSE"), { code: "PUBLIC_KEY_PARSE" }); }
+  if (key.asymmetricKeyType !== "rsa") throw Object.assign(new Error("PUBLIC_KEY_ALGORITHM"), { code: "PUBLIC_KEY_ALGORITHM" });
+  if (key.asymmetricKeyDetails?.modulusLength !== 2048) throw Object.assign(new Error("PUBLIC_KEY_SIZE"), { code: "PUBLIC_KEY_SIZE" });
+  try { return key.export({ format: "pem", type: "spki" }).toString(); }
+  catch { throw Object.assign(new Error("PUBLIC_KEY_EXPORT"), { code: "PUBLIC_KEY_EXPORT" }); }
+}
+
 function readVerifiedPublicPem(file: string | undefined, expectedHash: string | undefined): string {
   if (!file || !path.isAbsolute(file) || !expectedHash || !/^[a-f0-9]{64}$/iu.test(expectedHash)) {
     throw new Error("Material público MySQL exige caminho absoluto e SHA-256 válido conferido na origem.");
@@ -106,20 +125,7 @@ export function buildMysqlConnectionOptions(config: MysqlConfigReader): MysqlCon
     }
     if (caFile || caHash || serverName) throw new Error("Não misture configuração TLS e chave RSA MySQL.");
     const pem = readVerifiedPublicPem(rsaFile, rsaHash);
-    try {
-      const match = /^-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY)-----\s+([A-Za-z0-9+/=\s]+)-----END \1-----$/u.exec(pem);
-      if (!match) throw new Error();
-      const key = createPublicKey(pem);
-      if (key.asymmetricKeyType !== "rsa" || key.asymmetricKeyDetails?.modulusLength !== 2048) throw new Error();
-      const type = match[1] === "PUBLIC KEY" ? "spki" : "pkcs1";
-      const base64 = match[2].replace(/\s/gu, "");
-      const der = Buffer.from(base64, "base64");
-      const spki = key.export({ format: "pem", type: "spki" }).toString();
-      // Re-import SPKI before canonical comparison: some Windows Node/OpenSSL builds
-      // cannot export PKCS#1 DER directly from a key originally imported as PKCS#1 PEM.
-      if (der.toString("base64") !== base64 || !createPublicKey(spki).export({ format: "der", type }).equals(der)) throw new Error();
-      options.cachingRsaPublicKey = spki;
-    } catch { throw new Error("Chave pública MySQL inválida; exige SPKI ou PKCS#1 RSA de 2048 bits."); }
+    options.cachingRsaPublicKey = normalizePinnedRsaPublicKey(pem);
   } else {
     throw new Error("Configure GOS_MYSQL_AUTH_MODE=tls (preferido) ou rsa-pinned com material público MySQL conferido.");
   }

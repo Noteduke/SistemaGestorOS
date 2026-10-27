@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('spki','pkcs1')][string]$KeyFormat='spki')
+param([ValidateSet('spki','pkcs1')][string]$KeyFormat='spki',[switch]$TerminalNul)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $root=Join-Path ([IO.Path]::GetTempPath()) ('GestorOS-RsaProcedureTests-'+[guid]::NewGuid().ToString('N'))
@@ -23,6 +23,11 @@ try {
   [IO.File]::WriteAllText($keyFixture,'import {generateKeyPairSync} from "node:crypto"; import fs from "node:fs"; fs.writeFileSync(process.argv[2],generateKeyPairSync("rsa",{modulusLength:2048}).publicKey.export({type:process.argv[3],format:"pem"}));',$utf8)
   & $node $keyFixture (Join-Path $config 'mysql/caching-sha2-public.pem') $KeyFormat
   if ($LASTEXITCODE -ne 0) { throw 'Synthetic key generation failed.' }
+  if ($TerminalNul) {
+    $publicFixture=Join-Path $config 'mysql/caching-sha2-public.pem'
+    [byte[]]$terminatedKey=@([IO.File]::ReadAllBytes($publicFixture))+@([byte]0)
+    [IO.File]::WriteAllBytes($publicFixture,$terminatedKey)
+  }
   $hash=(Get-FileHash -LiteralPath (Join-Path $config 'mysql/caching-sha2-public.pem')).Hash
   [IO.File]::WriteAllText((Join-Path $backend 'runtime-info.json'),'{"sourceCommit":"previous-synthetic"}',$utf8)
   $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Set-MySqlRsaConfiguration.ps1'))
@@ -106,6 +111,7 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '$script' -Action Restore -BackupDirectory '$backup' -PreviousApplicationVerified -Confirm:`$false"
   Assert-Test ($LASTEXITCODE -eq 0) 'Restore not idempotent.'
   Write-Output 'PASS: PowerShell 5.1 parsing, WhatIf read-only, protected backup, credential preservation, atomic replacement, ACL preservation, conflict/wrong-runtime/unsafe-backup/invalid-key rejection, restoration without key and idempotence; disposable fixtures only.'
+  Write-Output ('PASS: public key fixture format='+$KeyFormat+'; terminal NUL='+$TerminalNul.IsPresent)
 } finally {
   $resolved=[IO.Path]::GetFullPath($root)
   $prefix=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\'

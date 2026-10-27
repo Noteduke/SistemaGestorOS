@@ -1,18 +1,12 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import "reflect-metadata";
-import "dotenv/config";
+
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
-const configured = new URL(process.env.DATABASE_URL ?? "");
-assert.equal(configured.protocol, "mysql:");
-assert.equal(configured.hostname, "localhost");
-assert.equal(configured.username, "gestor_os");
-assert.equal(configured.pathname, "/gestor_os");
-const isolated = new URL(configured);
-isolated.pathname = "/gestor_os_opening_test";
-process.env.DATABASE_URL = isolated.href;
-delete process.env.SHADOW_DATABASE_URL;
+const isolated = disposableUrl;
 
 const { NestFactory } = await import("@nestjs/core");
 const { AppModule } = await import("../dist/app.module.js");
@@ -36,7 +30,7 @@ try {
     create: { code: "service_orders.edit.takeover", description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
     update: { description: "Assumir a edição de uma Ordem de Serviço atualmente editada por outro usuário." },
   });
-  assert.equal(await db.permission.count(), 43, "catálogo local com a permissão específica de takeover");
+  assert.equal(await db.permission.count(), PERMISSION_CATALOG.length, "catálogo local com a permissão específica de takeover");
   const admin = await db.user.create({ data: { username: `edit_control_admin_${suffix}`, passwordHash, isActive: true, isAdmin: true } });
   const basePermissions = ["service_orders.read", "service_orders.opening.create", "service_orders.create", "service_orders.update", "service_orders.assignment.manage", "service_orders.situation.update", "service_orders.budget.update"];
 

@@ -30,9 +30,9 @@ try {
  if ($manifest.sourceCommit -cne $ReleaseCommit -or $manifest.environment -cne 'homologation' -or $manifest.releaseType -cne 'complete-runtime-update') { throw 'ZIP nao pertence ao novo commit/ambiente/runtime.' }
  $reader=New-Object IO.StreamReader($zip.GetEntry('backend/dist/infrastructure/prisma/mysql-connection-options.js').Open())
  try { $compiled=$reader.ReadToEnd() } finally { $reader.Dispose() }
- if (-not $compiled.Contains('RSA PUBLIC KEY') -or -not $compiled.Contains('allowPublicKeyRetrieval: false')) { throw 'ZIP nao contem a correcao RSA compilada.' }
+ if (-not $compiled.Contains('normalizePinnedRsaPublicKey') -or -not $compiled.Contains('RSA PUBLIC KEY') -or -not $compiled.Contains('allowPublicKeyRetrieval: false') -or $null -eq $zip.GetEntry('backend/dist/scripts/diagnose-homologation-mysql.js')) { throw 'ZIP nao contem a correcao RSA compilada.' }
 } finally { $zip.Dispose() }
-$files=@('Check-MySqlRsa.mjs','Set-MySqlRsaConfiguration.ps1','Test-MySqlRsaReadOnly.ps1','Diagnose-MySqlRsaPrecheck.ps1','Diagnose-MySqlRsaPrecheck.mjs')
+$files=@('MysqlDiagnosticOutput.ps1','PRIMEIRO-LOGIN-RSA.md','Test-MySqlRsaStaged.ps1','Check-MySqlRsa.mjs','Set-MySqlRsaConfiguration.ps1','Test-MySqlRsaReadOnly.ps1','Diagnose-MySqlRsaPrecheck.ps1','Diagnose-MySqlRsaPrecheck.mjs')
 foreach ($name in $files) { if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $name) -PathType Leaf)) { throw 'Auxiliar ausente.' } }
 if ($WhatIfPreference) { Write-Output 'WhatIf: nenhuma pasta/arquivo criado; nenhum banco, servico ou configuracao acessado.'; return }
 if (-not $PSCmdlet.ShouldProcess($dest,'Preparar auxiliares e manifesto para ZIP de commit autorizado, sem implantar')) { return }

@@ -5,7 +5,7 @@ param(
   [string]$PackagePath,
   [ValidatePattern('^[a-fA-F0-9]{64}$')]
   [string]$ExpectedPackageSha256 = 'e141f2ffe8af84f3c1cb3f46540af9e06a083c1b887a650485ee0425d52db7e6',
-  [ValidatePattern('^[a-fA-F0-9]{40}$')]
+  [ValidatePattern('^([a-fA-F0-9]{40}|snapshot:[a-fA-F0-9]{64})$')]
   [string]$ExpectedSourceCommit = '1f98609e778757aaa5c4488e4d8787040396d62c',
   [switch]$Apply
 )
@@ -160,10 +160,10 @@ function Get-ValidatedPackageInfo {
     [string]$DocumentMarker = 'DOCUMENTO DE TESTE — HOMOLOGAÇÃO'
   )
 
-  if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $ExpectedCommit -notmatch '^[0-9a-fA-F]{40}$') {
+  if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $ExpectedCommit -notmatch '^([0-9a-fA-F]{40}|snapshot:[0-9a-fA-F]{64})$') {
     throw 'Hash ou commit esperado possui formato inválido.'
   }
-  $resolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+  $resolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
   Add-Type -AssemblyName System.IO.Compression
   $archiveStream = New-Object System.IO.FileStream($resolvedPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
   $zip = $null
@@ -204,8 +204,7 @@ function Get-ValidatedPackageInfo {
 
     foreach ($required in @(
       'release-manifest.json', 'SHA256SUMS.txt', 'backend/package.json', 'backend/dist/main.js',
-      'backend/dist/scripts/bootstrap-admin.js', 'backend/dist/infrastructure/homologation-database-target.js',
-      'frontend/build-info.json', 'frontend/dist/index.html'
+      'backend/dist/scripts/bootstrap-admin.js', 'backend/dist/infrastructure/homologation-database-target.js'
     )) {
       if (-not $files.ContainsKey($required)) { throw "Pacote incompleto: arquivo obrigatório ausente ($required)." }
     }
@@ -214,8 +213,18 @@ function Get-ValidatedPackageInfo {
     $manifest = $manifestText | ConvertFrom-Json -ErrorAction Stop
     $completeRuntime = $manifest.releaseType -ceq 'complete-runtime-update'
     $legacyRuntime = $manifest.releaseType -ceq 'artifact-update'
+    $backendOnly = $manifest.PSObject.Properties['scope'] -and $manifest.scope -ceq 'backend-only'
+    $snapshot = $ExpectedCommit.StartsWith('snapshot:', [StringComparison]::Ordinal)
+    $provenanceMatches = $manifest.sourceCommit -ceq $ExpectedCommit
+    if ($snapshot) {
+      $provenanceMatches = $null -eq $manifest.sourceCommit -and $manifest.PSObject.Properties['sourceSnapshotSha256'] -and
+        $manifest.sourceSnapshotSha256 -ceq $ExpectedCommit.Substring(9) -and $manifest.baseCommit -cmatch '^[0-9a-f]{40}$'
+      if (-not $backendOnly -or -not $completeRuntime) { throw 'Snapshot exige pacote completo exclusivo do Backend.' }
+    }
+    if ($backendOnly -and (-not $completeRuntime -or @($files.Keys | Where-Object { $_ -like 'frontend/*' }).Count -ne 0)) { throw 'Escopo exclusivo do Backend contém artefatos inesperados.' }
+    if ($backendOnly -and -not $files.ContainsKey('backend/dist/infrastructure/prisma/mysql-connection-options.js')) { throw 'Helper MySQL obrigatório ausente.' }
     if ($manifest.environment -cne 'homologation' -or (-not $completeRuntime -and -not $legacyRuntime) -or
-        $manifest.sourceCommit -cne $ExpectedCommit -or $manifest.nodeVersion -notmatch '^v24\.') {
+        -not $provenanceMatches -or $manifest.nodeVersion -notmatch '^v24\.') {
       throw 'Manifesto incompatível com esta atualização de homologação.'
     }
     if ($completeRuntime) {
@@ -229,10 +238,13 @@ function Get-ValidatedPackageInfo {
         @($files.Keys | Where-Object { $_ -match '^backend/(node_modules/|release/|package-lock.json$|runtime-info.json$)' }).Count -gt 0) {
       throw 'Pacote legado não pode conter dependências ou declarar alterações de runtime.'
     }
+    if (-not $backendOnly) {
+    foreach ($required in @('frontend/build-info.json', 'frontend/dist/index.html')) { if (-not $files.ContainsKey($required)) { throw 'Frontend incompleto.' } }
     $buildInfo = (Get-ZipEntryText -Entry $files['frontend/build-info.json']) | ConvertFrom-Json -ErrorAction Stop
     if ($buildInfo.environment -cne 'homologation' -or $buildInfo.sourceCommit -cne $ExpectedCommit -or
         $buildInfo.frontendVersion -cne $manifest.frontendVersion -or $buildInfo.homologationMarkerVerified -ne $true) {
       throw 'Manifesto do Frontend incompatível com a versão aprovada.'
+    }
     }
 
     $backendPackage = (Get-ZipEntryText -Entry $files['backend/package.json']) | ConvertFrom-Json -ErrorAction Stop
@@ -245,8 +257,11 @@ function Get-ValidatedPackageInfo {
       $lockStream = $files['backend/package-lock.json'].Open()
       try { $lockHash = Get-StreamSha256 -Stream $lockStream } finally { $lockStream.Dispose() }
       $runtimeInfo = (Get-ZipEntryText -Entry $files['backend/runtime-info.json']) | ConvertFrom-Json
+      $runtimeProvenanceMatches = $runtimeInfo.sourceCommit -ceq $ExpectedCommit
+      if ($snapshot) { $runtimeProvenanceMatches = $null -eq $runtimeInfo.sourceCommit -and
+        $runtimeInfo.sourceSnapshotSha256 -ceq $manifest.sourceSnapshotSha256 -and $runtimeInfo.baseCommit -ceq $manifest.baseCommit }
       if ($lockHash -cne $manifest.lockSha256 -or $runtimeInfo.lockSha256 -cne $lockHash -or
-          $runtimeInfo.sourceCommit -cne $ExpectedCommit -or $runtimeInfo.platform -cne 'win32' -or $runtimeInfo.arch -cne 'x64' -or
+          -not $runtimeProvenanceMatches -or $runtimeInfo.platform -cne 'win32' -or $runtimeInfo.arch -cne 'x64' -or
           $runtimeInfo.nodeMajor -ne 24 -or $runtimeInfo.prismaVersion -cne $backendPackage.dependencies.'@prisma/client' -or $runtimeInfo.omit -cne 'dev,peer') {
         throw 'Lockfile ou runtime-info incompatível com o manifesto.'
       }
@@ -279,12 +294,13 @@ function Get-ValidatedPackageInfo {
       if ($content.Contains($LoginMarker)) { $loginMarkerFound = $true }
       if ($content.Contains($DocumentMarker)) { $documentMarkerFound = $true }
     }
-    if (-not $loginMarkerFound -or -not $documentMarkerFound) { throw 'Bundle do Frontend não contém os marcadores obrigatórios de homologação.' }
+    if (-not $backendOnly -and (-not $loginMarkerFound -or -not $documentMarkerFound)) { throw 'Bundle do Frontend não contém os marcadores obrigatórios de homologação.' }
 
     [pscustomobject]@{
       Path = $resolvedPath
       Sha256 = $archiveHash
-      SourceCommit = [string]$manifest.sourceCommit
+      SourceCommit = $ExpectedCommit
+      BackendOnly = [bool]$backendOnly
       BackendVersion = [string]$manifest.backendVersion
       FrontendVersion = [string]$manifest.frontendVersion
       NodeVersion = [string]$manifest.nodeVersion
@@ -648,14 +664,16 @@ function Restore-UpdateArtifacts {
 }
 
 function Write-UpdateJournal {
-  param([string]$Path, [string]$Status, [string]$SourceCommit, [object[]]$Items, [string]$Message)
+  param([string]$Path, [string]$Status, [string]$SourceCommit, [object[]]$Items, [string]$Message, [psobject]$Recovery = $null)
   $journal = [ordered]@{
     application = 'Sistema Gestor OS'
     environment = 'homologation'
-    sourceCommit = $SourceCommit
+    sourceCommit = $(if ($SourceCommit.StartsWith('snapshot:', [StringComparison]::Ordinal)) { $null } else { $SourceCommit })
+    releaseIdentity = $SourceCommit
     updatedAtUtc = [DateTime]::UtcNow.ToString('o')
     status = $Status
     message = $Message
+    recovery = $Recovery
     artifacts = @($Items | ForEach-Object {
       [ordered]@{
         name = $_.Name
@@ -692,6 +710,7 @@ function Invoke-ArtifactSwapTransaction {
   )
   $status = 'starting'
   $servicesStopRequested = $false
+  $failurePhase = 'preparation'
   try {
     foreach ($item in $Items) {
       $original = Get-UpdateArtifactFingerprint -Path $item.TargetPath
@@ -702,11 +721,13 @@ function Invoke-ArtifactSwapTransaction {
     }
     Write-UpdateJournal -Path $JournalPath -Status $status -SourceCommit $SourceCommit -Items $Items -Message 'Iniciando atualização controlada.'
     $servicesStopRequested = $true
+    $failurePhase = 'stop-services'
     & $Operations.StopServices
     & $Operations.WaitServicesStopped
     $status = 'services-stopped'
     Write-UpdateJournal -Path $JournalPath -Status $status -SourceCommit $SourceCommit -Items $Items -Message 'Serviços parados e processos encerrados.'
     foreach ($item in $Items) {
+      $failurePhase = 'backup-artifacts'
       Write-UpdateJournal -Path $JournalPath -Status ('backup-intent:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Preparando backup: ' + $item.Name)
       & $Operations.MoveArtifact $item.TargetPath $item.BackupPath
       $item.OldMoved = $true
@@ -714,15 +735,20 @@ function Invoke-ArtifactSwapTransaction {
     }
     Write-UpdateJournal -Path $JournalPath -Status 'previous-version-backed-up' -SourceCommit $SourceCommit -Items $Items -Message 'Todos os artefatos anteriores estão preservados antes da ativação.'
     foreach ($item in $Items) {
+      $failurePhase = 'activate-artifacts'
       Write-UpdateJournal -Path $JournalPath -Status ('activation-intent:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Preparando ativação: ' + $item.Name)
       & $Operations.MoveArtifact $item.PreparedPath $item.TargetPath
       $item.NewActive = $true
       Write-UpdateJournal -Path $JournalPath -Status ('active:' + $item.Name) -SourceCommit $SourceCommit -Items $Items -Message ('Novo artefato ativado: ' + $item.Name)
     }
+    $failurePhase = 'validate-installed-artifacts'
     & $Operations.ValidateInstalledVersion
+    $failurePhase = 'restart-services'
     & $Operations.StartServices
     & $Operations.WaitServicesRunning
+    $failurePhase = 'validate-https'
     & $Operations.ValidateHttp
+    $failurePhase = 'finalize-journal'
     Write-UpdateJournal -Path $JournalPath -Status 'success' -SourceCommit $SourceCommit -Items $Items -Message 'Artefatos instalados e verificações locais aprovadas.'
     return [pscustomobject]@{ Success = $true; RollbackSucceeded = $false; JournalPath = $JournalPath }
   } catch {
@@ -741,43 +767,87 @@ function Invoke-ArtifactSwapTransaction {
       Write-UpdateJournal -Path $JournalPath -Status 'recovery-required' -SourceCommit $SourceCommit -Items $Items -Message 'Não foi possível comprovar a identidade dos artefatos; exige inspeção manual.'
       throw 'RECUPERAÇÃO NÃO COMPROVADA. Preserve journal, staging e backup; nenhuma recuperação deve ser presumida.'
     }
+    $recovery = [pscustomobject]@{
+      artifactRestorationRequired = $movementObserved
+      artifactsVerified = $false
+      servicesVerified = $false
+      httpsVerified = $false
+      failurePhase = $null
+      failureMessage = $null
+      originalFailurePhase = $failurePhase
+      originalFailureMessage = $failureMessage
+    }
     if (-not $movementObserved) {
+      $recovery.artifactsVerified = $true
+      $recovery.failurePhase = 'restart-services'
       try {
         if ($servicesStopRequested) {
           & $Operations.StartServices
           & $Operations.WaitServicesRunning
+          $recovery.servicesVerified = $true
+          $recovery.failurePhase = 'validate-https'
           & $Operations.ValidateHttp
+          $recovery.httpsVerified = $true
         }
       } catch {
-        Write-UpdateJournal -Path $JournalPath -Status 'pre-activation-recovery-incomplete' -SourceCommit $SourceCommit -Items $Items -Message ('Artefatos originais intactos; disponibilidade não comprovada. Falha original: ' + $failureMessage)
-        throw 'RECUPERAÇÃO INCOMPLETA ANTES DA ATIVAÇÃO. Não houve troca de artefatos; valide os serviços manualmente.'
+        $recovery.failureMessage = $_.Exception.Message
+        $recoveryStatus = if ($recovery.failurePhase -ceq 'validate-https') { 'pre-activation-https-validation-failed' } else { 'pre-activation-service-restart-failed' }
+        Write-UpdateJournal -Path $JournalPath -Status $recoveryStatus -SourceCommit $SourceCommit -Items $Items -Recovery $recovery -Message ('Artefatos originais intactos; falha em ' + $recovery.failurePhase + ': ' + $recovery.failureMessage + ' Falha original: ' + $failureMessage)
+        throw ('RECUPERAÇÃO INCOMPLETA ANTES DA ATIVAÇÃO. Falha em ' + $recovery.failurePhase + '. Nenhum arquivo foi trocado; recuperação não comprovada. ' + $recovery.failureMessage)
       }
-      Write-UpdateJournal -Path $JournalPath -Status 'failed-before-activation-recovered' -SourceCommit $SourceCommit -Items $Items -Message ('Falha anterior à troca; originais conferidos e disponibilidade validada. Falha original: ' + $failureMessage)
+      $recovery.failurePhase = $null
+      Write-UpdateJournal -Path $JournalPath -Status 'failed-before-activation-recovered' -SourceCommit $SourceCommit -Items $Items -Recovery $recovery -Message ('Falha anterior à troca; originais conferidos e disponibilidade validada. Falha original: ' + $failureMessage)
       throw ('Atualização falhou antes de mover artefatos; versão anterior validada, sem rollback de arquivos. Motivo: ' + $failureMessage)
     }
     $rollbackErrors = New-Object System.Collections.Generic.List[string]
-    try { & $Operations.StopServices } catch { $rollbackErrors.Add('Falha ao parar serviços durante rollback.') }
+    $recovery.failurePhase = 'stop-services'
+    try { & $Operations.StopServices } catch { $rollbackErrors.Add('Falha ao parar serviços durante rollback: ' + $_.Exception.Message) }
     if ($rollbackErrors.Count -eq 0) {
-      try { & $Operations.WaitServicesStopped } catch { $rollbackErrors.Add('Serviços/processos não encerraram para rollback.') }
+      try { & $Operations.WaitServicesStopped } catch { $rollbackErrors.Add('Serviços/processos não encerraram para rollback: ' + $_.Exception.Message) }
     }
     if ($rollbackErrors.Count -eq 0) {
-      try { Restore-UpdateArtifacts -Items $Items -JournalPath $JournalPath -SourceCommit $SourceCommit -Operations $Operations }
+      $recovery.failurePhase = 'restore-artifacts'
+      try {
+        Restore-UpdateArtifacts -Items $Items -JournalPath $JournalPath -SourceCommit $SourceCommit -Operations $Operations
+        $recovery.artifactsVerified = $true
+      }
       catch { $rollbackErrors.Add($_.Exception.Message) }
     }
     if ($rollbackErrors.Count -eq 0) {
+      $recovery.failurePhase = 'restart-services'
       try {
         & $Operations.StartServices
         & $Operations.WaitServicesRunning
-        & $Operations.ValidateHttp
-      } catch { $rollbackErrors.Add('A versão anterior foi reposta, mas não passou na validação de recuperação.') }
+        $recovery.servicesVerified = $true
+      } catch { $rollbackErrors.Add('Versão anterior restaurada; falha ao reiniciar/verificar serviços: ' + $_.Exception.Message) }
     }
     if ($rollbackErrors.Count -eq 0) {
-      Write-UpdateJournal -Path $JournalPath -Status 'rolled-back' -SourceCommit $SourceCommit -Items $Items -Message ('Atualização falhou; versão anterior restaurada e validada. Motivo: ' + $failureMessage)
+      $recovery.failurePhase = 'validate-https'
+      try {
+        & $Operations.ValidateHttp
+        $recovery.httpsVerified = $true
+      } catch { $rollbackErrors.Add('Arquivos restaurados e serviços em execução; falha na validação HTTPS: ' + $_.Exception.Message) }
+    }
+    if ($rollbackErrors.Count -eq 0) {
+      $recovery.failurePhase = $null
+      Write-UpdateJournal -Path $JournalPath -Status 'rolled-back' -SourceCommit $SourceCommit -Items $Items -Recovery $recovery -Message ('Atualização falhou; versão anterior restaurada e validada. Motivo: ' + $failureMessage)
       throw ('Atualização falhou; rollback concluído. Backup preservado em ' + (Split-Path -Parent $JournalPath) + '. Motivo: ' + $failureMessage)
     }
+    $recovery.failureMessage = $rollbackErrors -join ' '
+    $recoveryStatus = switch ($recovery.failurePhase) {
+      'validate-https' { 'rollback-https-validation-failed' }
+      'restart-services' { 'rollback-service-restart-failed' }
+      default { 'rollback-incomplete' }
+    }
     try {
-      Write-UpdateJournal -Path $JournalPath -Status 'rollback-incomplete' -SourceCommit $SourceCommit -Items $Items -Message ('ROLLBACK INCOMPLETO: ' + ($rollbackErrors -join ' ') + ' Falha original: ' + $failureMessage)
+      Write-UpdateJournal -Path $JournalPath -Status $recoveryStatus -SourceCommit $SourceCommit -Items $Items -Recovery $recovery -Message ($recovery.failureMessage + ' Falha original: ' + $failureMessage)
     } catch { }
+    if ($recoveryStatus -ceq 'rollback-https-validation-failed') {
+      throw ('RECUPERAÇÃO HTTPS NÃO VALIDADA. Arquivos anteriores restaurados e serviços em execução; preserve journal e backup. ' + $recovery.failureMessage + ' Falha original: ' + $failureMessage)
+    }
+    if ($recoveryStatus -ceq 'rollback-service-restart-failed') {
+      throw ('RECUPERAÇÃO DOS SERVIÇOS INCOMPLETA. Arquivos anteriores restaurados; preserve journal e backup. ' + $recovery.failureMessage + ' Falha original: ' + $failureMessage)
+    }
     throw ('ROLLBACK INCOMPLETO. Serviços podem permanecer parados. Não declare sucesso. Preserve o backup em ' + (Split-Path -Parent $JournalPath) + ' e faça recuperação manual. ' + ($rollbackErrors -join ' ') + ' Falha original: ' + $failureMessage)
   }
 }
@@ -814,8 +884,10 @@ function Assert-InstalledReleaseArtifacts {
     throw 'Manifesto ou metadados instalados não puderam ser lidos; atualização recusada.'
   }
   if ($backendPackage.name -cne 'sistema-gestor-os-backend' -or $backendPackage.version -cne $PackageInfo.BackendVersion -or
-      $frontendInfo.environment -cne 'homologation' -or $frontendInfo.sourceCommit -cne $PackageInfo.SourceCommit -or
-      $frontendInfo.frontendVersion -cne $PackageInfo.FrontendVersion -or $frontendInfo.homologationMarkerVerified -ne $true) {
+      $frontendInfo.environment -cne 'homologation' -or
+      ((-not ($PackageInfo.PSObject.Properties['BackendOnly'] -and $PackageInfo.BackendOnly)) -and
+        ($frontendInfo.sourceCommit -cne $PackageInfo.SourceCommit -or $frontendInfo.frontendVersion -cne $PackageInfo.FrontendVersion)) -or
+      $frontendInfo.homologationMarkerVerified -ne $true) {
     throw 'Manifesto ou versão instalada não corresponde ao pacote aprovado.'
   }
   foreach ($requiredPath in @(
@@ -840,7 +912,9 @@ function Assert-InstalledReleaseArtifacts {
     $lock = Read-PackageLockJson -Text (Get-Content -LiteralPath (Join-Path $backendRoot 'package-lock.json') -Raw)
     Assert-LockMatchesPackage -Package $backendPackage -Lock $lock
     $runtimeInfo = Get-Content -LiteralPath (Join-Path $backendRoot 'runtime-info.json') -Raw | ConvertFrom-Json
-    if ($runtimeInfo.sourceCommit -cne $PackageInfo.SourceCommit) { throw 'Runtime instalado não corresponde ao commit aprovado.' }
+    if ($PackageInfo.SourceCommit.StartsWith('snapshot:', [StringComparison]::Ordinal)) {
+      if ($null -ne $runtimeInfo.sourceCommit -or $runtimeInfo.sourceSnapshotSha256 -cne $PackageInfo.SourceCommit.Substring(9)) { throw 'Snapshot instalado não corresponde ao aprovado.' }
+    } elseif ($runtimeInfo.sourceCommit -cne $PackageInfo.SourceCommit) { throw 'Runtime instalado não corresponde ao commit aprovado.' }
     Invoke-OfflineRuntimeValidation -BackendRoot $backendRoot
   }
 }
@@ -851,18 +925,86 @@ function Assert-Administrator {
   if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'A aplicação efetiva exige PowerShell elevado como Administrador.' }
 }
 
+function Assert-HomologationHttps {
+  param(
+    [Parameter(Mandatory = $true)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9.-]*$')][string]$HostName,
+    [string]$CurlPath = (Get-Command curl.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+  )
+  foreach ($endpoint in @(
+    @{ Name = 'Frontend'; Path = '/'; Status = '200'; MediaType = 'text/html' },
+    @{ Name = 'API protegida'; Path = '/api/v1/auth/me'; Status = '401'; MediaType = 'application/json' }
+  )) {
+    # Schannel may have no CRL distribution point for the Caddy local CA. Best effort
+    # keeps chain/hostname validation and does not ignore a positively revoked certificate.
+    # --disable must be first: a user curlrc must not inject insecure TLS options.
+    $curlArguments = @('--disable', '--ssl-revoke-best-effort', '--silent', '--show-error',
+      '--noproxy', '*', '--proto', '=https', '--connect-timeout', '5', '--max-time', '15',
+      '--resolve', ($HostName + ':443:127.0.0.1'), '--output', 'NUL', '--write-out',
+      '%{http_code}|%{content_type}', ('https://' + $HostName + $endpoint.Path))
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $CurlPath
+    $start.Arguments = ($curlArguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $start
+    $exitCode = -1
+    $output = ''
+    $diagnostic = 'CURL_PROCESS_FAILURE'
+    try {
+      [void]$process.Start()
+      $stdout = $process.StandardOutput.ReadToEndAsync()
+      $stderr = $process.StandardError.ReadToEndAsync()
+      if (-not $process.WaitForExit(20000)) {
+        $process.Kill()
+        $diagnostic = 'CURL_PROCESS_TIMEOUT'
+      } else {
+        $exitCode = $process.ExitCode
+        $output = $stdout.Result.Trim()
+        $errorText = $stderr.Result
+        # Record only known diagnostic tokens, never raw stderr (which may contain secrets).
+        if ($errorText -match '\b(CRYPT_E_NO_REVOCATION_CHECK|CRYPT_E_REVOCATION_OFFLINE|CRYPT_E_REVOKED|CERT_E_REVOKED|CERT_E_UNTRUSTEDROOT|CERT_E_CN_NO_MATCH|CERT_E_EXPIRED)\b') {
+          $diagnostic = $Matches[1]
+        } else { $diagnostic = 'CURL_EXIT_' + $exitCode }
+      }
+    } catch { $diagnostic = 'CURL_PROCESS_FAILURE' }
+    finally { $process.Dispose() }
+    $httpStatus = 'unknown'
+    $mediaType = ''
+    if ($output -match '^(\d{3})\|([^\r\n|]*)$') {
+      $httpStatus = $Matches[1]
+      $mediaType = $Matches[2].Split(';')[0].Trim().ToLowerInvariant()
+    }
+    if ($exitCode -ne 0 -or $httpStatus -cne $endpoint.Status -or $mediaType -cne $endpoint.MediaType) {
+      $failureKind = if ($exitCode -in @(35, 51, 58, 60, 77, 82, 83, 90, 91)) { 'tls' } elseif ($exitCode -ne 0) { 'connection-or-curl' } else { 'http-response' }
+      $exception = New-Object InvalidOperationException ($endpoint.Name + ': validação HTTPS falhou; curlExit=' + $exitCode + ', HTTP=' + $httpStatus + ', esperado=' + $endpoint.Status + ', diagnóstico=' + $diagnostic + '. Confiança TLS e identidade precisam permanecer válidas.')
+      $exception.Data['FailureKind'] = $failureKind
+      $exception.Data['CurlExitCode'] = $exitCode
+      $exception.Data['HttpStatus'] = $httpStatus
+      $exception.Data['DiagnosticCode'] = $diagnostic
+      throw $exception
+    }
+  }
+}
+
 function New-ServiceOperations {
   param([string]$HostName, [string]$BackendService, [string]$CaddyService, [string]$InstallRoot, [psobject]$PackageInfo)
-  $serviceNames = @($BackendService, $CaddyService)
+  $backendOnly = [bool]($PackageInfo.PSObject.Properties['BackendOnly'] -and $PackageInfo.BackendOnly)
+  $serviceNames = if ($backendOnly) { @($BackendService) } else { @($BackendService, $CaddyService) }
+  $stopNames = @($serviceNames); [array]::Reverse($stopNames)
+  $stopPorts = if ($backendOnly) { @(3100) } else { @(3100, 443) }
   $loginMarker = $script:LoginMarker
   $documentMarker = $script:DocumentMarker
   # GetNewClosure creates a dynamic module; bind script-local functions before entering it.
   $moveArtifactCommand = Get-Command Move-UpdateArtifact -CommandType Function -ErrorAction Stop
   $validateInstalledCommand = Get-Command Assert-InstalledReleaseArtifacts -CommandType Function -ErrorAction Stop
+  $validateHttpsCommand = Get-Command Assert-HomologationHttps -CommandType Function -ErrorAction Stop
   $operations = @{
     MoveArtifact = { param($Source, $Destination) & $moveArtifactCommand -Source $Source -Destination $Destination }
     StopServices = {
-      foreach ($name in @($CaddyService, $BackendService)) {
+      foreach ($name in $stopNames) {
         $service = Get-Service -Name $name -ErrorAction Stop
         if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
           Stop-Service -Name $name -Confirm:$false -ErrorAction Stop
@@ -881,7 +1023,7 @@ function New-ServiceOperations {
         Start-Sleep -Milliseconds 250
       } while ([DateTime]::UtcNow -lt $deadline)
       if ($running.Count -ne 0) { throw 'Processo WinSW ainda ativo após parar os serviços.' }
-      foreach ($port in @(3100, 443)) {
+      foreach ($port in $stopPorts) {
         $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
         if ($listeners.Count -gt 0) { throw "A porta local $port continua ocupada após parar os serviços." }
       }
@@ -890,7 +1032,7 @@ function New-ServiceOperations {
       Start-Service -Name $BackendService -Confirm:$false -ErrorAction Stop
       $service = Get-Service -Name $BackendService
       $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
-      Start-Service -Name $CaddyService -Confirm:$false -ErrorAction Stop
+      if (-not $backendOnly) { Start-Service -Name $CaddyService -Confirm:$false -ErrorAction Stop }
     }
     ValidateInstalledVersion = {
       & $validateInstalledCommand -InstallRoot $InstallRoot -PackageInfo $PackageInfo -LoginMarker $loginMarker -DocumentMarker $documentMarker
@@ -911,13 +1053,7 @@ function New-ServiceOperations {
       }
     }
     ValidateHttp = {
-      $curl = (Get-Command curl.exe -ErrorAction Stop).Source
-      $frontendUrl = 'https://' + $HostName + '/'
-      $apiUrl = 'https://' + $HostName + '/api/v1/auth/me'
-      $frontendResult = & $curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 --resolve ($HostName + ':443:127.0.0.1') --output 'NUL' --write-out '%{http_code}|%{content_type}' $frontendUrl 2>$null
-      if ($LASTEXITCODE -ne 0 -or (($frontendResult -join '') -notmatch '^200\|text/html')) { throw 'Frontend não retornou HTTP 200 HTML pelo HTTPS local.' }
-      $apiResult = & $curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 --resolve ($HostName + ':443:127.0.0.1') --output 'NUL' --write-out '%{http_code}|%{content_type}' $apiUrl 2>$null
-      if ($LASTEXITCODE -ne 0 -or (($apiResult -join '') -notmatch '^401\|application/json')) { throw 'API protegida não retornou HTTP 401 JSON pelo HTTPS local.' }
+      & $validateHttpsCommand -HostName $HostName
     }
   }
   foreach ($operationName in @($operations.Keys)) {
@@ -927,8 +1063,9 @@ function New-ServiceOperations {
 }
 
 function New-ReleaseArtifactItems {
-  param([string]$InstallRoot, [string]$StageRoot, [string]$BackupRoot, [bool]$CompleteRuntime)
-  $names = if ($CompleteRuntime) { @('backend', 'frontend/dist', 'frontend/build-info.json') } else { @('backend/dist', 'backend/package.json', 'frontend/dist', 'frontend/build-info.json') }
+  param([string]$InstallRoot, [string]$StageRoot, [string]$BackupRoot, [bool]$CompleteRuntime, [bool]$BackendOnly = $false)
+  if ($BackendOnly -and -not $CompleteRuntime) { throw 'Backend isolado exige runtime completo.' }
+  $names = if ($BackendOnly) { @('backend') } elseif ($CompleteRuntime) { @('backend', 'frontend/dist', 'frontend/build-info.json') } else { @('backend/dist', 'backend/package.json', 'frontend/dist', 'frontend/build-info.json') }
   foreach ($name in $names) {
     $relative = $name -replace '/', '\'
     [pscustomobject]@{ Name = $name; TargetPath = Join-Path $InstallRoot $relative; PreparedPath = Join-Path $StageRoot $relative;
@@ -951,17 +1088,18 @@ function Invoke-HomologationUpdateApply {
   $transactionStarted = $false
   $journalPath = $null
   $items = @()
+  $backendOnly = [bool]($PackageInfo.PSObject.Properties['BackendOnly'] -and $PackageInfo.BackendOnly)
   try {
     $lock = Open-ExclusiveUpdateLock -Path $lockPath -UpdateId $updateId
     if ([System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($InstallRoot)) -cne [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($updatesRoot))) { throw 'Staging e instalação não estão no mesmo volume.' }
 
     Assert-UpdateDestination -InstallRoot $InstallRoot -PackageInfo $PackageInfo
     $backupRoot = New-ExclusiveUpdateDirectory -Path $backupRoot
-    $backupParents = if ($PackageInfo.CompleteRuntime) { @('frontend') } else { @('backend', 'frontend') }
+    $backupParents = if ($backendOnly) { @() } elseif ($PackageInfo.CompleteRuntime) { @('frontend') } else { @('backend', 'frontend') }
     foreach ($relativeDirectory in $backupParents) {
       [void][System.IO.Directory]::CreateDirectory((Join-Path $backupRoot $relativeDirectory))
     }
-    $items = @(New-ReleaseArtifactItems -InstallRoot $InstallRoot -StageRoot $stageRoot -BackupRoot $backupRoot -CompleteRuntime $PackageInfo.CompleteRuntime)
+    $items = @(New-ReleaseArtifactItems -InstallRoot $InstallRoot -StageRoot $stageRoot -BackupRoot $backupRoot -CompleteRuntime $PackageInfo.CompleteRuntime -BackendOnly $backendOnly)
     $journalPath = Join-Path $backupRoot 'journal.json'
     Write-UpdateJournal -Path $journalPath -Status 'preparing' -SourceCommit $PackageInfo.SourceCommit -Items $items -Message 'Preparando staging; serviços e artefatos ativos ainda não foram alterados.'
     Expand-ValidatedUpdatePackage -ZipPath $ZipPath -StageRoot $stageRoot -InstallRoot $InstallRoot -PackageInfo $PackageInfo
@@ -970,10 +1108,12 @@ function Invoke-HomologationUpdateApply {
       (Join-Path $stageRoot 'frontend\dist'), (Join-Path $stageRoot 'frontend\build-info.json'),
       (Join-Path $stageRoot 'backend\dist\main.js'), (Join-Path $stageRoot 'backend\dist\scripts\bootstrap-admin.js')
     )) {
+      if ($backendOnly -and $path.StartsWith((Join-Path $stageRoot 'frontend'), [StringComparison]::OrdinalIgnoreCase)) { continue }
       if (-not (Test-Path -LiteralPath $path)) { throw "Staging incompleto: $path" }
       Test-LocalServiceReadExecute -Path $path
     }
     foreach ($artifactRoot in @((Join-Path $stageRoot 'backend'), (Join-Path $stageRoot 'frontend'))) {
+      if ($backendOnly -and $artifactRoot -eq (Join-Path $stageRoot 'frontend')) { continue }
       foreach ($entry in Get-ChildItem -LiteralPath $artifactRoot -Force -Recurse) {
         Test-LocalServiceReadExecute -Path $entry.FullName
       }
@@ -1006,7 +1146,7 @@ function Invoke-HomologationUpdateApply {
 $installRoot = $script:ExpectedInstallRoot
 $packageInfo = Get-ValidatedPackageInfo -Path $PackagePath -ExpectedSha256 $script:ExpectedPackageSha256 -ExpectedCommit $script:ExpectedSourceCommit -LoginMarker $script:LoginMarker -DocumentMarker $script:DocumentMarker
 Assert-UpdateDestination -InstallRoot $installRoot -PackageInfo $packageInfo
-Write-Output ('Pré-validação aprovada: homologation, commit ' + $packageInfo.SourceCommit + ', Backend ' + $packageInfo.BackendVersion + ', Frontend ' + $packageInfo.FrontendVersion + '.')
+Write-Output ('Pré-validação aprovada: homologation, origem ' + $packageInfo.SourceCommit + ', Backend ' + $packageInfo.BackendVersion + ', Frontend ' + $packageInfo.FrontendVersion + '.')
 Write-Output 'Nenhuma conexão com banco foi aberta; configuração de destino, serviços e permissões foram verificados sem alterar arquivos persistentes.'
 
 if (-not $Apply) {
@@ -1018,6 +1158,6 @@ if ($WhatIfPreference) {
   return
 }
 Assert-Administrator
-if (-not $PSCmdlet.ShouldProcess($installRoot, ('Atualizar para o commit ' + $packageInfo.SourceCommit))) { return }
+if (-not $PSCmdlet.ShouldProcess($installRoot, ('Atualizar para a origem ' + $packageInfo.SourceCommit))) { return }
 $operations = New-ServiceOperations -HostName $script:ExpectedHost -BackendService $script:ExpectedServices[0] -CaddyService $script:ExpectedServices[1] -InstallRoot $installRoot -PackageInfo $packageInfo
 Invoke-HomologationUpdateApply -PackageInfo $packageInfo -InstallRoot $installRoot -ZipPath $packageInfo.Path -Operations $operations

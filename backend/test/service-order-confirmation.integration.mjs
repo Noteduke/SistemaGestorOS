@@ -1,20 +1,14 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import "reflect-metadata";
-import "dotenv/config";
+
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
 import mariadb from "mariadb";
 
 // Never permit this test to write to the primary database.
-const configured = new URL(process.env.DATABASE_URL ?? "");
-assert.equal(configured.protocol, "mysql:");
-assert.equal(configured.hostname, "localhost");
-assert.equal(configured.username, "gestor_os");
-assert.equal(configured.pathname, "/gestor_os");
-const isolated = new URL(configured);
-isolated.pathname = "/gestor_os_opening_test";
-process.env.DATABASE_URL = isolated.href;
-delete process.env.SHADOW_DATABASE_URL;
+const isolated = disposableUrl;
 
 const { NestFactory } = await import("@nestjs/core");
 const { AppModule } = await import("../dist/app.module.js");
@@ -27,7 +21,7 @@ try {
   const db = app.get(PrismaService);
   const selected = await db.$queryRaw`SELECT DATABASE() AS name`;
   assert.equal(selected[0]?.name, "gestor_os_opening_test");
-  assert.equal(await db.permission.count(), 43);
+  assert.equal(await db.permission.count(), PERMISSION_CATALOG.length);
   const suffix = randomBytes(5).toString("hex");
   const password = randomBytes(24).toString("base64url");
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
@@ -125,12 +119,14 @@ try {
   assert.equal(Object.hasOwn(confirmed.body.data, "id"), false);
   assert.equal(Object.hasOwn(confirmed.body.data.customer, "id"), false);
   assert.equal(Object.hasOwn(confirmed.body.data.equipment, "id"), false);
-  const firstDb = await db.serviceOrderOpening.findUniqueOrThrow({ where: { publicId: first.publicId }, include: { serviceOrder: true, numberAllocation: true } });
+  const firstDb = await db.serviceOrderOpening.findUniqueOrThrow({ where: { publicId: first.publicId }, include: { serviceOrder: { include: { operationalStatus: true } }, numberAllocation: true } });
   assert.equal(firstDb.status, "CONFIRMED");
   assert.equal(firstDb.activeForUserId, null);
   assert.equal(firstDb.numberAllocation.status, "CONFIRMED");
   assert.equal(firstDb.serviceOrder.macroStatus, "OPEN");
-  assert.equal(firstDb.serviceOrder.operationalSituation, "TRIAGE");
+  assert.equal(firstDb.serviceOrder.operationalStatus.name, "TRIAGEM");
+  assert.equal(firstDb.serviceOrder.operationalStatusId, firstDb.serviceOrder.operationalStatus.id);
+  assert.equal(firstDb.serviceOrder.technicalCompletion, "NOT_COMPLETED");
   assert.equal(firstDb.serviceOrder.snapshotVersion, 1);
   assert.equal(firstDb.serviceOrder.snapshotCapturedAt.toISOString(), firstDb.serviceOrder.customerSnapshotJson.capturedAt);
   status(await request("GET", "/service-orders/openings/current", { cookie: ownerSession.cookie }), 404, "confirmed opening is no longer active");

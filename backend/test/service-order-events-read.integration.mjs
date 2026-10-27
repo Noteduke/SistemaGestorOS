@@ -1,19 +1,13 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import "reflect-metadata";
-import "dotenv/config";
+
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 
 // Resolve the configured project URL only to a disposable database before app boot.
-const configured = new URL(process.env.DATABASE_URL ?? "");
-assert.equal(configured.protocol, "mysql:");
-assert.equal(configured.hostname, "localhost");
-assert.equal(configured.username, "gestor_os");
-assert.equal(configured.pathname, "/gestor_os");
-const isolated = new URL(configured);
-isolated.pathname = "/gestor_os_opening_test";
-process.env.DATABASE_URL = isolated.href;
-delete process.env.SHADOW_DATABASE_URL;
+const isolated = disposableUrl;
 
 const { NestFactory } = await import("@nestjs/core");
 const { AppModule } = await import("../dist/app.module.js");

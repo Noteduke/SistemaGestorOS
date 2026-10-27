@@ -11,7 +11,8 @@ const builderSha256 = sha256(fileURLToPath(import.meta.url));
 const verifierSha256 = sha256(path.join(here, 'Verify-BackendRuntime.mjs'));
 if (process.platform !== 'win32' || process.arch !== 'x64' || !process.version.startsWith('v24.')) throw new Error('Build exige Windows x64 e Node.js 24.');
 const git = (...args) => execFileSync('git.exe', ['-C', repository, ...args], { encoding: 'utf8' }).trim();
-if (git('diff', 'HEAD', '--', 'backend', 'frontend')) throw new Error('Backend/Frontend rastreados devem corresponder ao commit de origem.');
+const backendSnapshot = process.argv.includes('--backend-snapshot');
+if (!backendSnapshot && git('diff', 'HEAD', '--', 'backend', 'frontend')) throw new Error('Backend/Frontend rastreados devem corresponder ao commit de origem.');
 validateLock(path.join(repository, 'backend'));
 const commit = git('rev-parse', 'HEAD');
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
@@ -49,6 +50,10 @@ function copyTracked(prefix, destination, filter) {
     fs.copyFileSync(path.join(repository, relative), target);
   }
 }
+function sourceRecords(root) {
+  return files(root).filter((name) => !name.startsWith('node_modules/') && !name.startsWith('dist/') && !name.endsWith('.tsbuildinfo'))
+    .map((name) => ({ path: name, sha256: sha256(path.join(root, name)) }));
+}
 function audit(cwd, args, name) {
   const report = JSON.parse(npm(cwd, ['audit', '--json', ...args], true));
   fs.writeFileSync(path.join(output, `${name}.json`), JSON.stringify(report, null, 2));
@@ -59,6 +64,24 @@ function audit(cwd, args, name) {
 const backendBuild = path.join(work, 'backend-build');
 copyTracked('backend', backendBuild, (name) => name.startsWith('src/') || name.startsWith('test/') ||
   ['package.json', 'package-lock.json', 'prisma.config.ts', 'prisma/schema.prisma', 'nest-cli.json', 'tsconfig.json', 'tsconfig.build.json'].includes(name));
+if (backendSnapshot) {
+  // Explicitly selected companion sources/tests; never copy arbitrary untracked files.
+  for (const name of ['src/infrastructure/prisma/mysql-observability.ts', 'src/scripts/diagnose-homologation-mysql.ts',
+    'test/mysql-observability.test.mjs', 'test/homologation-mysql-diagnostic.test.mjs',
+    'src/modules/service-orders/dto/opening-intake.dto.ts', 'test/opening-workflow.test.mjs',
+    'test/opening-workflow.integration.mjs', 'src/modules/people/dto/complete-person.dto.ts',
+    'test/complete-person.test.mjs', 'src/scripts/ensure-opening-catalogs.ts',
+    'src/modules/people/opening-customer-editor.ts', 'test/opening-usability.test.mjs', 'test/service-order-list-filters.test.mjs']) {
+    const target = path.join(backendBuild, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(repository, 'backend', name), target);
+  }
+}
+const snapshotRecords = sourceRecords(backendBuild);
+const { createHash } = await import('node:crypto');
+const snapshotHash = createHash('sha256').update(JSON.stringify(snapshotRecords)).digest('hex');
+const provenance = backendSnapshot ? { sourceCommit: null, baseCommit: commit, sourceSnapshotSha256: snapshotHash, sourceFiles: snapshotRecords }
+  : { sourceCommit: commit };
 npm(backendBuild, ['ci', '--no-audit', '--no-fund']);
 const fullAudit = audit(backendBuild, [], 'audit-full');
 node(backendBuild, ['node_modules/prisma/build/index.js', 'generate']);
@@ -99,13 +122,15 @@ fs.cpSync(path.join(backendBuild, 'dist'), path.join(backend, 'dist'), { recursi
 fs.mkdirSync(path.join(backend, 'release'));
 fs.copyFileSync(path.join(here, 'Verify-BackendRuntime.mjs'), path.join(backend, 'release/Verify-BackendRuntime.mjs'));
 const runtimeInfo = { platform: 'win32', arch: 'x64', nodeMajor: 24, nodeVersion: process.version,
-  sourceCommit: commit, prismaVersion: validateLock(backend).prismaVersion, omit: 'dev,peer', runtimeTreePruned: true, lockSha256: sha256(path.join(backend, 'package-lock.json')) };
+  ...provenance, prismaVersion: validateLock(backend).prismaVersion, omit: 'dev,peer', runtimeTreePruned: true, lockSha256: sha256(path.join(backend, 'package-lock.json')) };
 fs.writeFileSync(path.join(backend, 'runtime-info.json'), JSON.stringify(runtimeInfo, null, 2));
 const runtimeValidation = JSON.parse(node(backend, ['release/Verify-BackendRuntime.mjs'], true));
 for (const devOnly of ['@nestjs/cli', 'typescript', 'prisma']) {
   if (fs.existsSync(path.join(backend, 'node_modules', devOnly))) throw new Error(`Dependência exclusiva de build foi incluída: ${devOnly}`);
 }
 
+let frontendVersion = null;
+if (!backendSnapshot) {
 const frontendBuild = path.join(work, 'frontend-build');
 copyTracked('frontend', frontendBuild, () => true);
 npm(frontendBuild, ['ci', '--no-audit', '--no-fund']);
@@ -118,15 +143,21 @@ const frontendText = files(path.join(frontend, 'dist')).filter((name) => /\.(js|
 if (!frontendText.includes('AMBIENTE DE HOMOLOGAÇÃO') || !frontendText.includes('DOCUMENTO DE TESTE — HOMOLOGAÇÃO')) {
   throw new Error('Frontend compilado não contém os dois marcadores obrigatórios de homologação.');
 }
-const frontendVersion = JSON.parse(fs.readFileSync(path.join(frontendBuild, 'package.json'))).version;
+frontendVersion = JSON.parse(fs.readFileSync(path.join(frontendBuild, 'package.json'))).version;
 const buildInfo = { environment: 'homologation', frontendVersion, sourceCommit: commit, builtAtUtc: new Date().toISOString(), homologationMarkerVerified: true };
 fs.writeFileSync(path.join(frontend, 'build-info.json'), JSON.stringify(buildInfo, null, 2));
+}
+
+for (const record of snapshotRecords) {
+  if (sha256(path.join(backendBuild, record.path)) !== record.sha256 || sha256(path.join(repository, 'backend', record.path)) !== record.sha256)
+    throw new Error('Fontes mudaram durante compilação; pacote recusado.');
+}
 
 if (builderSha256 !== sha256(fileURLToPath(import.meta.url)) || verifierSha256 !== sha256(path.join(here, 'Verify-BackendRuntime.mjs'))) {
   throw new Error('Empacotador/verificador mudou durante o build; gere novamente a partir de fontes estáveis.');
 }
 const manifest = { application: 'Sistema Gestor OS', environment: 'homologation', releaseType: 'complete-runtime-update',
-  sourceCommit: commit, backendVersion: validateLock(backend).pkg.version, frontendVersion, nodeVersion: process.version,
+  ...provenance, scope: backendSnapshot ? 'backend-only' : 'full', backendVersion: validateLock(backend).pkg.version, frontendVersion, nodeVersion: process.version,
   platform: 'win32', architecture: 'x64', runtimeDependenciesIncluded: true, runtimeDependenciesUnchanged: false,
   lockSha256: runtimeInfo.lockSha256, runtimeValidation, audit: { full: fullAudit, runtime: runtimeAudit },
   npmVersion: npm(backend, ['--version'], true).trim(), builderSha256, verifierSha256 };
@@ -169,6 +200,6 @@ try {
   end.writeUInt32LE(0x06054b50); end.writeUInt16LE(central.length / 2, 8); end.writeUInt16LE(central.length / 2, 10);
   end.writeUInt32LE(offset - centralStart, 12); end.writeUInt32LE(centralStart, 16); fs.writeSync(fd, end);
 } finally { fs.closeSync(fd); }
-const summary = { zipPath, sha256: sha256(zipPath), sourceCommit: commit, nodeVersion: process.version, runtimeValidation, fullAudit, runtimeAudit };
+const summary = { zipPath, sha256: sha256(zipPath), ...provenance, releaseIdentity: backendSnapshot ? `snapshot:${snapshotHash}` : commit, nodeVersion: process.version, runtimeValidation, fullAudit, runtimeAudit };
 fs.writeFileSync(path.join(output, 'build-result.json'), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));

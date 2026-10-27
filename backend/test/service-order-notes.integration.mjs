@@ -1,9 +1,11 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { test } from "node:test";
-import "dotenv/config";
+
 import argon2 from "argon2";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../dist/generated/prisma/client.js";
@@ -11,9 +13,9 @@ import { PrismaClient } from "../dist/generated/prisma/client.js";
 const enabled = process.env.RUN_NOTES_INTEGRATION === "1";
 
 test("observações manuais por HTTP no banco isolado", { skip: !enabled, timeout: 120_000 }, async () => {
-  const connection = new URL(process.env.DATABASE_URL ?? "");
+  const connection = disposableUrl;
   assert.equal(connection.protocol, "mysql:");
-  assert.equal(connection.hostname, "localhost");
+  assert.equal(connection.hostname, "127.0.0.1");
   assert.equal(decodeURIComponent(connection.pathname.slice(1)), "gestor_os_opening_test", "Integração proibida fora do banco isolado");
   const prisma = new PrismaClient({ adapter: new PrismaMariaDb({ host: connection.hostname, port: Number(connection.port || 3306), user: decodeURIComponent(connection.username), password: decodeURIComponent(connection.password), database: "gestor_os_opening_test" }) });
   const createdUserIds = [];

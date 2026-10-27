@@ -56,17 +56,15 @@ function noLinks(file) {
     const parent = path.dirname(cursor); if (parent === cursor) break; cursor = parent;
   }
 }
-export function normalizePublicKey(text) {
-  const match=/^-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY)-----\s+([A-Za-z0-9+/=\s]+)-----END \1-----$/u.exec(text.trim());
-  if (!match) throw new Error('PUBLIC_KEY_FORMAT');
-  let key;
-  try { key=createPublicKey(text); } catch { throw new Error('PUBLIC_KEY_FORMAT'); }
-  if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails?.modulusLength !== 2048) throw new Error('PUBLIC_KEY_FORMAT');
-  const type=match[1] === 'PUBLIC KEY' ? 'spki' : 'pkcs1';
-  const base64=match[2].replace(/\s/gu,''); const der=Buffer.from(base64,'base64');
-  const spki=key.export({type:'spki',format:'pem'}).toString();
-  if (der.toString('base64') !== base64 || !createPublicKey(spki).export({type,format:'der'}).equals(der)) throw new Error('PUBLIC_KEY_FORMAT');
-  return spki;
+export function normalizePublicKey(input) {
+  const pem=input.trim();
+  const label=pem.includes('-----BEGIN PUBLIC KEY-----') ? 'PUBLIC KEY'
+    : pem.includes('-----BEGIN RSA PUBLIC KEY-----') ? 'RSA PUBLIC KEY' : undefined;
+  if (!label || !pem.includes(`-----END ${label}-----`) || pem.split('-----BEGIN ').length !== 2 || pem.split('-----END ').length !== 2 || pem.includes('PRIVATE KEY')) throw new Error('PUBLIC_KEY_ENVELOPE');
+  let key; try { key=createPublicKey(pem); } catch { throw new Error('PUBLIC_KEY_PARSE'); }
+  if (key.asymmetricKeyType !== 'rsa') throw new Error('PUBLIC_KEY_ALGORITHM');
+  if (key.asymmetricKeyDetails?.modulusLength !== 2048) throw new Error('PUBLIC_KEY_SIZE');
+  try { return key.export({type:'spki',format:'pem'}).toString(); } catch { throw new Error('PUBLIC_KEY_EXPORT'); }
 }
 export function verifyPublicKey() {
   noLinks(rsaPath);
@@ -83,29 +81,13 @@ export function verifyPublicKey() {
   const text = bytes.toString('utf8').trim();
   return normalizePublicKey(text);
 }
-export function classify(error) {
-  const codes = new Set(); const seen = new Set();
-  function visit(current, depth = 0) {
-    if (!current || typeof current !== 'object' || seen.has(current) || depth > 8) return;
-    seen.add(current);
-    for (const key of ['errno', 'code', 'originalCode']) if (current[key] !== undefined) codes.add(String(current[key]));
-    for (const key of ['cause', 'originalError', 'meta', 'driverAdapterError']) visit(current[key], depth + 1);
-  }
-  visit(error);
-  if (codes.has('1045') || codes.has('ER_ACCESS_DENIED_ERROR')) return 'AUTHENTICATION';
-  if (codes.has('45044') || codes.has('ER_CANNOT_RETRIEVE_RSA_KEY')) return 'RSA_AUTHENTICATION';
-  if (codes.has('ETIMEDOUT') || codes.has('ER_CONNECTION_TIMEOUT')) return 'TIMEOUT';
-  if (codes.has('ECONNREFUSED') || codes.has('ENOTFOUND') || codes.has('EHOSTUNREACH')) return 'CONNECTION';
-  if (codes.has('45028')) return 'POOL';
-  return 'CONFIGURATION_OR_CONNECTION';
-}
 export function validateReadOnlyResult(rows) {
   if (!Array.isArray(rows) || rows.length !== 1 || rows[0]?.db !== 'gestor_os_homologation' ||
       rows[0]?.account !== expectedAccount || Number(rows[0]?.ok) !== 1) throw new Error('AUTHENTICATED_TARGET_MISMATCH');
   return `READ_ONLY_OK database=gestor_os_homologation account=${expectedAccount} prisma=7.10.1`;
 }
 async function main() {
-  let client;
+  let diagnosticFailureCode; let Failure;
   try {
     if (process.platform !== 'win32' || process.arch !== 'x64' || !/^v24\./u.test(process.version)) throw new Error('NODE_VERSION');
     const action = process.argv[2];
@@ -123,20 +105,18 @@ async function main() {
     if (info.sourceCommit !== sourceCommit || info.prismaVersion !== '7.10.1') throw new Error('RELEASE_MISMATCH');
     const load = relative => import(pathToFileURL(path.join(backendRoot, relative)).href);
     const { buildMysqlConnectionOptions } = await load('dist/infrastructure/prisma/mysql-connection-options.js');
-    const { PrismaClient } = await load('dist/generated/prisma/client.js');
-    const { PrismaMariaDb } = await load('node_modules/@prisma/adapter-mariadb/dist/index.mjs');
+    const diagnostic = await load('dist/scripts/diagnose-homologation-mysql.js');
+    ({ MysqlDiagnosticFailure: Failure } = await load('dist/infrastructure/prisma/mysql-observability.js'));
+    diagnosticFailureCode=diagnostic.diagnosticFailureCode;
     // Validate URL/config/public pin BEFORE constructing an adapter or opening any socket.
     const options = buildMysqlConnectionOptions({ get: key => values[key] });
     if (options.database !== 'gestor_os_homologation' || options.user !== 'gos_homologation_app' || options.host !== '127.0.0.1' || options.port !== 3306 || options.allowPublicKeyRetrieval !== false || !options.cachingRsaPublicKey) throw new Error('WRONG_TARGET');
-    client = new PrismaClient({ adapter: new PrismaMariaDb({ ...options, connectionLimit: 1, connectTimeout: 5000, acquireTimeout: 10000 }), log: [] });
-    // Deliberately no Nest context, service startup, seed, bootstrap or mutation.
-    const rows = await client.$queryRaw`SELECT DATABASE() AS db, CURRENT_USER() AS account, 1 AS ok`;
-    console.log(validateReadOnlyResult(rows));
+    // One implementation owns acquisition, sanitization and cleanup for both entrypoints.
+    console.log(await diagnostic.queryDiagnostic(options));
   } catch (error) {
     // Never print native errors, stack, connection strings, config values or key bytes.
-    console.error('CHECK_FAILED category=' + classify(error)); process.exitCode = 1;
-  } finally {
-    if (client) { try { await client.$disconnect(); } catch { process.exitCode = 1; console.error('DISCONNECT_FAILED'); } }
+    if (Failure && error instanceof Failure) for (const line of error.lines()) console.error(line);
+    console.error('FAIL stage=PRISMA_READ_ONLY code=' + (diagnosticFailureCode ? diagnosticFailureCode(error) : 'CONFIGURATION_OR_CONNECTION')); process.exitCode = 1;
   }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

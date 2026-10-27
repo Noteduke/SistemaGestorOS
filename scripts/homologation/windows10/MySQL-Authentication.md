@@ -68,3 +68,11 @@ Esta alternativa protege a senha no intercâmbio RSA; **não cifra o tráfego SQ
 6. Conferir serviço/API pelo HTTPS e somente então autorizar o bootstrap manual em etapa própria. Não executar bootstrap, migrations, grants ou gravações nesta validação de autenticação.
 
 Referências: [MySQL caching_sha2_password](https://dev.mysql.com/doc/refman/8.0/en/caching-sha2-pluggable-authentication.html), [opções do Connector/Node.js](https://mariadb.com/docs/connectors/mariadb-connector-nodejs/node-js-connection-options).
+
+## Correção prioritária do primeiro login
+
+O procedimento vigente está em [mysql-rsa/PRIMEIRO-LOGIN-RSA.md](mysql-rsa/PRIMEIRO-LOGIN-RSA.md). Remove a exigência indevida de igualdade entre DER original e reexportado, mantém pin dos bytes originais e usa Node crypto para importar SPKI/PKCS#1 e converter somente em memória. O diagnóstico compilado compartilha helper, Client e Adapter da aplicação e testa a leitura no servidor ANTES da implantação, sem editar configuração. Código candidato não recebe sourceCommit antigo; novo commit/release exige autorização. Bootstrap e login reais continuam pendentes de execução administrativa autorizada.
+
+### Chave real: causa comprovada
+
+O material público autorizado tem 452 bytes: PEM SPKI RSA 2048, expoente 65537, LF e um NUL final (offset 451). O SHA-256 aprovado foi confirmado no arquivo intacto. O release aea5af9 falha na regex ancorada porque String.trim() não remove NUL; o mesmo código passa ao retirar apenas esse byte em memória. Não é falha de formato PKCS#1, DER, grants ou ACL. Os validadores corrigidos usam crypto.createPublicKey e exportam SPKI só em memória, mantendo o pin dos bytes originais. A chave real foi aceita pelo helper compilado e pela rotina RSA do MariaDB 3.5.4; autenticação real no servidor permanece para o diagnóstico autorizado. O arquivo público não foi alterado nem incluído no repositório/pacote.

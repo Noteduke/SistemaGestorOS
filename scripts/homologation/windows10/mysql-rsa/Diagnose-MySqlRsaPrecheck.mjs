@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 // This diagnostic must never connect, even if an imported dependency regresses.
 Socket.prototype.connect = function () { throw new Error('NETWORK_FORBIDDEN'); };
 const safeCodes = new Set(['CONFIG_FORMAT','DUPLICATE_KEY','WRONG_TARGET','CONFLICTING_AUTH_CONFIG',
-  'RSA_CONFIG_MISSING','INHERITED_ENV_CONFLICT','PUBLIC_KEY_HASH','PUBLIC_KEY_FORMAT','REPARSE_POINT','NETWORK_FORBIDDEN']);
+  'RSA_CONFIG_MISSING','INHERITED_ENV_CONFLICT','PUBLIC_KEY_HASH','PUBLIC_KEY_FORMAT','PUBLIC_KEY_ENVELOPE','PUBLIC_KEY_PARSE','PUBLIC_KEY_ALGORITHM','PUBLIC_KEY_SIZE','PUBLIC_KEY_EXPORT','REPARSE_POINT','NETWORK_FORBIDDEN']);
 function fail(stage, error) {
   let code = safeCodes.has(error?.message) ? error.message : 'UNCLASSIFIED_SAFE_FAILURE';
   if (error?.code === 'ENOENT') code='FILE_MISSING';

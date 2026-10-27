@@ -65,7 +65,7 @@ try {
   }
   $sourcePath=Join-Path $root 'Set-MySqlRsaConfiguration.ps1'; $helperPath=Join-Path $root 'Check-MySqlRsa.mjs'; $diagPath=Join-Path $root 'Diagnose-MySqlRsaPrecheck.ps1'
   [IO.File]::WriteAllText($sourcePath,$original,$utf8); [IO.File]::WriteAllText($helperPath,$helper,$utf8)
-  $diagnosis=$diagnosis.Replace('2BF13853DAE4F4C843337FF73F625599B974FD4314E08CF2633852E9DC31B4C8',(Get-FileHash -LiteralPath $sourcePath).Hash).Replace('E0BF62768CD61587C9BF27639F9F3080535A81A901E4B1BF42696C254ADD2912',(Get-FileHash -LiteralPath $helperPath).Hash)
+  $diagnosis=$diagnosis.Replace('2BF13853DAE4F4C843337FF73F625599B974FD4314E08CF2633852E9DC31B4C8',(Get-FileHash -LiteralPath $sourcePath).Hash).Replace('CAEF49C9D82C447341DE0334B878B32EFB42CB62B04FED7BABCF6FB5D06C9143',(Get-FileHash -LiteralPath $helperPath).Hash)
   [IO.File]::WriteAllText($diagPath,$diagnosis,$utf8)
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Diagnose-MySqlRsaPrecheck.mjs') -Destination (Join-Path $root 'Diagnose-MySqlRsaPrecheck.mjs')
   $envText="DATABASE_URL=mysql://gos_homologation_app:synthetic-secret-marker@127.0.0.1:3306/gestor_os_homologation`r`nGOS_DEPLOYMENT_ENV=homologation`r`nGOS_DATABASE_TARGET=gestor_os_homologation`r`nGOS_EXTERNAL_EFFECTS_ENABLED=false`r`n"

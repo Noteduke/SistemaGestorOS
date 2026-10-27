@@ -544,6 +544,7 @@ param([string]$PackagePath, [switch]$Apply)
   Write-Output 'PASS: entrada real -Apply -WhatIf executada para formatos legado/completo com destino e serviços simulados; nenhuma mutação foi alcançada.'
   & (Join-Path $PSScriptRoot 'Test-UpdateHomologationRealScope.ps1') -VerifyBrokenClosureRegression
   & (Join-Path $PSScriptRoot 'Test-UpdateHomologationRealScope.ps1')
+  & (Join-Path $PSScriptRoot 'Test-UpdateHomologationHttps.ps1')
   Write-Output 'PASS: todos os cenários foram executados em PowerShell sem serviços ou bancos reais.'
 } finally {
   if ($env:GOS_TEST_KEEP_ARTIFACTS -ne '1' -and (Test-Path -LiteralPath $script:TestRoot)) {

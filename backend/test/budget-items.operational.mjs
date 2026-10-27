@@ -1,3 +1,5 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -5,18 +7,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
-import dotenv from "dotenv";
 import mariadb from "mariadb";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { Prisma, PrismaClient } from "../dist/generated/prisma/client.js";
 import { balanceForProduct } from "../dist/modules/service-orders/service-order-stock-applications.service.js";
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const envFile = dotenv.parse(fs.readFileSync(path.join(backendDir, ".env")));
-const databaseUrl = new URL(envFile.DATABASE_URL);
-databaseUrl.pathname = "/gestor_os_opening_test";
-assert.ok(["localhost", "127.0.0.1"].includes(databaseUrl.hostname), "A validação só aceita MySQL local.");
-assert.equal(databaseUrl.pathname, "/gestor_os_opening_test", "O alvo tem que ser exclusivamente gestor_os_opening_test.");
+const databaseUrl = disposableUrl;
+const httpPort = await reserveHttpPort();
 
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb({
   host: databaseUrl.hostname,
@@ -69,7 +67,7 @@ async function api(pathname, { method = "GET", body, auth = true, csrf = true, e
     if (current) headers["X-Service-Order-Revision"] = expectedRevision ?? current.updatedAt.toISOString();
   }
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const response = await fetch(`http://127.0.0.1:3137/api/v1${pathname}`, {
+  const response = await fetch(`http://127.0.0.1:${httpPort}/api/v1${pathname}`, {
     method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { status: response.status, body: await responseJson(response) };
@@ -106,7 +104,7 @@ async function waitForServer() {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (server.exitCode !== null) throw new Error(`Backend de teste encerrou antes de ficar pronto (exit ${server.exitCode}).`);
     try {
-      const response = await fetch("http://127.0.0.1:3137/api/v1/auth/csrf");
+      const response = await fetch(`http://127.0.0.1:${httpPort}/api/v1/auth/csrf`);
       if (response.ok) return;
     } catch { /* process is still starting */ }
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -146,7 +144,7 @@ try {
   server = spawn(process.execPath, ["dist/main.js"], {
     cwd: backendDir,
     windowsHide: true,
-    env: { ...process.env, DATABASE_URL: databaseUrl.toString(), PORT: "3137", NODE_ENV: "development" },
+    env: { ...process.env, DATABASE_URL: databaseUrl.toString(), PORT: String(httpPort), NODE_ENV: "development" },
     stdio: "ignore",
   });
   await waitForServer();
@@ -169,11 +167,11 @@ try {
   } });
   createdProductIds.push(stockProduct.publicId, zeroPriceProduct.publicId, noPriceProduct.publicId, inactiveProduct.publicId);
 
-  const preAuth = await fetch("http://127.0.0.1:3137/api/v1/auth/csrf");
+  const preAuth = await fetch(`http://127.0.0.1:${httpPort}/api/v1/auth/csrf`);
   const preAuthCookie = cookiePair(preAuth, "gos_pre_auth");
   const preAuthBody = await preAuth.json();
   assert.ok(preAuthCookie && preAuthBody.data?.csrfToken, "Contexto CSRF pré-login não foi criado.");
-  const login = await fetch("http://127.0.0.1:3137/api/v1/auth/login", {
+  const login = await fetch(`http://127.0.0.1:${httpPort}/api/v1/auth/login`, {
     method: "POST", headers: {
       "Content-Type": "application/json", Accept: "application/json", Origin: "http://127.0.0.1:5173",
       Cookie: preAuthCookie, "X-CSRF-Token": preAuthBody.data.csrfToken,

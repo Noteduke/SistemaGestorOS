@@ -1,20 +1,13 @@
+import {configureDisposableTest, PERMISSION_CATALOG, reserveHttpPort} from './disposable-config.mjs';
+const disposableUrl = await configureDisposableTest();
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { NestFactory } from "@nestjs/core";
 import argon2 from "argon2";
-import dotenv from "dotenv";
 import { AppModule } from "../dist/app.module.js";
 import { PrismaService } from "../dist/infrastructure/prisma/prisma.service.js";
 
-dotenv.config({ path: ".env", quiet: true });
-const source = process.env.DATABASE_URL;
-if (!source) throw new Error("DATABASE_URL ausente.");
-const target = new URL(source);
-if (target.protocol !== "mysql:") throw new Error("DATABASE_URL não é MySQL.");
-target.pathname = "/gestor_os_opening_test";
-target.search = "";
-process.env.DATABASE_URL = target.toString();
-delete process.env.SHADOW_DATABASE_URL;
+const target = disposableUrl;
 
 const app = await NestFactory.create(AppModule, { logger: false });
 app.setGlobalPrefix("api/v1");
@@ -70,7 +63,7 @@ try {
   process.stdout.write("DATABASE()=gestor_os_opening_test; validação operacional de Produtos inicia no banco isolado.\n");
   await app.listen(0, "127.0.0.1");
 
-  assert.equal(await prisma.permission.count(), 43, "Atualize o seed de permissões no banco isolado antes do roteiro.");
+  assert.equal(await prisma.permission.count(), PERMISSION_CATALOG.length, "Atualize o seed de permissões no banco isolado antes do roteiro.");
   const permissionRow = await prisma.permission.findUniqueOrThrow({ where: { code: "products.manage" } });
   await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.read" } });
   await prisma.permission.findUniqueOrThrow({ where: { code: "products.cost.update" } });
