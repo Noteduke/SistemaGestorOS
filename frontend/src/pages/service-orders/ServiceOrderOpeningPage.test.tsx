@@ -101,15 +101,15 @@ describe("ServiceOrderOpeningPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
     const dialog = screen.getByRole("dialog", { name: "Confirmar criação da OS?" });
-    expect(dialog).toHaveTextContent("ABERTA / TRIAGEM");
+    expect(dialog).toHaveTextContent("ABERTA / STATUS INICIAL CONFIGURADO");
     expect(dialog).toHaveTextContent("OS-000132");
     expect(dialog).toHaveTextContent("snapshots do cliente e do equipamento");
     expect(dialog).toHaveTextContent("não cria orçamento, peças ou registros financeiros");
-    await user.click(screen.getByRole("button", { name: "Voltar" }));
+    await user.click(screen.getByRole("button", { name: "Voltar e preencher" }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({
       method: "POST",
@@ -130,7 +130,7 @@ describe("ServiceOrderOpeningPage", () => {
     const onConfirmed = vi.fn();
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={onConfirmed} onBack={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
     expect(await screen.findByRole("button", { name: "Confirmando…" })).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     resolvePost?.(response({ data: { publicId: "9f491492-4287-4e0f-9201-f642174e94cd", visibleNumber: "OS-000133", macroStatus: "ABERTA", operationalSituation: "TRIAGEM" } }, 201));
@@ -156,7 +156,7 @@ describe("ServiceOrderOpeningPage", () => {
     const user = userEvent.setup();
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
@@ -166,7 +166,7 @@ describe("ServiceOrderOpeningPage", () => {
     const user = userEvent.setup();
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "Confirmar OS" }));
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível comunicar com o servidor para confirmar a OS.");
   });
 
@@ -375,7 +375,7 @@ describe("ServiceOrderOpeningPage", () => {
     }));
     const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(calledUrls.some((url) => /\/confirm(?:\?|$)/.test(url))).toBe(false);
-    expect(calledUrls.some((url) => /\/equipment\/opening-search|\/equipment-types|\/equipment-brands/.test(url))).toBe(false);
+    expect(calledUrls).toContain(`/api/v1/equipment/opening-search?page=1&pageSize=20&ownerPublicId=${customer.publicId}`);
   });
 
   it("permite trocar o cliente salvo enquanto a abertura continua em andamento", async () => {
@@ -400,7 +400,7 @@ describe("ServiceOrderOpeningPage", () => {
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" canConfirmServiceOrderOpening={false} onConfirmed={vi.fn()} onBack={vi.fn()} />);
     expect(await screen.findByText("Cliente Atual")).toBeInTheDocument();
     expect(screen.getByText("Documento: ***.***.***-42")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Trocar cliente" }));
+    await user.click(screen.getByRole("button", { name: "Substituir cliente" }));
     await user.type(screen.getByLabelText("Buscar cliente por nome, documento ou telefone"), "Novo");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
     await user.click(await screen.findByRole("button", { name: /Cliente Novo/ }));
@@ -489,7 +489,7 @@ describe("ServiceOrderOpeningPage", () => {
     expect(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ })).toBeInTheDocument();
     expect(screen.getByText("Série: SERIAL-001")).toBeInTheDocument();
     expect(screen.getByText("Proprietário atual: Cliente Atual")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/equipment/opening-search?page=1&pageSize=20&search=latitude", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/equipment/opening-search?page=1&pageSize=20&search=latitude&ownerPublicId=customer-public-id", expect.objectContaining({
       method: "GET",
       credentials: "include",
     }));
@@ -622,10 +622,10 @@ describe("ServiceOrderOpeningPage", () => {
     await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
     const dialog = screen.getByRole("dialog", { name: "Confirmar criação da OS?" });
     expect(dialog).toHaveTextContent("Ao confirmar, este equipamento será transferido de Outro Cliente para Cliente Atual.");
-    await user.click(screen.getByRole("button", { name: "Voltar" }));
+    await user.click(screen.getByRole("button", { name: "Voltar e preencher" }));
     expect(fetchMock).toHaveBeenCalledTimes(3);
     await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({ method: "POST", body: "{}" }));
     expect(onConfirmed).toHaveBeenCalledWith("confirmed-order");
   });
@@ -691,7 +691,7 @@ describe("ServiceOrderOpeningPage", () => {
     render(<ServiceOrderOpeningPage csrfToken="csrf-session" canTransferEquipmentOwnership canConfirmServiceOrderOpening onConfirmed={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByText("Cliente Atual");
-    await user.click(screen.getByRole("button", { name: "Trocar cliente" }));
+    await user.click(screen.getByRole("button", { name: "Substituir cliente" }));
     await user.type(screen.getByLabelText("Buscar cliente por nome, documento ou telefone"), "Cliente Novo");
     await user.click(screen.getByRole("button", { name: "Buscar clientes" }));
     await user.click(await screen.findByRole("button", { name: "Cliente Novo" }));
@@ -790,7 +790,7 @@ describe("ServiceOrderOpeningPage", () => {
     await user.click(await screen.findByRole("button", { name: /NOTEBOOK · DELL · LATITUDE 5440/ }));
 
     const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
-    expect(calledUrls).toContain("/api/v1/equipment/opening-search?page=1&pageSize=20");
+    expect(calledUrls).toContain("/api/v1/equipment/opening-search?page=1&pageSize=20&ownerPublicId=customer-public-id");
     expect(calledUrls.some((url) => /\/equipment-types|\/equipment-brands|\/confirm(?:\?|$)/.test(url))).toBe(false);
     expect(fetchMock.mock.calls.filter(([, options]) => options.method === "PATCH" || String(options.method).startsWith("POST")).length).toBe(0);
   });
@@ -812,6 +812,7 @@ describe("ServiceOrderOpeningPage", () => {
       .mockResolvedValueOnce(response({ data: linkedOpening }))
       .mockResolvedValueOnce(response({ data: [type], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
       .mockResolvedValueOnce(response({ data: [brand], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } }))
+      .mockResolvedValueOnce(response({ data: [], pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 } }))
       .mockResolvedValueOnce(response({ data: savedOpening }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -831,7 +832,7 @@ describe("ServiceOrderOpeningPage", () => {
 
     expect(await screen.findByText("Novo equipamento da abertura")).toBeInTheDocument();
     expect(screen.getByText("Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(4, `/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(5, `/api/v1/service-orders/openings/${opening.publicId}`, expect.objectContaining({
       method: "PATCH",
       credentials: "include",
       headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session", "Content-Type": "application/json" }),
@@ -948,7 +949,7 @@ describe("ServiceOrderOpeningPage", () => {
     expect(screen.getByRole("button", { name: "Confirmar OS" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Confirmar OS" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("O equipamento novo será criado pelo Backend somente nesta confirmação.");
-    await user.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+    await user.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
 
     expect(onConfirmed).toHaveBeenCalledWith(orderPublicId);
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/openings/${opening.publicId}/confirm`, expect.objectContaining({ method: "POST", body: "{}", headers: expect.objectContaining({ "X-CSRF-Token": "csrf-session" }) }));
@@ -1087,3 +1088,6 @@ describe("ServiceOrderOpeningPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível salvar o novo equipamento na abertura.");
   });
 });
+
+vi.mock("../../api/openingWorkflow", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), openingOptions: vi.fn(async () => ({ data: { initialStatus: { publicId: "initial-status", name: "STATUS INICIAL CONFIGURADO" } } })) }));
+vi.mock("../../api/people", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), getOpeningPerson: vi.fn(async () => { throw new Error("Sem detalhes neste teste de abertura"); }) }));

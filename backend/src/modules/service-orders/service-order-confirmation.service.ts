@@ -5,6 +5,7 @@ import { AuthPolicyService } from "../auth/auth-policy.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { ConfirmOpeningInput } from "./dto/confirm-opening.dto.js";
 import { parseOpeningPatch } from "./dto/opening-patch.dto.js";
+import { emptyOpeningIntake, parseOpeningIntake } from "./dto/opening-intake.dto.js";
 import { formatServiceOrderNumber } from "./domain/service-order-number-format.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -156,15 +157,19 @@ export class ServiceOrderConfirmationService {
         const equipmentSnapshot = { snapshotVersion: 1, capturedAt, type: equipmentType, brand: equipmentBrand,
           model: equipmentModel, serialNumber: equipmentSerial,
           mainIdentification: [equipmentType, equipmentBrand, equipmentModel, equipmentSerial].filter(Boolean).join(" / ") };
-        const initialStatus = await tx.$queryRaw<Array<{ id: number; is_active: number }>>`SELECT id, is_active FROM service_order_statuses WHERE id = 1 FOR UPDATE`;
+        const initialStatus = await tx.$queryRaw<Array<{ id: number; name: string; is_active: number; technical_completion: string }>>`SELECT id, name, is_active, technical_completion FROM service_order_statuses WHERE id = 1 FOR UPDATE`;
         if (initialStatus.length !== 1 || !initialStatus[0].is_active) {
           throw new ConflictException({ code: "INITIAL_SERVICE_ORDER_STATUS_INACTIVE", message: "O status inicial de triagem está inativo e não permite confirmar novas OS." });
         }
         await tx.serviceOrderStatus.update({ where: { id: 1 }, data: { everAssigned: true } });
+        if (initialStatus[0].technical_completion && initialStatus[0].technical_completion !== "NOT_COMPLETED") throw inconsistent("Status inicial não pode concluir tecnicamente uma OS nova.");
+        const intake = opening.intakeDataJson ? parseOpeningIntake(opening.intakeDataJson) : emptyOpeningIntake();
+        const initialName = initialStatus[0].name ?? "TRIAGEM";
         const order = await tx.serviceOrder.create({ data: {
           openingId: opening.id, numberValue, customerId: customer.id, equipmentId, createdByUserId: actor.id,
           macroStatus: "OPEN", complaint: opening.complaint,
-          intakeObservations: input.intakeObservations ?? null,
+          intakeObservations: input.intakeObservations === undefined ? intake.observations || null : input.intakeObservations,
+          intakeDataJson: intake as unknown as Prisma.InputJsonValue,
           newEquipmentSerialIdentificationStatus: serialStatus,
           customerSnapshotJson: customerSnapshot, equipmentSnapshotJson: equipmentSnapshot,
           snapshotVersion: 1, snapshotCapturedAt: now, openedAt: now,
@@ -205,15 +210,15 @@ export class ServiceOrderConfirmationService {
         await tx.serviceOrderEvent.create({ data: { ...eventBase, eventType: "ABERTURA_CONFIRMADA",
           payload: { openingPublicId: publicId, serviceOrderPublicId: order.publicId, visibleNumber,
             customerPublicId: customer.publicId, equipmentPublicId, macroStatus: "ABERTA",
-            operationalSituation: "TRIAGEM", technicalCompletion: "NOT_COMPLETED", snapshotCapturedAt: capturedAt } } });
+            operationalSituation: initialName, technicalCompletion: "NOT_COMPLETED", snapshotCapturedAt: capturedAt } } });
         if (assignedUserPublicIds.length) await tx.serviceOrderEvent.create({ data: { ...eventBase, eventType: "ATRIBUICOES_ALTERADAS",
           payload: { previousUserPublicIds: [], newUserPublicIds: assignedUserPublicIds, actorUserPublicId: actor.publicId } } });
 
         return { data: { publicId: order.publicId, openingPublicId: publicId, visibleNumber, numberValue: numberValue.toString(),
-          macroStatus: "ABERTA", operationalSituation: "TRIAGEM", operationalStatus: { name: "TRIAGEM", technicalCompletion: "NOT_COMPLETED" },
+          macroStatus: "ABERTA", operationalSituation: initialName, operationalStatus: { name: initialName, technicalCompletion: "NOT_COMPLETED" },
           technicalCompletion: "NOT_COMPLETED", technicalCompletedAt: null, customer: { publicId: customer.publicId, name: customer.name },
           equipment: { publicId: equipmentPublicId, type: equipmentType, brand: equipmentBrand, model: equipmentModel, serialNumber: equipmentSerial },
-          customerSnapshot, equipmentSnapshot, complaint: opening.complaint, intakeObservations: order.intakeObservations,
+          customerSnapshot, equipmentSnapshot, complaint: opening.complaint, intakeObservations: order.intakeObservations, intakeData: intake,
           assignedUserPublicIds, createdAt: order.createdAt, confirmedAt: now } };
       }, TRANSACTION_OPTIONS);
     } catch (error) {

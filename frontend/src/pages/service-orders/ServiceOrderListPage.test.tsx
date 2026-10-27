@@ -26,6 +26,24 @@ function pageResult(page: number) {
 }
 
 describe("ServiceOrderListPage", () => {
+  it("combina estado, técnico e dia, reinicia página e limpa filtros sem inventar garantia", async () => {
+    const fetchMock=vi.fn().mockResolvedValue(response(pageResult(1)));vi.stubGlobal("fetch",fetchMock);
+    render(<ServiceOrderListPage page={2} onPageChange={vi.fn()} onOpen={vi.fn()} onStartOpening={vi.fn()}/>);
+    await screen.findByText("OS-000128");
+    expect(screen.getByLabelText("Garantia")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Estado"),{target:{value:"CLOSED"}});
+    fireEvent.change(screen.getByLabelText("Técnico responsável"),{target:{value:"none"}});
+    fireEvent.change(screen.getByLabelText("Campo de data"),{target:{value:"exit"}});
+    fireEvent.change(screen.getByLabelText("Período"),{target:{value:"specific"}});
+    fireEvent.change(screen.getByLabelText("Data específica"),{target:{value:"2026-10-23"}});
+    fireEvent.click(screen.getByRole("button",{name:"Filtrar"}));
+    await waitFor(()=>expect(String(fetchMock.mock.lastCall?.[0])).toContain("dateTo=2026-10-23"));
+    const url=new URL(String(fetchMock.mock.lastCall?.[0]),"http://localhost");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({page:"1",state:"CLOSED",unassigned:"true",dateField:"exit",dateFrom:"2026-10-23",dateTo:"2026-10-23"});
+    fireEvent.click(screen.getByRole("button",{name:"Limpar filtros"}));
+    await waitFor(()=>expect(String(fetchMock.mock.lastCall?.[0])).not.toContain("dateTo="));
+    expect(screen.getByLabelText("Estado")).toHaveValue("");
+  });
   it("exibe OS confirmadas com número, cliente e equipamento resumidos", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(pageResult(1)));
     vi.stubGlobal("fetch", fetchMock);

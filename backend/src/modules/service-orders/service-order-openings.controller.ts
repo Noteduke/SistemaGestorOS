@@ -24,6 +24,10 @@ export class ServiceOrderOpeningsController {
     return this.openings.current(request.auth!);
   }
 
+  @Get("options")
+  @RequirePermissions("service_orders.opening.create")
+  options() { return this.openings.options(); }
+
   @Get(":publicId")
   @RequireAuthenticated()
   getByPublicId(@Param("publicId") publicId: string, @Req() request: AuthRequest) {

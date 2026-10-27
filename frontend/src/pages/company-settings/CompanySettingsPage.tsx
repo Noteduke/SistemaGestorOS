@@ -1,3 +1,4 @@
+import { TrackedForm } from "../../components/PendingForms";
 import { useEffect, useState, type FormEvent } from "react";
 import { getCompanySettings, removeCompanyLogo, updateCompanySettings, uploadCompanyLogo, type CompanySettings } from "../../api/companySettings";
 
@@ -5,6 +6,7 @@ type FormValues = Pick<CompanySettings, "legalName" | "tradeName" | "cnpj" | "fu
 const EMPTY_FORM: FormValues = { legalName: "", tradeName: "", cnpj: "", fullAddress: "", phone: "", email: "" };
 
 export function CompanySettingsPage({ csrfToken }: { csrfToken: string }) {
+  const [formSaved,setFormSaved]=useState(0);
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [form, setForm] = useState<FormValues>(EMPTY_FORM);
   const [file, setFile] = useState<File | null>(null);
@@ -32,7 +34,7 @@ export function CompanySettingsPage({ csrfToken }: { csrfToken: string }) {
     event.preventDefault(); setSaving(true); setError(""); setSuccess("");
     try {
       const response = await updateCompanySettings(form, csrfToken);
-      setSettings(response.data); setSuccess("Dados da empresa salvos.");
+      setSettings(response.data); setFormSaved(n=>n+1); setSuccess("Dados da empresa salvos.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar os dados."); }
     finally { setSaving(false); }
   }
@@ -59,7 +61,7 @@ export function CompanySettingsPage({ csrfToken }: { csrfToken: string }) {
     <div className="page-heading"><div><p className="eyebrow">Configuração administrativa</p><h1 id="company-settings-title">Identificação da empresa</h1><p>Os dados cadastrados serão usados nos documentos da Ordem de Serviço.</p></div></div>
     {error && <p className="form-error" role="alert">{error}</p>}{success && <p className="inline-success" role="status">{success}</p>}
     {settings?.logoUnavailable && <p className="form-error" role="alert">A logo cadastrada não está disponível. Envie outra imagem ou remova o registro.</p>}
-    <form className="catalog-form" onSubmit={(event) => void submit(event)}>
+    <TrackedForm saved={formSaved} className="catalog-form" onSubmit={(event) => void submit(event)}>
       <label>Razão social<input maxLength={191} value={form.legalName ?? ""} onChange={(event) => setForm({ ...form, legalName: event.target.value })} /></label>
       <label>Nome fantasia<input maxLength={191} value={form.tradeName ?? ""} onChange={(event) => setForm({ ...form, tradeName: event.target.value })} /></label>
       <label>CNPJ<input maxLength={32} inputMode="text" value={form.cnpj ?? ""} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} /></label>
@@ -74,6 +76,6 @@ export function CompanySettingsPage({ csrfToken }: { csrfToken: string }) {
           <button className="button button--secondary" type="button" disabled={(!settings?.logoDataUrl && !settings?.logoUnavailable) || saving} onClick={() => void clearLogo()}>Remover logo</button></div>
       </div>
       <div className="catalog-form__actions"><button className="button button--primary" type="submit" disabled={saving}>{saving ? "Salvando…" : "Salvar dados da empresa"}</button></div>
-    </form>
+    </TrackedForm>
   </section>;
 }

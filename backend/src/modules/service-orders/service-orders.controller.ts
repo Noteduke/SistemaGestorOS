@@ -45,10 +45,20 @@ export class ServiceOrdersController {
     return this.orders.list(parseListServiceOrdersQuery(query));
   }
 
+  @Get("filter-technicians")
+  @RequirePermissions("service_orders.read")
+  filterTechnicians() { return this.orders.filterTechnicians(); }
+
   @Get(":publicId")
   @RequirePermissions("service_orders.read")
   getByPublicId(@Param("publicId") publicId: string) {
     return this.orders.getByPublicId(publicId);
+  }
+
+  @Get(":publicId/documents/exit")
+  @RequirePermissions("service_orders.read", "service_orders.budget.read", "service_orders.events.read")
+  exitPrintData(@Param("publicId") publicId: string) {
+    return this.orders.getExitPrintData(publicId);
   }
 
   @Get(":publicId/edit-control")

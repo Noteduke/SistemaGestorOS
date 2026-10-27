@@ -75,8 +75,15 @@ tbody tr:hover { background: #fbfcfd; }
 .opening-warning { margin: 0; padding: 14px 16px; border-left: 3px solid #d79a35; border-radius: 5px; background: #fff8e9; color: #634c24; line-height: 1.55; }
 .opening-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .opening-confirmation-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(18 35 48 / 52%); }
-.opening-confirmation-dialog { display: grid; gap: 16px; width: min(100%, 520px); padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgb(10 28 42 / 24%); }
+.opening-confirmation-dialog { display: grid; gap: 16px; width: min(100%, 520px); max-height: 90vh; overflow-y: auto; padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgb(10 28 42 / 24%); }
 .opening-confirmation-dialog h2 { margin: 0; font-size: 20px; }
+.person-form.opening-equipment__draft-fields { display: grid; grid-template-columns: 1fr; width: 100%; }
+.person-form.opening-equipment__draft-fields fieldset label { display: grid; grid-template-columns: 1fr; align-items: start; }
+.person-form fieldset label:has(input[type="checkbox"]) { display: flex; }
+.person-form.opening-equipment__draft-fields input[type="checkbox"] { width: auto; min-height: auto; }
+.person-form__contact { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.field-error { color: #a52121; font-size: 12px; grid-column: 1 / -1; }
+input[aria-invalid="true"], select[aria-invalid="true"] { outline: 2px solid #a52121; outline-offset: 1px; }
 .opening-confirmation-copy { display: grid; gap: 10px; color: #40586b; font-size: 13px; line-height: 1.55; }
 .opening-confirmation-copy p { margin: 0; }
 .opening-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
@@ -321,3 +328,57 @@ dd { margin: 0; color: #30485b; font-size: 13px; overflow-wrap: anywhere; }
 .issue-card { border-top: 1px solid var(--border, #ddd); padding: 1rem 0; }
 .issue-card dd { margin: 0 0 .5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .issue-card dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem .75rem; }
+
+/* Atendimento: preserve legibility and reflow at 125% zoom and narrow windows. */
+.opening-page, .opening-card, .person-form, .opening-customer, .customer-summary { min-width: 0; }
+.opening-page { font-size: 1rem; line-height: 1.55; }
+.opening-page label, .opening-page input, .opening-page select, .opening-page textarea,
+.opening-page .button, .opening-page .text-button, .opening-customer__current { font-size: .95rem; }
+.opening-page .muted, .opening-page .opening-warning { color: #40586b; }
+.opening-page input, .opening-page select, .opening-page textarea { max-width: 100%; box-sizing: border-box; }
+.opening-page textarea { width: 100%; min-height: 6rem; resize: vertical; }
+.opening-page fieldset { min-width: 0; }
+.opening-confirmation-dialog { max-width: 100%; overflow-wrap: anywhere; }
+.opening-confirmation-actions, .opening-actions, .service-order-closure__actions { display: flex; flex-wrap: wrap; gap: .8rem; justify-content: flex-end; }
+.opening-confirmation-actions > p { flex-basis: 100%; }
+.customer-summary { overflow-wrap: anywhere; padding: .8rem; border: 1px solid var(--line); border-radius: .5rem; background: #f7fafb; }
+.customer-summary h3 { font-size: 1rem; margin: .5rem 0; }
+.customer-summary p { margin: .3rem 0; }
+.budget-panel { min-width: 0; }
+.budget-panel .table-scroll { max-width: 100%; }
+.event-payload dd, .event-card { overflow-wrap: anywhere; min-width: 0; }
+.event-heading p, .event-actor { color: #40586b; font-size: .85rem; }
+.event-payload dt { color: #40586b; font-size: .8rem; }
+.event-payload dd { font-size: .95rem; line-height: 1.5; }
+.os-main-menu { display: flex; gap: .65rem; align-items: center; flex-wrap: wrap; font-size: .85rem; }
+.os-main-menu a { color: #176b87; text-decoration: underline; }
+.topbar-inner, .topbar-meta { flex-wrap: wrap; height: auto; }
+.topbar { height: auto; min-height: 72px; padding-block: .65rem; }
+.os-filters { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr));gap:1rem;padding:1rem; }
+.os-filters label { display:grid;gap:.35rem;min-width:0; }
+.os-filters input,.os-filters select { min-width:0;width:100%;padding:.6rem;font:inherit; }
+.os-filters p,.os-filters .form-actions { grid-column:1/-1; }
+.form-actions { display:flex;flex-wrap:wrap;gap:.8rem; }
+.pending-indicator { color:#674400;background:#fff8e5;border-left:4px solid #bd8000;padding:.6rem .9rem;grid-column:1/-1; }
+.pending-indicator .text-button { margin-left:.8rem; }
+.field-pending { outline:2px solid #bd8000;outline-offset:1px;background:#fffaf0!important; }
+.section-pending { border-left:4px solid #bd8000; }
+.budget-panel .table-scroll { width:100%;overflow:auto; }
+.budget-table { min-width:920px;table-layout:auto; }
+.budget-table th,.budget-table td { overflow-wrap:anywhere; }
+.budget-table td:first-child { min-width:15rem;max-width:25rem; }
+.budget-table input { width:100%;min-width:5rem;max-width:14rem;box-sizing:border-box;font:inherit; }
+.budget-table .budget-actions { min-width:13rem;white-space:normal; }
+.budget-actions > button { display:inline-flex;margin:.35rem .75rem .35rem 0;min-height:2rem; }
+.budget-remove { color:#9b2424; }
+.budget-form { grid-template-columns:minmax(9rem,1fr) minmax(0,2fr); }
+.budget-form input,.budget-form select { width:100%;max-width:100%;font:inherit; }
+.budget-form > button,.budget-form > p { grid-column:1/-1;justify-self:end; }
+@media(max-width:680px){.budget-form{grid-template-columns:minmax(0,1fr)}.os-main-menu{width:100%}.topbar-meta{gap:.75rem}.budget-table{font-size:.9rem}}
+@media (max-width: 680px) {
+  .opening-equipment__draft-fields { grid-template-columns: minmax(0, 1fr); }
+  .opening-confirmation-dialog { padding: 1rem; max-height: 92dvh; }
+  .opening-confirmation-actions > button, .opening-actions > button { flex: 1 1 12rem; white-space: normal; }
+  .person-form__contact { min-width: 0; }
+}
+.budget-table td:nth-child(4), .budget-table td:nth-child(5), .budget-table td:nth-child(6) { white-space: nowrap; }

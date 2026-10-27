@@ -1,7 +1,8 @@
 import { BadRequestException } from "@nestjs/common";
+import { parseOpeningIntake, type OpeningIntake } from "./opening-intake.dto.js";
 
 const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FIELDS = ["customerPublicId", "equipmentPublicId", "equipmentDraft", "complaint", "ownershipDecision"] as const;
+const FIELDS = ["customerPublicId", "equipmentPublicId", "equipmentDraft", "complaint", "ownershipDecision", "intakeData"] as const;
 const DRAFT_FIELDS = ["typePublicId", "brandPublicId", "model", "serialIdentificationStatus", "serialNumber"] as const;
 
 export interface EquipmentDraftInput {
@@ -13,6 +14,7 @@ export interface EquipmentDraftInput {
 }
 
 export interface OpeningPatchInput {
+  intakeData?: OpeningIntake;
   customerPublicId?: string | null;
   equipmentPublicId?: string | null;
   equipmentDraft?: EquipmentDraftInput | null;
@@ -25,6 +27,7 @@ export function parseOpeningPatch(body: unknown): OpeningPatchInput {
     throw invalid("Informe somente campos permitidos para a abertura.");
   }
   const result: OpeningPatchInput = {};
+  if (has(body, "intakeData")) result.intakeData = parseOpeningIntake(body.intakeData);
   if (has(body, "customerPublicId")) result.customerPublicId = publicIdOrNull(body.customerPublicId);
   if (has(body, "equipmentPublicId")) result.equipmentPublicId = publicIdOrNull(body.equipmentPublicId);
   if (has(body, "complaint")) {

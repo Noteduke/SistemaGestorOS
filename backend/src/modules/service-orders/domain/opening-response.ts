@@ -1,5 +1,6 @@
 import { formatServiceOrderNumber } from "./service-order-number-format.js";
 import { maskPersonDocument } from "../../people/domain/mask-person-document.js";
+import { emptyOpeningIntake } from "../dto/opening-intake.dto.js";
 
 interface OpeningForResponse {
   publicId: string;
@@ -14,6 +15,7 @@ interface OpeningForResponse {
     brand: { publicId: string; name: string };
     model: string;
     serialNumber: string | null;
+    updatedAt?: Date;
     owner: { publicId: string; name: string; document: string | null };
   } | null;
   equipmentDraftJson?: unknown;
@@ -21,6 +23,8 @@ interface OpeningForResponse {
   transferRequested?: boolean;
   transferRequester?: { publicId: string } | null;
   complaint?: string | null;
+  intakeDataJson?: unknown;
+  customerCreatedDuringOpening?: boolean;
 }
 
 export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPublicId: string, numberReleased?: boolean) {
@@ -32,6 +36,7 @@ export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPu
     initiatedByUserPublicId,
     createdBy: initiatedByUserPublicId,
     customerPublicId: opening.customer?.publicId ?? null,
+    customerCreatedDuringOpening: opening.customerCreatedDuringOpening ?? false,
     customer: opening.customer
       ? {
           publicId: opening.customer.publicId,
@@ -47,6 +52,7 @@ export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPu
           brand: { publicId: opening.equipment.brand.publicId, name: opening.equipment.brand.name },
           model: opening.equipment.model,
           serialNumber: opening.equipment.serialNumber,
+          ...(opening.equipment.updatedAt ? { updatedAt: opening.equipment.updatedAt } : {}),
           serialIdentificationStatus: opening.equipment.serialNumber === null ? "NOT_IDENTIFIED" : "IDENTIFIED",
           owner: {
             publicId: opening.equipment.owner.publicId,
@@ -60,6 +66,7 @@ export function toOpeningResponse(opening: OpeningForResponse, initiatedByUserPu
     transferRequested: opening.transferRequested ?? false,
     transferRequestedByUserPublicId: opening.transferRequester?.publicId ?? null,
     complaint: opening.complaint ?? null,
+    intakeData: opening.intakeDataJson ?? emptyOpeningIntake(),
     createdAt: opening.createdAt,
     updatedAt: opening.updatedAt,
     ...(numberReleased === undefined ? {} : { numberReleased }),

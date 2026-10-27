@@ -11,6 +11,9 @@ export interface NormalizedPersonInput {
   stateRegistration: string | null;
   municipalRegistration: string | null;
   observations: string | null;
+  contactName: string | null;
+  warning: string | null;
+  isActive: boolean;
 }
 
 export function normalizeGeneralText(value: string): string {
@@ -80,6 +83,9 @@ export function normalizePersonInput(input: Record<string, unknown>): Normalized
 
   // Observações são texto passivo; preserva as quebras de linha e espaços internos.
   const observations = optionalText(input.observations, "observations", 2000, true);
+  if (input.isActive !== undefined && typeof input.isActive !== "boolean") throw new BadRequestException({ code: "INVALID_FIELD", message: "isActive deve ser booleano." });
+  const contactName = optionalText(input.contactName, "contactName", 191);
+  if (personType === "PF" && contactName) throw new BadRequestException({ code: "CONTACT_NOT_APPLICABLE", message: "Contato da empresa aplica-se a PJ." });
 
   return {
     personType,
@@ -89,5 +95,8 @@ export function normalizePersonInput(input: Record<string, unknown>): Normalized
     stateRegistration: optionalText(input.stateRegistration, "stateRegistration", 50),
     municipalRegistration: optionalText(input.municipalRegistration, "municipalRegistration", 50),
     observations,
+    contactName,
+    warning: optionalText(input.warning, "warning", 2000, true),
+    isActive: input.isActive !== false,
   };
 }

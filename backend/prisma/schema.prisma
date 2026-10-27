@@ -64,6 +64,8 @@ model Person {
   stateRegistration            String?                @map("state_registration") @db.Text
   municipalRegistration        String?                @map("municipal_registration") @db.Text
   observations                 String?                @db.Text
+  contactName                  String?                @map("contact_name") @db.VarChar(191)
+  warning                      String?                @db.Text
   isActive                     Boolean                @default(true) @map("is_active")
   createdAt                    DateTime               @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt                    DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
@@ -563,6 +565,7 @@ model ServiceOrderNumberAllocation {
 }
 
 model ServiceOrderOpening {
+  customerCreatedDuringOpening Boolean @default(false) @map("customer_created_during_opening")
   id                        Int                       @id @default(autoincrement())
   publicId                  String                    @unique @default(uuid()) @map("public_id") @db.Char(36)
   status                    ServiceOrderOpeningStatus @default(IN_PROGRESS)
@@ -577,6 +580,7 @@ model ServiceOrderOpening {
   transferRequestedByUserId Int?                      @map("transfer_requested_by_user_id")
   transferRequestedAt       DateTime?                 @map("transfer_requested_at") @db.DateTime(3)
   complaint                 String?                   @db.Text
+  intakeDataJson            Json?                     @map("intake_data_json")
   resumedAt                 DateTime?                 @map("resumed_at") @db.DateTime(3)
   confirmedAt               DateTime?                 @map("confirmed_at") @db.DateTime(3)
   canceledAt                DateTime?                 @map("canceled_at") @db.DateTime(3)
@@ -616,6 +620,7 @@ model ServiceOrder {
   technicalConclusionStatusId            Int?                            @map("technical_conclusion_status_id")
   complaint                              String?                         @db.Text
   intakeObservations                     String?                         @map("intake_observations") @db.Text
+  intakeDataJson                         Json?                           @map("intake_data_json")
   newEquipmentSerialIdentificationStatus SerialIdentificationStatus?     @map("new_equipment_serial_identification_status")
   customerSnapshotJson                   Json                            @map("customer_snapshot_json")
   equipmentSnapshotJson                  Json                            @map("equipment_snapshot_json")

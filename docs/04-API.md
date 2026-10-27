@@ -319,3 +319,50 @@ Todas as rotas exigem sessão autenticada. A consulta é disponibilizada aos usu
 - `DELETE /api/v1/company-settings/logo` — remove a referência e arquivo de logo existente, com auditoria; requer Administrador e CSRF.
 
 A migration inicial mantém os campos empresariais vazios; ausência de dados não é preenchida com valores fictícios. O caminho persistente é configurado por `GOS_COMPANY_ASSETS_DIR` no host e deve ser respaldado junto com o ambiente correspondente.
+
+## Complemento de API — abertura operacional
+
+Os contratos de cliente simplificado, filtros de equipamento, edição permanente explícita, catálogos e intake versionado estão em [Abertura — fluxo operacional](planejamento/Abertura-OS-Fluxo-Operacional.md). Reutilizam as permissões existentes e as proteções de sessão/CSRF. A migration de intake ainda não foi aplicada em homologação.
+
+
+## Cadastro completo de cliente — revisão 23/10/2026
+
+POST /people e POST /people/customers compartilham parseCompletePerson/createCompletePerson. O cadastro geral mantém people.create; o fluxo de abertura exige também service_orders.opening.create. No fluxo, openingPublicId é obrigatório e a abertura precisa pertencer ao ator, estar IN_PROGRESS, sem equipamento permanente vinculado e sem cliente anteriormente criado nela. OPENING_CUSTOMER_ALREADY_CREATED (409) bloqueia a repetição. A criação e o vínculo são atômicos; resposta da abertura inclui customerCreatedDuringOpening. O cadastro geral não recebe openingPublicId e não tem esse limite.
+
+Campos: personType, name, document, tradeName, stateRegistration, municipalRegistration, contactName (PJ), observations, warning, isActive; address é objeto único com postalCode/street/number/complement/district/city/state/country; phones é coleção number/isPrimary/confirmNonstandardPhone; emails é coleção address/isPrimary. Coleções opcionais, no máximo um principal por coleção; CPF/CNPJ único e validações oficiais de contato preservadas. phone/email legados continuam aceitos, sem mistura com a coleção correspondente. Campos não autorizados são recusados. GET /people/:publicId mantém a permissão people.read e inclui endereço; contatos continuam nas rotas com people.contacts.read, sem ampliação de acesso.
+# Revisão de usabilidade da abertura — 23/10/2026
+
+Contrato adicional, preparado localmente e ainda não publicado:
+
+- `GET /api/v1/people/customers/opening/:openingId`: dados e contatos somente do cliente
+  vinculado à abertura em andamento do usuário autenticado. Exige `service_orders.opening.create`.
+- `PATCH /api/v1/people/customers/opening/:openingId`: edição confirmada do cliente atual;
+  exige também `people.update` e `people.contacts.add`, `expectedUpdatedAt` atual e
+  `confirmPersonChange=true`. Preserva situação/aviso, inscrições históricas de PF, país
+  existente, IDs e contatos omitidos indevidamente (a requisição é recusada nesse caso).
+  Dados e auditoria são gravados na mesma transação. Conflito de revisão retorna 409.
+- `GET /api/v1/service-orders/:publicId/documents/exit`: valida autorização para impressão
+  e retorna os dados existentes da OS. Exige leitura de OS, orçamento e eventos. OS aberta
+  retorna 409 `EXIT_PRINT_REQUIRES_CLOSURE`; não altera a OS nem gera cobrança.
+
+A apresentação de telefones da abertura é nacional, sem país/DDI. Novos números e correções
+devem ter DDD brasileiro válido e 10 dígitos (fixo) ou 11 (celular iniciado em 9 após DDD).
+Contatos legados inalterados são preservados na edição. `reportedDefect` continua opcional;
+somente seu rótulo muda para Sintoma identificado. Ver o plano operacional da abertura para
+a confirmação explícita no Frontend e as impressões de duas vias ainda futuras.
+# Filtros da listagem de OS — 23/10/2026
+
+`GET /api/v1/service-orders` mantém `service_orders.read`, paginação obrigatória e ordenação descendente por número/id. Parâmetros opcionais combinados por interseção: `statusPublicId` (UUID), `state=OPEN|CLOSED|CANCELED`, `technicianPublicId` (UUID de responsável nominal) ou `unassigned=true`, `dateField=entry|exit`, `dateFrom` e `dateTo` em YYYY-MM-DD. Técnico específico e sem técnico são mutuamente exclusivos.
+
+Entrada consulta `openedAt`; saída consulta a existência do evento `OS_ENCERRADA`. Cancelamento isolado e OS sem esse evento não correspondem à saída. Datas abrangem o dia completo em America/Sao_Paulo: início inclusivo e próximo dia exclusivo, considerando horário de verão histórico. Intervalos inválidos ou datas inexistentes são rejeitados. Contagem e página usam o mesmo predicado.
+
+`GET /api/v1/service-orders/filter-technicians`, protegido por `service_orders.read`, retorna somente publicId e username de usuários ativos ou com atribuição histórica existente; não retorna permissões, custos ou dados de autenticação. Não concede administração de usuários.
+
+Garantia não possui classificação implementada. `warranty=all` é neutro; outros valores são rejeitados, sem presumir cobertura.
+# Documentos de OS — atualização de 23/10/2026
+
+O detalhe `GET /api/v1/service-orders/:publicId`, protegido por `service_orders.read`, inclui `customerPrint` com nome, tipo PF/PJ, documento, nome fantasia, contato, telefones, e-mails e endereço atuais. Não inclui avisos internos nem IDs dos contatos. Retratos históricos continuam imutáveis e separados.
+
+`GET /api/v1/service-orders/:publicId/documents/exit` mantém as permissões de OS/orçamento/eventos e exige FECHADA ou CANCELADA, mesmo que a conclusão técnica indique reparo. Acrescenta `closureEvent` somente com tipo, data e resultado do último encerramento/cancelamento (ordem por occurredAt/id descendente). Não retorna o payload interno desse evento nem custos. Ausência de evento produz campo nulo, sem inventar data de entrega.
+
+Nenhuma mutation, migration ou nova permissão é necessária para imprimir. O Frontend usa leituras atuais após confirmação, não valores ainda locais.

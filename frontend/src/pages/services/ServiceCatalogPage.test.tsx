@@ -90,7 +90,7 @@ describe("ServiceCatalogPage", () => {
       method: "PATCH", body: JSON.stringify({ defaultPrice: "12.50", expectedVersion: 1 }),
       headers: expect.objectContaining({ "X-CSRF-Token": "csrf-test" }),
     })));
-    fireEvent.click(screen.getByRole("button", { name: "Desabilitar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Desabilitar" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v1/services/"), expect.objectContaining({
       method: "PATCH", body: JSON.stringify({ isActive: false, expectedVersion: 1 }),
     })));
@@ -138,7 +138,7 @@ describe("ServiceCatalogPage", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v1/services/"), expect.objectContaining({
       method: "PATCH", body: JSON.stringify({ defaultPrice: "0.00", expectedVersion: 1 }),
     })));
-    fireEvent.click(screen.getByRole("button", { name: "Habilitar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Habilitar" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v1/services/"), expect.objectContaining({
       method: "PATCH", body: JSON.stringify({ isActive: true, expectedVersion: 1 }),
     })));

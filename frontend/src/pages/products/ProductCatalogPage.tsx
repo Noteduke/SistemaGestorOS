@@ -1,3 +1,4 @@
+import { TrackedForm } from "../../components/PendingForms";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   changeProductActivity, createProduct, createProductStockMovement, getProductStockSummary, listProductStockMovements,
@@ -136,6 +137,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
   }
 
   function beginEdit(product: CatalogProduct) {
+    if(document.querySelector('.product-form[data-dirty="true"]') && !window.confirm("Descartar alterações antes de selecionar outro produto?")) return;
     setEditTarget(product);
     setCode(product.internalCode ?? "");
     setDescription(product.description);
@@ -158,7 +160,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
             ? { acquisitionCost }
             : {}
       : {};
-    void run(() => updateProduct(editTarget, { internalCode: code, description, category: formCategory, salePrice, ...costChange }, csrfToken), "Produto atualizado.", () => setEditTarget(null));
+    void run(() => updateProduct(editTarget, { internalCode: code, description, category: formCategory, salePrice, ...costChange }, csrfToken), "Produto atualizado.", () => {setEditTarget(null);setCode("");setDescription("");setFormCategory("PART");setSalePrice("");setAcquisitionCost("");setClearAcquisitionCost(false);});
   }
 
   function submitStockAction(event: FormEvent<HTMLFormElement>) {
@@ -185,7 +187,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
         <span className="count-pill">{result?.pagination.total ?? "—"} registros</span>
       </div>
 
-      {canManageProducts && <form className="product-form info-card" onSubmit={submitCreate}>
+      {canManageProducts && !editTarget && <TrackedForm identity="new-product" className="product-form info-card" onSubmit={submitCreate}>
         <h2>Novo produto</h2>
         <div className="product-form__row">
           <label>Código interno (opcional)<input value={code} onChange={(event) => setCode(event.target.value)} maxLength={64} disabled={pending} /></label>
@@ -198,7 +200,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
           <button className="button button--primary" type="submit" disabled={pending}>Cadastrar produto</button>
         </div>
         <p className="muted">Código interno é único quando informado. A inclusão não registra saldo nem movimentação.</p>
-      </form>}
+      </TrackedForm>}
 
       <div className="product-toolbar">
         <form onSubmit={submitSearch} className="product-search">
@@ -289,7 +291,7 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
         </div>
       </section>}
 
-      {editTarget && canManageProducts && <form className="product-form info-card" onSubmit={submitEdit}>
+      {editTarget && canManageProducts && <TrackedForm identity={editTarget.publicId} className="product-form info-card" onSubmit={submitEdit}>
         <h2>Alterar produto</h2>
         <div className="product-form__row">
           <label>Código interno (opcional)<input value={code} onChange={(event) => setCode(event.target.value)} maxLength={64} disabled={pending} /></label>
@@ -303,9 +305,9 @@ export function ProductCatalogPage({ csrfToken, canManageProducts = true, canMan
             {!canReadCosts && <label className="checkbox-label"><input type="checkbox" checked={clearAcquisitionCost} onChange={(event) => { setClearAcquisitionCost(event.target.checked); setAcquisitionCost(""); }} disabled={pending} /> Definir custo como desconhecido (NULL)</label>}
           </>}
           <button className="button button--primary" type="submit" disabled={pending}>Salvar alterações</button>
-          <button className="button button--secondary" type="button" disabled={pending} onClick={() => setEditTarget(null)}>Cancelar</button>
+          <button className="button button--secondary" type="button" disabled={pending} onClick={() => {if(document.querySelector('.product-form[data-dirty="true"]') && !window.confirm("Descartar alterações deste produto?")) return;setEditTarget(null);setCode("");setDescription("");setFormCategory("PART");setSalePrice("");setAcquisitionCost("");setClearAcquisitionCost(false);}}>Cancelar</button>
         </div>
-      </form>}
+      </TrackedForm>}
     </section>
   );
 }

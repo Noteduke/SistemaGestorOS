@@ -1,3 +1,4 @@
+import { TrackedForm } from "../../components/PendingForms";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   changeServiceActivity, changeServicePrice, createService, deleteService, listServices, ServiceApiError,
@@ -116,7 +117,7 @@ export function ServiceCatalogPage({ csrfToken }: Props) {
         <span className="count-pill">{result?.pagination.total ?? "—"} registros</span>
       </div>
 
-      <form className="service-create info-card" onSubmit={submitCreate}>
+      <TrackedForm className="service-create info-card" onSubmit={submitCreate}>
         <h2>Novo serviço</h2>
         <div className="service-form-row">
           <label>Nome do serviço<input value={name} onChange={(event) => setName(event.target.value)} maxLength={240} required disabled={pending} /></label>
@@ -124,7 +125,7 @@ export function ServiceCatalogPage({ csrfToken }: Props) {
           <button className="button button--primary" type="submit" disabled={pending}>Cadastrar</button>
         </div>
         <p className="muted">O serviço nasce ativo. O nome poderá ser usado novamente após exclusão permitida.</p>
-      </form>
+      </TrackedForm>
 
       <div className="service-toolbar">
         <form onSubmit={submitSearch} className="service-search">
@@ -172,7 +173,7 @@ export function ServiceCatalogPage({ csrfToken }: Props) {
         </>
       )}
 
-      {priceTarget && <form className="service-price-editor info-card" onSubmit={submitPrice}>
+      {priceTarget && <TrackedForm identity={priceTarget.publicId} className="service-price-editor info-card" onSubmit={submitPrice}>
         <h2>Preço padrão: {priceTarget.name}</h2>
         <p className="muted">O nome não pode ser alterado. O novo preço não muda ordens anteriores.</p>
         <div className="service-form-row">
@@ -180,7 +181,7 @@ export function ServiceCatalogPage({ csrfToken }: Props) {
           <button className="button button--primary" type="submit" disabled={pending}>Salvar preço</button>
           <button className="button button--secondary" type="button" disabled={pending} onClick={() => setPriceTarget(null)}>Cancelar</button>
         </div>
-      </form>}
+      </TrackedForm>}
     </section>
   );
 }

@@ -8,6 +8,9 @@ const ALLOWED_FIELDS = new Set([
   "stateRegistration",
   "municipalRegistration",
   "observations",
+  "contactName",
+  "warning",
+  "isActive",
 ]);
 
 export function parseCreatePersonDto(body: unknown): Record<string, unknown> {

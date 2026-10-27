@@ -1,3 +1,4 @@
+import { PendingFormsProvider, usePendingForms } from "./components/PendingForms";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthApiError, getCurrentIdentity, login, logout } from "./api/auth";
 import type { AuthIdentity } from "./api/auth";
@@ -81,12 +82,18 @@ function useHashRoute(onExternalNavigation: (target: string) => boolean): [Route
   return [route, (hash) => { allowHashChange.current = true; window.location.hash = hash; }];
 }
 
-export function App() {
+export function App() { return <PendingFormsProvider><Application /></PendingFormsProvider>; }
+function Application() {
+  const [entryPrintOffer,setEntryPrintOffer]=useState<string|null>(null);
+  const pendingForms=usePendingForms();
+  const [saveThenLeave,setSaveThenLeave]=useState(false);
+  const [saveNotice,setSaveNotice]=useState("");
+  const [unsavedTick,setUnsavedTick]=useState(0);
   const unsavedChangesRef = useRef(false);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
   const [discardChangesVersion, setDiscardChangesVersion] = useState(0);
   const onExternalNavigation = useCallback((target: string) => {
-    if (!unsavedChangesRef.current) return true;
+    if (!unsavedChangesRef.current && !pendingForms.entries.size) return true;
     setPendingLeaveAction(() => () => navigate(target));
     return false;
   }, []);
@@ -121,7 +128,7 @@ export function App() {
   }
 
   function requestLeave(action: () => void) {
-    if (unsavedChangesRef.current) {
+    if (unsavedChangesRef.current || pendingForms.entries.size) {
       setPendingLeaveAction(() => action);
       return;
     }
@@ -131,11 +138,13 @@ export function App() {
   function confirmLeaveWithoutSaving() {
     const action = pendingLeaveAction;
     setPendingLeaveAction(null);
-    unsavedChangesRef.current = false;
+    unsavedChangesRef.current = false; setSaveThenLeave(false);
+    for(const entry of pendingForms.entries.values()) entry.discard?.();
     setDiscardChangesVersion((version) => version + 1);
     action?.();
   }
 
+  useEffect(()=>{if(saveThenLeave && !pendingForms.entries.size && !unsavedChangesRef.current){const action=pendingLeaveAction;setPendingLeaveAction(null);setSaveThenLeave(false);action?.();}},[saveThenLeave,pendingForms.version,pendingLeaveAction,unsavedTick]);
   function navigateSafely(hash: string) {
     requestLeave(() => navigate(hash));
   }
@@ -190,6 +199,7 @@ export function App() {
           <span><strong>Gestor OS</strong><small>Operação técnica</small></span>
         </a>
         <div className="topbar-meta">
+          {(session.identity.isAdmin || session.identity.permissions.includes("service_orders.read") || (session.identity.isAdmin || session.identity.permissions.includes("service_orders.opening.create"))) && <nav className="os-main-menu" aria-label="Ordens de Serviço"><strong>Ordens de Serviço</strong>{(session.identity.isAdmin || session.identity.permissions.includes("service_orders.read")) && <a href="#/service-orders" onClick={e=>{e.preventDefault();navigateSafely("/service-orders");}}>Listagem de Ordens de Serviço</a>}{(session.identity.isAdmin || session.identity.permissions.includes("service_orders.opening.create")) && <a href="#/service-orders/opening" onClick={e=>{e.preventDefault();navigateSafely("/service-orders/opening");}}>Nova Ordem de Serviço</a>}</nav>}
           {canManageServices && <a className="topbar-link" href="#/services" onClick={(event) => { event.preventDefault(); navigateSafely("/services"); }}>Serviços</a>}
           {canAccessProducts && <a className="topbar-link" href="#/products" onClick={(event) => { event.preventDefault(); navigateSafely("/products"); }}>Produtos / Estoque</a>}
           {session.identity.isAdmin && <a className="topbar-link" href="#/service-order-statuses" onClick={(event) => { event.preventDefault(); navigateSafely("/service-order-statuses"); }}>Status de OS</a>}
@@ -201,7 +211,7 @@ export function App() {
           <button className="text-button logout-button" type="button" onClick={() => void handleLogout()}>Sair</button>
         </div>
       </header>
-      <main className="content">
+      <main className="content" key={discardChangesVersion}>
         {route.view === "homologation-issues" ? (
           import.meta.env.MODE === "homologation" ? <HomologationIssuesPage csrfToken={session.identity.csrfToken} isAdmin={session.identity.isAdmin} /> : <section className="state-card">Recurso disponível apenas na Homologação 1.</section>
         ) : route.view === "company-settings" ? (
@@ -224,22 +234,30 @@ export function App() {
             onPageChange={(page) => navigateSafely(`/service-orders?page=${page}`)}
             onOpen={openOrder}
             onStartOpening={startOpening}
+            canStartOpening={session.identity.isAdmin || session.identity.permissions.includes("service_orders.opening.create")}
           />
         ) : route.view === "opening" ? (
           <ServiceOrderOpeningPage
             csrfToken={session.identity.csrfToken}
             canCreateEquipment={session.identity.isAdmin || session.identity.permissions.includes("equipment.create")}
+            canUpdateCustomer={session.identity.isAdmin || ["people.update", "people.contacts.add"].every(p => session.identity.permissions.includes(p))}
+            canCreateCustomer={session.identity.isAdmin || session.identity.permissions.includes("people.create")}
+            canUpdateEquipment={session.identity.isAdmin || session.identity.permissions.includes("equipment.update")}
+            canReadEquipmentHistory={session.identity.isAdmin || session.identity.permissions.includes("service_orders.read")}
+            canAssignTechnician={session.identity.isAdmin || session.identity.permissions.includes("service_orders.assignment.manage")}
             canTransferEquipmentOwnership={session.identity.isAdmin || session.identity.permissions.includes("equipment.transfer_ownership")}
             canConfirmServiceOrderOpening={session.identity.isAdmin || (
               session.identity.permissions.includes("service_orders.opening.create")
               && session.identity.permissions.includes("service_orders.create")
             )}
             onBack={() => navigateSafely("/service-orders")}
-            onConfirmed={(publicId) => openOrder(publicId)}
+            onConfirmed={(publicId) => {setEntryPrintOffer(publicId);openOrder(publicId);}}
           />
         ) : (
           <ServiceOrderDetailPage
             key={route.publicId}
+            offerEntryPrint={entryPrintOffer===route.publicId}
+            onDismissEntryPrint={()=>setEntryPrintOffer(null)}
             publicId={route.publicId}
             csrfToken={session.identity.csrfToken}
             canCreateNote={session.identity.isAdmin || session.identity.permissions.includes("service_orders.update")}
@@ -264,7 +282,7 @@ export function App() {
             onSectionChange={changeDetailSection}
             onBack={() => navigateSafely("/service-orders")}
             discardChangesVersion={discardChangesVersion}
-            onUnsavedChange={(dirty) => { unsavedChangesRef.current = dirty; }}
+            onUnsavedChange={(dirty) => { if(unsavedChangesRef.current !== dirty){unsavedChangesRef.current=dirty;setUnsavedTick(v=>v+1);} }}
           />
         )}
       </main>
@@ -272,8 +290,10 @@ export function App() {
         <section className="unsaved-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-dialog-title" aria-describedby="unsaved-dialog-description">
           <h2 id="unsaved-dialog-title">Alterações não salvas</h2>
           <p id="unsaved-dialog-description">Existem alterações não salvas. Deseja sair mesmo assim?</p>
+          {saveNotice && <p role="status">{saveNotice}</p>}
           <div className="unsaved-dialog__actions">
-            <button className="button button--secondary" type="button" onClick={() => setPendingLeaveAction(null)}>Continuar editando</button>
+            {pendingForms.entries.size===1 && [...pendingForms.entries.values()][0]?.save && <button className="button button--primary" disabled={saveThenLeave} onClick={()=>{setSaveNotice("Salvamento solicitado. A saída ocorrerá somente após sucesso; se houver erro, continue editando.");setSaveThenLeave(true);[...pendingForms.entries.values()][0].save?.();}}>Salvar</button>}
+            <button className="button button--secondary" type="button" onClick={() => {setPendingLeaveAction(null);setSaveThenLeave(false);setSaveNotice("");}}>Continuar editando</button>
             <button className="button button--primary" type="button" onClick={confirmLeaveWithoutSaving}>Sair sem salvar</button>
           </div>
         </section>

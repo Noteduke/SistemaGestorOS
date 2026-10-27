@@ -29,16 +29,16 @@ export function openPrintWindow(): Window | null {
   return popup;
 }
 
-export function writePrintDocument(popup: Window, html: string): void {
+export function writePrintDocument(popup: Window, html: string, options: { autoPrint?: boolean } = {}): void {
   popup.document.open();
   popup.document.write(html);
   popup.document.close();
   popup.focus();
-  popup.setTimeout(() => popup.print(), 250);
+  if (options.autoPrint !== false) popup.setTimeout(() => popup.print(), 250);
 }
 
-export function writePrintError(popup: Window): void {
+export function writePrintError(popup: Window, message = "Não foi possível carregar a identificação da empresa. Feche esta janela e tente novamente."): void {
   popup.document.open();
-  popup.document.write("<!doctype html><html lang='pt-BR'><meta charset='utf-8'><title>Impressão indisponível</title><body><p>Não foi possível carregar a identificação da empresa. Feche esta janela e tente novamente.</p></body></html>");
+  popup.document.write(`<!doctype html><html lang='pt-BR'><meta charset='utf-8'><title>Impressão indisponível</title><body><p>${escapePrintHtml(message)}</p></body></html>`);
   popup.document.close();
 }

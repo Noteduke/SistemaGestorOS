@@ -4,6 +4,33 @@ import { vi } from "vitest";
 import { App } from "./App";
 import { operationalSituationOptions } from "./api/serviceOrders";
 
+it("mostra o menu OS ao leitor sem oferecer abertura não autorizada",async()=>{
+  window.location.hash="#/service-orders";
+  vi.stubGlobal("fetch",vi.fn((input:RequestInfo|URL)=>Promise.resolve(response(String(input).endsWith('/auth/me')?{data:{publicId:'user',username:'leitor',isAdmin:false,permissions:['service_orders.read'],csrfToken:'synthetic',session:{expiresAt:'2026-10-24T00:00:00Z'}}}:{data:[],pagination:{page:1,pageSize:20,total:0,totalPages:0}}))));
+  render(<App/>);expect(await screen.findByRole('navigation',{name:'Ordens de Serviço'})).toBeInTheDocument();
+  expect(screen.getByRole('link',{name:'Listagem de Ordens de Serviço'})).toBeInTheDocument();
+  expect(screen.queryByRole('link',{name:'Nova Ordem de Serviço'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'Nova OS'})).not.toBeInTheDocument();
+});
+
+it("salva produto antes de navegar e conserva rascunho quando a API falha",async()=>{
+  window.location.hash='#/products';let fail=true;
+  const product={publicId:'10000000-0000-4000-8000-000000000001',internalCode:'P1',description:'PRODUTO',category:'PART',salePrice:null,isActive:true,version:1,createdAt:'2026-10-23T12:00:00Z',updatedAt:'2026-10-23T12:00:00Z'};
+  vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=String(input);
+    if(url.endsWith('/auth/me'))return Promise.resolve(response({data:{publicId:'user',username:'admin',isAdmin:true,permissions:[],csrfToken:'synthetic',session:{expiresAt:'2026-10-24T00:00:00Z'}}}));
+    if(init?.method==='PATCH')return Promise.resolve(response(fail?{code:'TEST_FAILURE',message:'Falha sintética'}:{data:product},fail?500:200));
+    return Promise.resolve(response({data:url.includes('/products')?[product]:[],pagination:{page:1,pageSize:20,total:url.includes('/products')?1:0,totalPages:1}}));
+  }));
+  render(<App/>);await screen.findByText('PRODUTO');fireEvent.click(screen.getByRole('button',{name:'Alterar'}));
+  expect(screen.queryByRole('heading',{name:'Novo produto'})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Descrição'),{target:{value:'EDITADO'}});
+  fireEvent.click(screen.getByRole('link',{name:'Listagem de Ordens de Serviço'}));fireEvent.click(await screen.findByRole('button',{name:'Salvar'}));
+  await screen.findByText('Falha sintética');expect(screen.getByLabelText('Descrição')).toHaveValue('EDITADO');
+  fireEvent.click(screen.getByRole('button',{name:'Continuar editando'}));fail=false;
+  fireEvent.click(screen.getByRole('link',{name:'Listagem de Ordens de Serviço'}));fireEvent.click(await screen.findByRole('button',{name:'Salvar'}));
+  expect(await screen.findByRole('heading',{name:'Ordens de Serviço'})).toBeInTheDocument();expect(screen.queryByRole('dialog',{name:'Alterações não salvas'})).not.toBeInTheDocument();
+});
+
 it("restringe a tela de Serviços a Administrador ou services.manage", async () => {
   window.location.hash = "#/services";
   const identity = {
@@ -90,8 +117,8 @@ const order = {
   equipmentSnapshotJson: { snapshotVersion: 1, capturedAt: "2026-10-10T13:00:00.000Z", model: "ThinkPad" },
 };
 
-function response(body: unknown) {
-  return { ok: true, status: 200, json: async () => body };
+function response(body: unknown, status = 200) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
 function unauthorized() {
@@ -233,7 +260,7 @@ it("confirma a abertura e navega ao detalhe, que busca a OS novamente por public
   render(<App />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Confirmar OS" }));
-  await userEvent.click(screen.getByRole("button", { name: "Confirmar e criar OS" }));
+  await userEvent.click(screen.getByRole("button", { name: "Prosseguir sem informar" }));
   expect(await screen.findByRole("heading", { name: "OS-000133" })).toBeInTheDocument();
   await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
     "/api/v1/auth/me",
@@ -391,3 +418,6 @@ it("pede confirmação antes do logout quando o formulário da OS está sujo", a
   expect(await screen.findByRole("heading", { name: "Acesse sua conta" })).toBeInTheDocument();
   expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/auth/logout")).toHaveLength(1);
 });
+
+vi.mock("./api/openingWorkflow", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), openingOptions: vi.fn(async () => ({ data: { initialStatus: { publicId: "initial-status", name: "Recepção" } } })) }));
+vi.mock("./api/people", async importOriginal => ({ ...await importOriginal<Record<string, unknown>>(), getOpeningPerson: vi.fn(async () => { throw new Error("Sem detalhes neste teste de abertura"); }) }));

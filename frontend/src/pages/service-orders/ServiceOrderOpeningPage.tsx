@@ -1,5 +1,11 @@
+import { usePendingChanges } from "../../components/PendingForms";
+import { formatBrazilianPhone } from "../people/brazilian-phone";
+import { PersonForm } from "../people/PersonForm";
+import { getOpeningPerson, updateOpeningPerson, type OpeningPersonDetails } from "../../api/people";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { OpeningCustomerForm } from "./OpeningCustomerForm";
+import { emptyIntake, saveOpeningIntake, openingOptions, editPermanentEquipment, openingRequest, type OpeningIntake } from "../../api/openingWorkflow";
 import {
   ApiError,
   cancelServiceOrderOpening,
@@ -10,6 +16,7 @@ import {
   listOpeningCustomers,
   listOpeningEquipment,
   listOpeningEquipmentTypes,
+  listAssignableUsers,
   lookupDellModel,
   updateServiceOrderOpeningOwnership,
   updateServiceOrderOpeningCustomer,
@@ -27,6 +34,11 @@ interface ServiceOrderOpeningPageProps {
   csrfToken: string;
   canConfirmServiceOrderOpening: boolean;
   canCreateEquipment?: boolean;
+  canCreateCustomer?: boolean;
+  canUpdateCustomer?: boolean;
+  canUpdateEquipment?: boolean;
+  canReadEquipmentHistory?: boolean;
+  canAssignTechnician?: boolean;
   canTransferEquipmentOwnership?: boolean;
   onBack: () => void;
   onConfirmed: (publicId: string) => void;
@@ -139,7 +151,29 @@ function hasValidEquipmentDraft(draft: OpeningEquipmentDraft | null): draft is O
       : typeof draft.serialNumber === "string" && draft.serialNumber.trim()));
 }
 
-export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, canCreateEquipment = false, canTransferEquipmentOwnership = false, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
+export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpening, canCreateEquipment = false, canCreateCustomer = false, canUpdateCustomer = false, canUpdateEquipment = false, canReadEquipmentHistory = false, canAssignTechnician = false, canTransferEquipmentOwnership = false, onBack, onConfirmed }: ServiceOrderOpeningPageProps) {
+  const [customerDetails, setCustomerDetails] = useState<OpeningPersonDetails | null>(null);
+  const [editCustomerData, setEditCustomerData] = useState(false);
+  const [customerDetailsError, setCustomerDetailsError] = useState("");
+  const symptomRef = useRef<HTMLTextAreaElement>(null);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [equipmentFieldErrors, setEquipmentFieldErrors] = useState<Record<string, string>>({});
+  const [createdCustomer, setCreatedCustomer] = useState<OpeningCustomer | null>(null);
+  const [intake, setIntake] = useState<OpeningIntake>(emptyIntake);
+  const [complaint, setComplaint] = useState("");
+
+  const [savingIntake, setSavingIntake] = useState(false);
+  const intakeSaveBusy = useRef(false);
+  const [showIntake, setShowIntake] = useState(false);
+  const [initialStatus, setInitialStatus] = useState<string | null>(null);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [optionError, setOptionError] = useState("");
+  const [technicians, setTechnicians] = useState<Array<{ publicId: string; username: string }>>([]);
+  const [technician, setTechnician] = useState("");
+  const [editingPermanent, setEditingPermanent] = useState(false);
+  const [duplicateEquipment, setDuplicateEquipment] = useState<OpeningEquipment[]>([]);
+  const [equipmentHistory, setEquipmentHistory] = useState<Array<{ publicId: string; visibleNumber: string; operationalSituation: string }> | null>(null);
+  const [historyMessage, setHistoryMessage] = useState("");
   const [opening, setOpening] = useState<ServiceOrderOpening | null>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
@@ -196,6 +230,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setConfirmationError(null);
     setShowConfirmation(false);
     setOpening(null);
+    setIntake(emptyIntake()); setComplaint(""); setTechnician(""); setCreatedCustomer(null); setShowIntake(false); setOptionsLoaded(false); setInitialStatus(null);
     setSelectedCustomer(null);
     setCustomerSaveError(null);
     setCustomerSaveNotice(null);
@@ -226,6 +261,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
       try {
         const current = await getCurrentServiceOrderOpening();
         setOpening(current.data);
+        setComplaint(current.data.complaint ?? ""); setIntake(current.data.intakeData ?? emptyIntake());
         setEditingCustomer(!current.data.customerPublicId);
         const draft = current.data.equipmentDraft;
         const hasDraft = hasValidEquipmentDraft(draft);
@@ -249,6 +285,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
         if (createError instanceof ApiError && createError.status === 409) {
           const current = await getCurrentServiceOrderOpening();
           setOpening(current.data);
+          setComplaint(current.data.complaint ?? ""); setIntake(current.data.intakeData ?? emptyIntake());
           setEditingCustomer(!current.data.customerPublicId);
           const draft = current.data.equipmentDraft;
           const hasDraft = hasValidEquipmentDraft(draft);
@@ -274,6 +311,19 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     if (started.current) return;
     started.current = true;
     void loadOrCreateOpening();
+  }, []);
+
+  useEffect(() => {
+    let canceled = false;
+    setCustomerDetails(null); setEditCustomerData(false); setCustomerDetailsError("");
+    if (opening?.customerPublicId) getOpeningPerson(opening.publicId).then(result => { if (!canceled) setCustomerDetails(result.data); }).catch(() => { if (!canceled) setCustomerDetailsError("Não foi possível carregar os detalhes do cliente. Tente novamente antes de editar."); });
+    return () => { canceled = true; };
+  }, [opening?.publicId, opening?.customerPublicId]);
+
+  useEffect(() => {
+    let canceled = false;
+    openingOptions().then(result => { if (!canceled) { setInitialStatus(result.data.initialStatus?.name ?? null); setOptionsLoaded(true); } }).catch(() => { if (!canceled) { setOptionsLoaded(true); setOptionError("Não foi possível validar o status inicial. Abra Dados do atendimento para tentar novamente."); } });
+    return () => { canceled = true; };
   }, []);
 
   async function searchCustomers(event: FormEvent<HTMLFormElement>) {
@@ -303,12 +353,40 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
       setOpening(result.data);
       setSelectedCustomer(null);
       setEditingCustomer(false);
+      setSelectedEquipment(null); setEquipmentDraftForm(emptyEquipmentDraft); setEditingEquipment(!result.data.equipmentPublicId && !hasValidEquipmentDraft(result.data.equipmentDraft));
       setCustomerSaveNotice("Cliente salvo na abertura em andamento.");
+      void loadCustomerEquipment(result.data.customerPublicId!);
     } catch (reason) {
       setCustomerSaveError(saveCustomerErrorMessage(reason));
     } finally {
       setSavingCustomer(false);
     }
+  }
+
+  async function loadCustomerEquipment(owner: string) {
+    setEquipmentHistory(null); setHistoryMessage(""); setSearchingEquipments(true); setEquipmentSearchError(null);
+    try { const result = await listOpeningEquipment(1, 20, "", undefined, owner); setEquipments(result.data); setEquipmentListLoaded(true); }
+    catch { setEquipmentSearchError("Não foi possível carregar os equipamentos do cliente. Use Buscar equipamentos para tentar novamente."); }
+    finally { setSearchingEquipments(false); }
+  }
+
+  async function useCreatedCustomer(customer: OpeningCustomer, warning?: string) {
+    setOpening(current => current ? { ...current, customerCreatedDuringOpening: true } : current);
+    setShowNewCustomer(false); setCreatedCustomer(customer); setSelectedCustomer(customer); setEditingCustomer(true);
+    if (warning) setCustomerSaveNotice(warning);
+    if (!opening || opening.equipmentPublicId) return;
+    setSavingCustomer(true);
+    try { const result = await updateServiceOrderOpeningCustomer(opening.publicId, customer.publicId, csrfToken); setOpening({ ...result.data, customerCreatedDuringOpening: true }); setSelectedCustomer(null); setEditingCustomer(false); setCreatedCustomer(null); void loadCustomerEquipment(customer.publicId); }
+    catch (reason) { setCustomerSaveError(saveCustomerErrorMessage(reason)); }
+    finally { setSavingCustomer(false); }
+  }
+
+  async function openIntake() {
+    setShowIntake(true); setOptionError("");
+    try {
+      if (!optionsLoaded || !initialStatus) { const result = await openingOptions(); setInitialStatus(result.data.initialStatus?.name ?? null); setOptionsLoaded(true); }
+      if (canAssignTechnician) { const users = await listAssignableUsers(1, 100); setTechnicians(users.data); }
+    } catch { setOptionError("Não foi possível carregar status/técnicos. Tente novamente antes de confirmar."); }
   }
 
   async function searchOpeningEquipment(event: FormEvent<HTMLFormElement>) {
@@ -321,7 +399,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setEquipmentSaveError(null);
     setEquipmentSaveNotice(null);
     try {
-      const result = await listOpeningEquipment(1, 20, equipmentSearch);
+      const result = await listOpeningEquipment(1, 20, equipmentSearch, undefined, opening?.customerPublicId ?? undefined);
       setEquipments(result.data);
       setEquipmentListLoaded(true);
     } catch (reason) {
@@ -433,6 +511,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   function chooseEquipmentMode(mode: "existing" | "new") {
     if (mode === "new" && !canCreateEquipment) return;
     setEquipmentMode(mode);
+    setEditingPermanent(false); setDuplicateEquipment([]); setEquipmentHistory(null);
     setSelectedEquipment(null);
     setEquipmentSearch("");
     setEquipments([]);
@@ -456,7 +535,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   }
 
   async function saveEquipmentDraft() {
-    if (!opening || savingEquipmentDraft || !canCreateEquipment) return;
+    if (!opening || savingEquipmentDraft || (!canCreateEquipment && !editingPermanent)) return;
     const draft: OpeningEquipmentDraft = {
       typePublicId: equipmentDraftForm.typePublicId,
       brandPublicId: equipmentDraftForm.brandPublicId,
@@ -466,12 +545,26 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
         ? null
         : equipmentDraftForm.serialNumber?.trim() ?? "",
     };
+    const missing = !draft.typePublicId ? 'opening-equipment-type' : !draft.brandPublicId ? 'opening-equipment-brand' : !draft.model ? 'opening-equipment-model' : draft.serialIdentificationStatus === 'IDENTIFIED' && !draft.serialNumber ? 'opening-equipment-serial' : null;
+    setEquipmentFieldErrors(missing ? { [missing]: 'Preencha este campo ou selecione a opção de identificação desconhecida.' } : {});
+    if (missing) { setEquipmentDraftError('Preencha o campo obrigatório destacado.'); document.getElementById(missing)?.focus(); return; }
     if (!hasValidEquipmentDraft(draft)) return;
 
     setSavingEquipmentDraft(true);
     setEquipmentDraftError(null);
     setEquipmentDraftNotice(null);
     try {
+      if (editingPermanent && opening.equipment?.updatedAt) {
+        if (!window.confirm("Alterar o cadastro permanente do equipamento? Snapshots de OS anteriores serão preservados.")) return;
+        await editPermanentEquipment(opening.equipment.publicId, draft, opening.equipment.updatedAt, csrfToken);
+        const result = await updateServiceOrderOpeningEquipment(opening.publicId, opening.equipment.publicId, csrfToken);
+        setOpening(result.data); setEditingPermanent(false); setEquipmentMode("existing"); setEditingEquipment(false); return;
+      }
+      if (draft.serialNumber && opening.customerPublicId) {
+        const matches = await listOpeningEquipment(1, 100, draft.serialNumber, undefined, opening.customerPublicId);
+        const duplicates = matches.data.filter(item => item.serialNumber?.toUpperCase() === draft.serialNumber?.toUpperCase());
+        if (duplicates.length) { setDuplicateEquipment(duplicates); setEquipmentDraftError("Já existe equipamento deste cliente com a mesma série. Selecione o registro existente; a regra atual não permite duplicá-lo."); return; }
+      }
       const result = await updateServiceOrderOpeningEquipmentDraft(opening.publicId, draft, csrfToken);
       setOpening(result.data);
       setEquipmentDraftForm(draft);
@@ -532,7 +625,8 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     setConfirming(true);
     setConfirmationError(null);
     try {
-      const result = await confirmServiceOrderOpening(opening.publicId, csrfToken);
+      if (intakeDirty) { const saved = await saveOpeningIntake(opening.publicId, complaint, intake, csrfToken); setOpening(saved.data); }
+      const result = await confirmServiceOrderOpening(opening.publicId, csrfToken, technician ? [technician] : undefined);
       setShowConfirmation(false);
       onConfirmed(result.data.publicId);
     } catch (reason) {
@@ -544,6 +638,9 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
     }
   }
 
+  const normalizedIntake = (value: unknown) => JSON.stringify(value,(_key,v)=>typeof v === "string"?v.trim().toLocaleUpperCase("pt-BR"):v);
+  const intakeDirty = Boolean(opening && (normalizedIntake(intake)!==normalizedIntake(opening.intakeData??emptyIntake()) || complaint.trim().toUpperCase()!==(opening.complaint??"").trim().toUpperCase()));
+  usePendingChanges("opening-intake",intakeDirty,()=>{const button=Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(b=>b.textContent==="Salvar dados do atendimento");button?.click();});
   const linkedCustomer = opening
     ? selectedCustomer?.publicId === opening.customerPublicId
       ? selectedCustomer
@@ -574,6 +671,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
   const savedTransferOwner = opening?.transferRequested && savedTransferIsConsistent ? opening.equipment?.owner.name : null;
   const savedTransferCustomer = opening?.transferRequested && savedTransferIsConsistent ? opening.customer?.name : null;
   const canConfirm = Boolean(
+    (optionsLoaded && initialStatus) && !showNewCustomer && !editCustomerData && !savingIntake &&
     opening?.status === "IN_PROGRESS"
     && opening.customerPublicId
     && ((opening.equipmentPublicId
@@ -601,6 +699,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
         <div>
           <p className="eyebrow">Atendimento técnico</p>
           <h1 id="opening-title">Abertura de OS</h1>
+          <p className="muted">* Campo obrigatório</p>
           <p className="muted">Inicie ou retome uma abertura em andamento.</p>
         </div>
         <button className="text-button" type="button" onClick={onBack}>Voltar para lista</button>
@@ -633,10 +732,13 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
           <section className="opening-customer" aria-labelledby="opening-customer-title">
             <div className="section-heading">
               <div>
-                <h2 id="opening-customer-title">Cliente</h2>
-                <p>Pesquise e vincule uma Pessoa elegível como cliente. Nenhum cadastro será criado ou alterado.</p>
+                <h2 id="opening-customer-title">Cliente<span aria-hidden="true"> *</span></h2>
+                <p>{opening.customerPublicId ? "Confira os dados do cliente vinculado." : "Pesquise por nome, telefone ou CPF/CNPJ. Use Novo cliente para cadastrar sem sair da abertura."}</p>
               </div>
             </div>
+
+            {canCreateCustomer && !opening.customerPublicId && <button type="button" className="button button--secondary" disabled={savingCustomer || confirming || opening.customerCreatedDuringOpening || !!createdCustomer} onClick={() => setShowNewCustomer(true)}>Novo cliente</button>}
+            {createdCustomer && <p className="inline-success">Cliente {createdCustomer.name} cadastrado. Se o vínculo falhar, use Salvar cliente abaixo; não cadastre novamente.</p>}
 
             {opening.customerPublicId && !editingCustomer && (
               <div className="opening-customer__current" aria-label="Cliente vinculado">
@@ -648,8 +750,22 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                 ) : (
                   <span>Há um cliente vinculado a esta abertura. Pesquise para selecionar outro cliente ou continuar com a etapa seguinte.</span>
                 )}
-                <button className="text-button" type="button" onClick={() => { setEditingCustomer(true); setSelectedCustomer(null); setCustomerSaveError(null); }}>
-                  Trocar cliente
+                {customerDetails && <div className="customer-summary">
+                  {customerDetails.document && <p>CPF/CNPJ: {customerDetails.document}</p>}
+                  <h3>Telefones</h3>{customerDetails.phones.length ? customerDetails.phones.map(phone => <p key={phone.publicId ?? phone.number}>{formatBrazilianPhone(phone.number)}{phone.isPrimary && <strong> — Principal</strong>}</p>) : <p>Não informado</p>}
+                  <h3>E-mails</h3>{customerDetails.emails.length ? customerDetails.emails.map(email => <p key={email.publicId ?? email.address}>{email.address}{email.isPrimary && <strong> — Principal</strong>}</p>) : <p>Não informado</p>}
+                  <p>Endereço: {Object.entries(customerDetails.address ?? {}).filter(([key, value]) => key !== "country" && typeof value === "string" && value).map(([, value]) => value).join(", ") || "Não informado"}</p>
+                </div>}
+                {customerDetailsError && <p className="inline-error">{customerDetailsError}</p>}
+                <button className="text-button" type="button" disabled={!canUpdateCustomer || savingCustomer || confirming || canceling} onClick={async () => {
+                  if (customerDetails) { setEditCustomerData(true); return; }
+                  setSavingCustomer(true); setCustomerDetailsError("");
+                  try { const result = await getOpeningPerson(opening.publicId); setCustomerDetails(result.data); setEditCustomerData(true); }
+                  catch { setCustomerDetailsError("Não foi possível carregar o cliente. Tente Alterar cliente novamente."); }
+                  finally { setSavingCustomer(false); }
+                }}>Alterar cliente</button>
+                <button className="text-button" type="button" disabled={savingCustomer || confirming || canceling} onClick={() => { setEditingCustomer(true); setSelectedCustomer(null); setCustomerSaveError(null); }}>
+                  Substituir cliente
                 </button>
               </div>
             )}
@@ -714,6 +830,10 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
 
           </section>
 
+          {editCustomerData && customerDetails && <section className="opening-customer" aria-label="Alterar cliente atual"><h2>Alterar cliente atual</h2><PersonForm editing initialValue={{ ...customerDetails, address: customerDetails.address ?? { postalCode: "", street: "", number: "", complement: "", district: "", city: "", state: "", country: "BR" } }} onCancel={() => setEditCustomerData(false)} onSave={async data => {
+            const result = await updateOpeningPerson(opening.publicId, data, customerDetails.updatedAt, csrfToken);
+            setCustomerDetails(result.data); setOpening(current => current ? { ...current, customer: { ...current.customer!, name: result.data.name } } : current); setEditCustomerData(false);
+          }} /></section>}
           <section className="opening-customer opening-equipment" aria-labelledby="opening-equipment-title">
             <div className="section-heading">
               <div>
@@ -864,21 +984,30 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                 {equipmentSaveError && <p className="form-message form-message--error" role="alert">{equipmentSaveError}</p>}
                 </>}
 
-                {equipmentMode === "new" && canCreateEquipment && <section className="opening-equipment__draft" aria-label="Novo equipamento da abertura">
-                  <p className="muted">Preencha os dados para guardar o equipamento como rascunho da abertura.</p>
+                {equipmentMode === "new" && (canCreateEquipment || editingPermanent) && <section className="opening-equipment__draft" aria-label="Novo equipamento da abertura">
+                  <p className="muted">{editingPermanent ? "Altere somente os dados permanentes deste equipamento." : "Preencha os dados para guardar o equipamento como rascunho da abertura."}</p>
                   {loadingEquipmentCatalogs && <p className="inline-state" role="status">Carregando tipos e marcas…</p>}
                   {equipmentCatalogError && <p className="form-message form-message--error" role="alert">{equipmentCatalogError}</p>}
-                  <div className="opening-equipment__draft-fields">
-                    <label htmlFor="opening-equipment-type">Tipo do equipamento</label>
-                    <select id="opening-equipment-type" value={equipmentDraftForm.typePublicId} onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, typePublicId: event.target.value }))} required disabled={loadingEquipmentCatalogs || equipmentTypes.length === 0}>
+                  <p>* Campo obrigatório. Tipos e fabricantes são mantidos em Cadastros Auxiliares.</p>                  {editingPermanent && <p role="status">Edição explícita do cadastro permanente. A alteração não substitui os snapshots das OS anteriores.</p>}
+                  {duplicateEquipment.length > 0 && <div role="alert">{duplicateEquipment.map(item => <button key={item.publicId} type="button" onClick={async () => {
+                    if (!opening || savingEquipment) return; setSavingEquipment(true);
+                    try { const result = await updateServiceOrderOpeningEquipment(opening.publicId, item.publicId, csrfToken); setOpening(result.data); setEquipmentMode("existing"); setEditingEquipment(false); setDuplicateEquipment([]); setEquipmentDraftError(null); }
+                    catch (reason) { setEquipmentDraftError(saveEquipmentErrorMessage(reason)); }
+                    finally { setSavingEquipment(false); }
+                  }}>Usar equipamento existente: {item.brand.name} {item.model} / {item.serialNumber}</button>)}</div>}
+                  <div className="opening-equipment__draft-fields" onChangeCapture={() => setEquipmentFieldErrors({})}>
+                    <label htmlFor="opening-equipment-type">Tipo do equipamento<span aria-hidden="true"> *</span></label>
+                    <select id="opening-equipment-type" aria-label="Tipo do equipamento" aria-invalid={!!equipmentFieldErrors['opening-equipment-type']} aria-describedby={equipmentFieldErrors['opening-equipment-type'] ? 'opening-equipment-type-error' : undefined} value={equipmentDraftForm.typePublicId} onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, typePublicId: event.target.value }))} required disabled={loadingEquipmentCatalogs || equipmentTypes.length === 0}>
                       <option value="">Selecione um tipo</option>
                       {equipmentTypes.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
                     </select>
-                    <label htmlFor="opening-equipment-brand">Marca</label>
-                    <select id="opening-equipment-brand" value={equipmentDraftForm.brandPublicId} onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, brandPublicId: event.target.value })); }} required disabled={loadingEquipmentCatalogs || equipmentBrands.length === 0}>
+                    {equipmentFieldErrors['opening-equipment-type'] && <span className="field-error" id="opening-equipment-type-error">{equipmentFieldErrors['opening-equipment-type']}</span>}
+                    <label htmlFor="opening-equipment-brand">Marca<span aria-hidden="true"> *</span></label>
+                    <select id="opening-equipment-brand" aria-label="Marca" aria-invalid={!!equipmentFieldErrors['opening-equipment-brand']} aria-describedby={equipmentFieldErrors['opening-equipment-brand'] ? 'opening-equipment-brand-error' : undefined} value={equipmentDraftForm.brandPublicId} onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, brandPublicId: event.target.value })); }} required disabled={loadingEquipmentCatalogs || equipmentBrands.length === 0}>
                       <option value="">Selecione uma marca</option>
                       {equipmentBrands.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}
                     </select>
+                    {equipmentFieldErrors['opening-equipment-brand'] && <span className="field-error" id="opening-equipment-brand-error">{equipmentFieldErrors['opening-equipment-brand']}</span>}
                     {equipmentBrands.find((item) => item.publicId === equipmentDraftForm.brandPublicId)?.name.trim().toLocaleLowerCase("pt-BR") === "dell"
                       && equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && Boolean(equipmentDraftForm.serialNumber?.trim()) && (
                       <div>
@@ -896,23 +1025,25 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
                         </div>}
                       </div>
                     )}
-                    <label htmlFor="opening-equipment-model">Modelo</label>
+                    <label htmlFor="opening-equipment-model">Modelo<span aria-hidden="true"> *</span></label>
                     <div className="opening-equipment__model-field">
-                      <input id="opening-equipment-model" value={equipmentDraftForm.model} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, model: event.target.value }))} />
+                      <input id="opening-equipment-model" aria-label="Modelo" aria-invalid={!!equipmentFieldErrors['opening-equipment-model']} aria-describedby={equipmentFieldErrors['opening-equipment-model'] ? 'opening-equipment-model-error' : undefined} value={equipmentDraftForm.model} maxLength={191} required onChange={(event) => setEquipmentDraftForm((current) => ({ ...current, model: event.target.value }))} />
+                    {equipmentFieldErrors['opening-equipment-model'] && <span className="field-error" id="opening-equipment-model-error">{equipmentFieldErrors['opening-equipment-model']}</span>}
                       <button className="text-button" type="button" onClick={() => setEquipmentDraftForm((current) => ({ ...current, model: "NÃO INFORMADO" }))}>Usar “NÃO INFORMADO”</button>
                     </div>
                     <fieldset>
-                      <legend>Número de série</legend>
+                      <legend>Número de série<span aria-hidden="true"> *</span></legend>
                       <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED"} onChange={() => setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "IDENTIFIED", serialNumber: current.serialNumber ?? "" }))} /> Série identificada</label>
                       <label><input type="radio" name="opening-serial-status" checked={equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED"} onChange={() => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, serialIdentificationStatus: "NOT_IDENTIFIED", serialNumber: null })); }} /> Série não identificada</label>
-                      {equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && (
-                        <input aria-label="Número de série" value={equipmentDraftForm.serialNumber ?? ""} maxLength={191} required onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, serialNumber: event.target.value })); }} />
-                      )}
+                      {equipmentDraftForm.serialIdentificationStatus === "IDENTIFIED" && (<>
+                        <input id="opening-equipment-serial" aria-invalid={!!equipmentFieldErrors['opening-equipment-serial']} aria-describedby={equipmentFieldErrors['opening-equipment-serial'] ? 'opening-equipment-serial-error' : undefined} aria-label="Número de série" value={equipmentDraftForm.serialNumber ?? ""} maxLength={191} required onChange={(event) => { dellLookupSequence.current += 1; setDellLookupResult(null); setDellLookupMessage(null); setEquipmentDraftForm((current) => ({ ...current, serialNumber: event.target.value })); }} />
+                    {equipmentFieldErrors['opening-equipment-serial'] && <span className="field-error" id="opening-equipment-serial-error">{equipmentFieldErrors['opening-equipment-serial']}</span>}
+                      </>)}
                     </fieldset>
                   </div>
-                  <p className="opening-warning">Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.</p>
-                  <button className="button button--primary" type="button" onClick={() => void saveEquipmentDraft()} disabled={savingEquipmentDraft || loadingEquipmentCatalogs || !hasValidEquipmentDraft({ ...equipmentDraftForm, model: equipmentDraftForm.model.trim(), serialNumber: equipmentDraftForm.serialIdentificationStatus === "NOT_IDENTIFIED" ? null : equipmentDraftForm.serialNumber?.trim() ?? "" })}>
-                    {savingEquipmentDraft ? "Salvando rascunho…" : "Salvar novo equipamento na abertura"}
+                  {!editingPermanent && <p className="opening-warning">Este equipamento ainda não foi criado no cadastro. Ele será criado definitivamente apenas quando a OS for confirmada.</p>}
+                  <button className="button button--primary" type="button" onClick={() => void saveEquipmentDraft()} disabled={savingEquipmentDraft || loadingEquipmentCatalogs}>
+                    {savingEquipmentDraft ? "Salvando…" : editingPermanent ? "Salvar alterações permanentes" : "Salvar novo equipamento na abertura"}
                   </button>
                   {equipmentDraftError && <p className="form-message form-message--error" role="alert">{equipmentDraftError}</p>}
                   {equipmentDraftNotice && <p className="form-message form-message--success" role="status">{equipmentDraftNotice}</p>}
@@ -922,6 +1053,45 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             {equipmentSaveNotice && <p className="form-message form-message--success" role="status">{equipmentSaveNotice}</p>}
           </section>
 
+          {opening.equipment && !editingEquipment && <section className="opening-customer" aria-label="Cadastro permanente do equipamento">
+            <p>Dados permanentes protegidos contra edição.</p>
+            {canUpdateEquipment && opening.equipment.updatedAt && <button className="text-button" type="button" onClick={() => {
+              const item = opening.equipment!; setEditingPermanent(true); setEquipmentMode("new"); setEditingEquipment(true);
+              setEquipmentDraftForm({ typePublicId: item.type.publicId, brandPublicId: item.brand.publicId, model: item.model, serialNumber: item.serialNumber, serialIdentificationStatus: item.serialIdentificationStatus }); void loadEquipmentCatalogs();
+            }}>Alterar dados permanentes</button>}
+            {canReadEquipmentHistory && <button className="text-button" type="button" onClick={async () => {
+              setHistoryMessage("Carregando histórico…");
+              try { const result = await openingRequest<{ data: Array<{ publicId: string; visibleNumber: string; operationalSituation: string }> }>(`service-orders?page=1&pageSize=20&equipmentPublicId=${encodeURIComponent(opening.equipmentPublicId!)}`); setEquipmentHistory(result.data); setHistoryMessage(result.data.length ? "Últimos atendimentos deste equipamento:" : "Este equipamento ainda não possui atendimentos confirmados."); }
+              catch { setHistoryMessage("Não foi possível consultar o histórico do equipamento."); }
+            }}>Histórico de atendimentos</button>}
+            {historyMessage && <p role="status">{historyMessage}</p>}
+            {equipmentHistory?.map(item => <p key={item.publicId}><a href={`/service-orders/${item.publicId}`} target="_blank" rel="noreferrer">{item.visibleNumber}</a> — {item.operationalSituation}</p>)}
+          </section>}
+
+          <section className={`opening-customer ${intakeDirty?"section-pending":""}`} aria-label="Dados específicos da OS">
+            {intakeDirty && <p role="status" className="pending-indicator">Alterações não salvas no atendimento</p>}
+            <button className="button button--secondary" type="button" onClick={() => void openIntake()}>Dados do atendimento</button>
+            {showIntake && <fieldset className="opening-equipment__draft-fields" disabled={confirming || savingIntake}>
+              <p>Estes dados pertencem somente a esta OS. Não são preenchidos pelo histórico do equipamento.</p>
+              <label>Sintoma identificado<textarea ref={symptomRef} maxLength={2000} value={intake.reportedDefect} onChange={e => { setIntake({ ...intake, reportedDefect: e.target.value }); }} /></label>
+              <label>Reclamação do cliente<textarea maxLength={65535} value={complaint} onChange={e => { setComplaint(e.target.value); }} /></label>
+              {([['accessories', 'Acessórios'], ['physicalCondition', 'Estado geral'], ['battery', 'Bateria'], ['observations', 'Observações de entrada']] as const).map(([key, label]) => <label key={key}>{label}<textarea maxLength={2000} value={intake[key]} onChange={e => { setIntake({ ...intake, [key]: e.target.value }); }} /></label>)}
+              <label>Prioridade<span aria-hidden="true"> *</span><select value={intake.priority} onChange={e => { setIntake({ ...intake, priority: e.target.value as OpeningIntake['priority'] }); }}><option value="LOW">Baixa prioridade</option><option value="NORMAL">Normal</option><option value="URGENT">Urgente</option><option value="VERY_URGENT">Muito urgente</option></select></label>
+              <label>Status inicial<input readOnly value={initialStatus ?? "Aguardando configuração do Backend"} /></label>
+              {optionsLoaded && !initialStatus && <p role="alert">O status inicial está indisponível. Um Administrador precisa revisar sua configuração.</p>}
+              {canAssignTechnician && <label>Técnico responsável (opcional)<select value={technician} onChange={e => setTechnician(e.target.value)}><option value="">Sem técnico atribuído</option>{technicians.map(user => <option key={user.publicId} value={user.publicId}>{user.username}</option>)}</select></label>}
+              {optionError && <p role="alert">{optionError}</p>}
+              <button type="button" className="button button--secondary" disabled={confirming || !intakeDirty} onClick={async () => {
+                if (!opening || confirming || intakeSaveBusy.current) return;
+                intakeSaveBusy.current = true; setSavingIntake(true);
+                try { const result = await saveOpeningIntake(opening.publicId, complaint, intake, csrfToken); setOpening(result.data); setNotice("Dados do atendimento salvos no rascunho."); }
+                catch (reason) { setConfirmationError(reason instanceof ApiError ? reason.message : "Não foi possível salvar. Os campos foram preservados."); }
+                finally { intakeSaveBusy.current = false; setSavingIntake(false); }
+              }}>Salvar dados do atendimento</button>
+            </fieldset>}
+          </section>
+
+          {!showIntake && optionError && <p role="alert">{optionError}</p>}
           <div className="opening-actions">
             {hasValidEquipmentDraft(opening.equipmentDraft) && !canCreateEquipment && <p className="form-message form-message--error" role="status">Confirmar a OS com este novo equipamento exige a permissão equipment.create.</p>}
             {canConfirmServiceOrderOpening && (
@@ -956,7 +1126,7 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
           <section className="opening-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="opening-confirmation-title" aria-describedby="opening-confirmation-description" onKeyDown={(event) => { if (event.key === "Escape" && !confirming) setShowConfirmation(false); }}>
             <h2 id="opening-confirmation-title">Confirmar criação da OS?</h2>
             <div id="opening-confirmation-description" className="opening-confirmation-copy">
-              <p>A Ordem de Serviço será criada oficialmente como <strong>ABERTA / TRIAGEM</strong>.</p>
+              <p>A Ordem de Serviço será criada oficialmente como <strong>ABERTA / {initialStatus ?? "STATUS INICIAL CONFIGURADO"}</strong>.</p>
               <p>O número reservado <strong>{opening.visibleNumber}</strong> se tornará definitivo e o Backend registrará os snapshots do cliente e do equipamento.</p>
               {hasValidEquipmentDraft(opening.equipmentDraft) && <p>O equipamento novo será criado pelo Backend somente nesta confirmação.</p>}
               {savedTransferIsConsistent && savedTransferOwner && savedTransferCustomer && (
@@ -966,14 +1136,16 @@ export function ServiceOrderOpeningPage({ csrfToken, canConfirmServiceOrderOpeni
             </div>
             {confirmationError && <p className="form-message form-message--error" role="alert">{confirmationError}</p>}
             <div className="opening-confirmation-actions">
-              <button className="button button--secondary" type="button" onClick={() => setShowConfirmation(false)} disabled={confirming} autoFocus>Voltar</button>
+              {!intake.reportedDefect.trim() && <p role="alert">Nenhum defeito foi informado. Deseja prosseguir com a gravação da Ordem de Serviço mesmo assim?</p>}
+              <button className="button button--secondary" type="button" onClick={() => setShowConfirmation(false)} disabled={confirming} autoFocus onClickCapture={() => { if (!intake.reportedDefect.trim()) { setShowIntake(true); window.setTimeout(() => symptomRef.current?.focus(), 0); } }}>{intake.reportedDefect.trim() ? "Voltar" : "Voltar e preencher"}</button>
               <button className="button button--primary" type="button" onClick={() => void confirmOpening()} disabled={confirming || !canConfirm}>
-                {confirming ? "Confirmando…" : "Confirmar e criar OS"}
+                {confirming ? "Confirmando…" : intake.reportedDefect.trim() ? "Confirmar e criar OS" : "Prosseguir sem informar"}
               </button>
             </div>
           </section>
         </div>
       )}
+      {showNewCustomer && opening && <OpeningCustomerForm openingPublicId={opening.publicId} csrfToken={csrfToken} onCreated={(customer, warning) => void useCreatedCustomer(customer, warning)} onCancel={() => setShowNewCustomer(false)} />}
     </section>
   );
 }

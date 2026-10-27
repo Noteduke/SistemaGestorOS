@@ -219,3 +219,38 @@ A tela de orçamento permite imprimir ou salvar como PDF a composição persisti
 A tela administrativa **Identificação da empresa** permite que Administrador mantenha razão social, nome fantasia, CNPJ, endereço completo, telefone, e-mail e logotipo. Os campos iniciam vazios quando não há cadastro; a interface não propõe dados oficiais. O envio/substituição aceita PNG/JPEG de até 2 MiB e a remoção pede confirmação.
 
 As impressões de entrada, orçamento e saída reutilizam o cabeçalho empresarial retornado pelo Backend, incluindo a logo quando disponível. O aviso fixo **DOCUMENTO DE TESTE — HOMOLOGAÇÃO** é incluído somente em builds Frontend feitos com `--mode homologation`, não pode ser ocultado pelo operador e não está presente no build `production`, mesmo que a API reporte homologação. Números de OS apresentados em homologação usam `HOS-0000001`; a produção mantém o prefixo e os registros históricos existentes. Verificação visual em navegador e A4 continua pendente até a provisão do ambiente e sua validação operacional.
+
+## Abertura operacional — atualização local
+
+A tela passa a oferecer Novo cliente em modal, equipamentos do cliente, Novo equipamento como rascunho, cadastro auxiliar de tipo/marca, edição permanente explícita e dados próprios do atendimento. Detalhe e impressão de entrada exibem esses dados. Os registros anteriores de validação acima são históricos; esta ampliação está testada localmente e aguarda publicação autorizada. Consulte [o fluxo e suas evidências](planejamento/Abertura-OS-Fluxo-Operacional.md).
+
+
+## Revisão da abertura — 23/10/2026
+
+PersonForm é o componente reutilizável completo de Pessoa; OpeningCustomerForm apenas adapta o contexto da abertura à API compartilhada. Tipo PF vem selecionado; só nome/razão social exige preenchimento. Inclui dados PF/PJ, situação, contato textual da PJ, endereço único, múltiplos telefones/e-mails e principalidade independente. Erros preservam valores, apresentam indicação junto ao campo e focam o primeiro inválido.
+
+Novo cliente fica indisponível após a primeira criação nessa abertura, inclusive na retomada via indicador do Backend. Equipamentos continuam disponíveis para esse cliente. Não existem ações de criar Tipo/Marca/Fabricante na abertura. Obrigatórios usam asterisco e legenda; prioridades LOW, NORMAL, URGENT, VERY_URGENT são apresentadas nessa ordem, NORMAL inicial. O frontend compilado novo fica pendente da migration/carga autorizadas antes da publicação conjunta.
+# Usabilidade, pendências e filtros de OS — 23/10/2026
+
+- Orçamento mantém salvamento por inclusão/edição de item e total calculado pelo Backend. Não existe botão global que simule gravar todo o orçamento. Tabela com rolagem local, campos limitados e ações Editar/Remover separadas.
+- Formulários de clientes, produtos, serviços, empresa e status registram baseline dos valores carregados. Abrir edição/modal não constitui alteração. Edição real exibe `Alterações não salvas`, destaca campos/seções e permite localizar os campos nos formulários compartilhados. Reverter ao valor inicial elimina a pendência.
+- A navegação interna oferece continuar ou descartar; Salvar aparece quando existe exatamente uma operação de persistência disponível. Só sai após a pendência ser efetivamente eliminada. Erros conservam o rascunho. Fechar/recarregar usa a proteção nativa do navegador, cujo texto e opções são controlados por ele.
+- Produtos: criação e alteração são modos exclusivos; cancelar edição não persiste valores. A OS nova continua sendo Confirmar OS; alterações existentes usam as operações oficiais de situação, responsáveis, notas e itens.
+- Menu principal Ordens de Serviço apresenta listagem e nova OS conforme permissões existentes.
+- Filtros combináveis: status operacional configurável; estado administrativo; responsável nominal específico/sem atribuição; entrada ou encerramento por dia/intervalo. Aplicar e limpar reiniciam a página; totais e paginação vêm do Backend.
+- Garantia permanece indisponível: não há modelagem de cobertura/vencimento que permita classificar com segurança em/fora de garantia. Nenhuma classificação é inferida de NULL.
+- Responsável nominal usa as atribuições atuais; não existe perfil separado de técnico. “Saída” significa evento de encerramento, explicitamente identificado como tal, sem inventar entrega física. OS sem encerramento não correspondem a filtro de saída.
+- Esta entrega não requer migration e não altera regras financeiras, de aprovação ou estoque. Validação visual com dados sintéticos não substitui aceitação autenticada após publicação autorizada.
+# Impressões de entrada e saída — 23/10/2026
+
+Após gravar uma OS, o detalhe oferece Imprimir/Não imprimir a entrada. A OS já está persistida; recusar não a desfaz. Reimpressão usa dados efetivamente salvos, recarregados pelo endpoint de detalhe. Após o encerramento administrativo concluído, oferece saída opcional; conclusão técnica isolada não habilita saída. Encerradas/canceladas mantêm a ação posterior, respeitando permissões.
+
+As prévias HTML têm duas vias A4 retrato, Via NoteDuke/Via do cliente, separador e assinaturas. Não imprimem controles de sistema, IDs internos ou custos. A marca de homologação é obrigatória no build homologation e ausente no production. Textos extensos não são truncados: a prévia avisa e usa vias/páginas separadas com fonte preservada. O orçamento continua informativo; não representa pagamento. Não são criados prazos de garantia ou data de entrega física.
+
+Nesta entrega, os testes automatizados cobrem regras e HTML. As prévias sintéticas foram conferidas no navegador interno em 24/10/2026, inclusive ajuste de espaçamento na saída curta e fallback extenso. A geração nativa de PDF não foi concluída: o controle do Chrome ficou indisponível e a tentativa no navegador interno não produziu diálogo verificável. Conferir PDF antes de autorizar publicação. Nenhuma publicação é autorizada pela transferência dos artefatos.
+
+## Validação real dos PDFs — 24/10/2026
+
+A pendência de PDF nativo foi resolvida com Chrome 155 headless e CDP Page.printToPDF, usando arquivos locais sintéticos, perfil isolado, CSS @page A4, escala 1, fundos e sem cabeçalhos/rodapés automáticos. Não foi usada a aplicação autenticada. Entrada/saída curtas: uma página com duas vias; entrada extensa e saída com 45 itens: quatro páginas, duas por via. Todas as dez páginas foram renderizadas e examinadas.
+
+Fontes auxiliares antes entre 6,75 e 7,5 pt foram ampliadas para mínimo 8 pt; corpo 9 pt e títulos 12 pt, com ajuste de espaçamento para preservar duas vias curtas. Margem mínima de texto medida: 10,4 mm. As duas cópias extensas preservaram todos os parágrafos/itens, com assinaturas ao final de cada via. Nenhuma regra de encerramento, entrega, garantia ou financeiro foi alterada. Exemplos anteriores e seus manifestos foram preservados. Evidências em scripts/homologation/windows10/artifacts/os-print-pdf-validation-20261024-v1/final. Publicação continua dependendo de autorização específica e de novo pacote correspondente às fontes atualizadas.

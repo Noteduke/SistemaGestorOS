@@ -124,7 +124,7 @@ describe("ProductCatalogPage", () => {
     render(<ProductCatalogPage csrfToken="csrf-test" />);
     await screen.findByText("PLACA MÃE");
     fireEvent.click(screen.getByRole("button", { name: "Alterar" }));
-    fireEvent.change(screen.getAllByLabelText("Descrição")[1], { target: { value: "Placa revisada" } });
+    fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "Placa revisada" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
       method: "PATCH",
@@ -177,7 +177,7 @@ describe("ProductCatalogPage", () => {
     const costInput = screen.getByLabelText("Novo custo de aquisição (opcional; em branco mantém o atual)");
     expect(costInput).toHaveValue("");
     fireEvent.change(costInput, { target: { value: "3,25" } });
-    fireEvent.change(screen.getAllByLabelText("Descrição")[1], { target: { value: "Descrição revisada" } });
+    fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "Descrição revisada" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/api/v1/products/${product.publicId}`), expect.objectContaining({
       method: "PATCH",

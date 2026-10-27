@@ -534,3 +534,14 @@ O logotipo aceita PNG ou JPEG, com validação de tipo/conteúdo e limite de 2 M
 Entrada da OS, orçamento e saída usam a identificação cadastrada e não imprimem custos internos, lucro, margem ou dados administrativos restritos. Quando nenhum dado empresarial estiver configurado, o documento informa que os dados cadastrais não foram configurados; isso não substitui o preenchimento antes de uso real. Em homologação, todos os três documentos exibem a identificação fixa **DOCUMENTO DE TESTE — HOMOLOGAÇÃO**, sem controle para removê-la. Em produção, o marcador não é exibido.
 
 O número visível de OS é determinado pelo ambiente de implantação: produção preserva o formato histórico `OS-000001`; homologação apresenta `HOS-0000001`. O valor numérico e os mecanismos transacionais existentes de alocação/unicidade não mudam. Como cada ambiente utiliza seu próprio banco, o contador da homologação é independente; não há conversão nem reescrita dos números de produção.
+
+## Complemento operacional da abertura de OS
+
+O fluxo local inclui cadastro simplificado de cliente no cadastro único de Pessoas, seleção dos equipamentos do cliente e equipamento novo como rascunho até a confirmação. Dados de atendimento são exclusivos de cada OS e começam vazios. Regras e limites estão em [Abertura — fluxo operacional](planejamento/Abertura-OS-Fluxo-Operacional.md). A publicação em homologação depende de autorização da migration e dos artefatos.
+
+
+## Atualização aprovada — cadastro de cliente na abertura (23/10/2026)
+
+Neste recorte, prevalecem: nome/razão social como único preenchimento obrigatório (PF inicialmente selecionado), CPF/CNPJ opcional e único, contato da PJ em texto sem criar outra Pessoa e endereço único opcional. Nome fantasia, inscrições estadual/municipal, observações, aviso, situação, múltiplos telefones/e-mails e até um principal por coleção compõem o formulário completo. Classificações fiscais e os futuros catálogos gerais não passam a ser exigências para salvar cliente. A decisão de contato textual/endereço único substitui neste fluxo as previsões anteriores de contato como outra Pessoa e endereços múltiplos.
+
+Um cliente novo por abertura: criar e vincular ocorre na mesma transação com lock da abertura; o indicador persistente impede outro cadastro inclusive após navegação/F5, sem limitar o cadastro geral. Descartar o atendimento permite novo cadastro na abertura seguinte. Tipo e Marca/Fabricante somente são selecionados na abertura; manutenção permanece nos cadastros auxiliares. Os catálogos iniciais definidos acima são definitivos para esta carga; não há entidade Fabricante separada. Prioridades na interface: Baixa prioridade, Normal, Urgente, Muito urgente; NORMAL permanece inicial.

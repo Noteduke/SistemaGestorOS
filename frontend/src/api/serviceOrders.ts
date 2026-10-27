@@ -36,6 +36,9 @@ export interface ServiceOrderSummary {
 }
 
 export interface ServiceOrderDetail extends ServiceOrderSummary {
+  customerPrint?: { name: string; personType?: string; document?: string | null; tradeName?: string | null; contactName?: string | null; phones: string[]; emails: string[]; address: Record<string,string|null> | null };
+  closureEvent?: { eventType: string; occurredAt: string; outcome: string | null } | null;
+  intakeData?: import("./openingWorkflow").OpeningIntake | null;
   complaint: string | null;
   intakeObservations: string | null;
   newEquipmentSerialIdentificationStatus: string | null;
@@ -108,6 +111,7 @@ export interface OpeningCustomer {
 }
 
 export interface OpeningEquipment {
+  updatedAt?: string;
   publicId: string;
   type: { publicId: string; name: string };
   brand: { publicId: string; name: string };
@@ -139,12 +143,14 @@ export interface OpeningOwnershipPatch {
 }
 
 export interface ServiceOrderOpening {
+  intakeData?: import("./openingWorkflow").OpeningIntake;
   publicId: string;
   visibleNumber: string;
   numberValue: string;
   status: "IN_PROGRESS" | "CANCELED" | "CONFIRMED";
   initiatedByUserPublicId: string;
   createdBy: string;
+  customerCreatedDuringOpening?: boolean;
   customerPublicId: string | null;
   customer?: Pick<OpeningCustomer, "publicId" | "name" | "documentHint"> | null;
   equipmentPublicId: string | null;
@@ -414,8 +420,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal, awaitingPickup = false) {
+export interface ServiceOrderFilters { statusPublicId?: string; state?: string; technicianPublicId?: string; unassigned?: string; dateField?: string; dateFrom?: string; dateTo?: string }
+export const listFilterTechnicians = () => get<{ data: Array<{publicId: string; username: string}> }>("/api/v1/service-orders/filter-technicians");
+export function listServiceOrders(page: number, pageSize: number, signal?: AbortSignal, awaitingPickup = false, filters: ServiceOrderFilters = {}) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize), ...(awaitingPickup ? { awaitingPickup: "true" } : {}) });
+  for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
   return get<Paginated<ServiceOrderSummary>>(`/api/v1/service-orders?${query}`, signal);
 }
 
@@ -429,9 +438,10 @@ export function listOpeningCustomers(page: number, pageSize: number, search = ""
   return get<Paginated<OpeningCustomer>>(`/api/v1/people/customers?${query}`, signal);
 }
 
-export function listOpeningEquipment(page: number, pageSize: number, search = "", signal?: AbortSignal) {
+export function listOpeningEquipment(page: number, pageSize: number, search = "", signal?: AbortSignal, ownerPublicId?: string) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (search.trim()) query.set("search", search.trim());
+  if (ownerPublicId) query.set("ownerPublicId", ownerPublicId);
   return get<Paginated<OpeningEquipment>>(`/api/v1/equipment/opening-search?${query}`, signal);
 }
 
@@ -624,6 +634,7 @@ export function cancelServiceOrderOpening(publicId: string, csrfToken: string) {
 export async function confirmServiceOrderOpening(
   publicId: string,
   csrfToken: string,
+  assignedUserPublicIds?: string[],
 ): Promise<{ data: ServiceOrderOpeningConfirmation }> {
   const response = await fetch(`/api/v1/service-orders/openings/${encodeURIComponent(publicId)}/confirm`, {
     method: "POST",
@@ -633,7 +644,7 @@ export async function confirmServiceOrderOpening(
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
     },
-    body: "{}",
+    body: JSON.stringify(assignedUserPublicIds ? { assignedUserPublicIds } : {}),
   });
 
   const body: unknown = await response.json().catch(() => null);
@@ -729,3 +740,5 @@ export function assignmentsErrorMessage(error: unknown, context: "list" | "updat
   }
   return "Não foi possível conectar ao serviço. Tente novamente.";
 }
+
+export const getServiceOrderExitPrintData = (publicId: string) => get<{ data: ServiceOrderDetail }>(`/api/v1/service-orders/${encodeURIComponent(publicId)}/documents/exit`);

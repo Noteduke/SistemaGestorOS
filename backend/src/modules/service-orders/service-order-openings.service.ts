@@ -18,6 +18,7 @@ const MAX_SIGNED_BIGINT = 9223372036854775807n;
 const PUBLIC_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSACTION_OPTIONS = { isolationLevel: "ReadCommitted" as const, maxWait: 10000, timeout: 15000 };
 const OPENING_EQUIPMENT_RESPONSE_SELECT = {
+  updatedAt: true,
   publicId: true,
   model: true,
   serialNumber: true,
@@ -49,6 +50,10 @@ interface AllocationLockRow {
 
 @Injectable()
 export class ServiceOrderOpeningsService {
+  async options() {
+    const initial = await this.prisma.serviceOrderStatus.findUnique({ where: { id: 1 }, select: { publicId: true, name: true, isActive: true, technicalCompletion: true } });
+    return { data: { initialStatus: initial && initial.isActive && initial.technicalCompletion === "NOT_COMPLETED" ? { publicId: initial.publicId, name: initial.name } : null } };
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly authPolicy: AuthPolicyService,
@@ -323,6 +328,7 @@ export class ServiceOrderOpeningsService {
             equipmentDraftVersion: draftVersion,
             transferRequested, transferRequestedByUserId, transferRequestedAt,
             complaint: patch.complaint === undefined ? opening.complaint : patch.complaint,
+            ...(patch.intakeData ? { intakeDataJson: patch.intakeData as unknown as Prisma.InputJsonValue } : {}),
           },
           include: {
             customer: { select: { publicId: true, name: true, document: true } },

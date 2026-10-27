@@ -10,6 +10,8 @@ export function toPersonResponse(person: Person) {
     stateRegistration: person.stateRegistration,
     municipalRegistration: person.municipalRegistration,
     observations: person.observations,
+    contactName: person.contactName,
+    warning: person.warning,
     isActive: person.isActive,
     createdAt: person.createdAt,
     updatedAt: person.updatedAt,

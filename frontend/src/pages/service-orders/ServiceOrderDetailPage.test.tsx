@@ -285,7 +285,7 @@ describe("ServiceOrderDetailPage", () => {
     vi.stubGlobal("fetch", withEditControl(fetchMock));
     const props = { publicId, csrfToken: "csrf-in-memory", section: "details" as const, onSectionChange: vi.fn(), onBack: vi.fn() };
     const view = render(<ServiceOrderDetailPage {...props} />);
-    await screen.findByRole("heading", { name: "OS-000128" });
+    await screen.findByText("Você está editando esta OS.");
     view.rerender(<ServiceOrderDetailPage {...props} publicId={nextPublicId} />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/edit-control`, expect.objectContaining({ method: "DELETE", keepalive: true })));
@@ -321,7 +321,7 @@ describe("ServiceOrderDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
     expect(onSectionChange).toHaveBeenCalledWith("events");
     view.rerender(<ServiceOrderDetailPage {...props} section="events" />);
-    expect(await screen.findByText("Evento do sistema: ABERTURA CONFIRMADA")).toBeInTheDocument();
+    expect(await screen.findByText("Abertura confirmada")).toBeInTheDocument();
     expect(screen.getByText("marina.admin")).toBeInTheDocument();
     expect(screen.getByText("ABERTA")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/${publicId}/history?pageSize=20`, expect.objectContaining({ method: "GET" }));
@@ -370,8 +370,8 @@ describe("ServiceOrderDetailPage", () => {
     expect(fetchMock).toHaveBeenCalledWith(`/api/v1/service-orders/${publicId}/stock-consumptions/${movementPublicId}/reversal`, expect.objectContaining({ body: JSON.stringify({ confirmed: true, quantity: 1, destination: "DEFECTIVE" }) }));
     fireEvent.click(screen.getByRole("button", { name: "Devolver ao estoque disponível" }));
     expect(await screen.findByText("Reversão registrada em estoque disponível. Restam 0 unidade(s) reversível(is); a OS permaneceu fechada.")).toBeInTheDocument();
-    expect(await screen.findAllByText("Evento do sistema: OS BAIXA DEFINITIVA REVERTIDA")).not.toHaveLength(0);
-    expect(screen.queryByRole("button", { name: "Devolver ao estoque disponível" })).not.toBeInTheDocument();
+    expect(await screen.findAllByText("Devolução de peça ao estoque")).not.toHaveLength(0);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Devolver ao estoque disponível" })).not.toBeInTheDocument());
   });
 
   it("cria observação com CSRF, sem controle de edição, e atualiza a linha do tempo", async () => {
@@ -408,7 +408,7 @@ describe("ServiceOrderDetailPage", () => {
     expect(screen.queryByRole("textbox", { name: "Nova observação" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
-    expect(await screen.findByText("Evento do sistema: ABERTURA CONFIRMADA")).toBeInTheDocument();
+    expect(await screen.findByText("Abertura confirmada")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/service-orders/${publicId}/history?pageSize=20&cursor=opaque_cursor`, expect.objectContaining({ method: "GET" }));
   });
 
@@ -480,7 +480,8 @@ describe("ServiceOrderDetailPage", () => {
     expect(screen.getByRole("region", { name: "Retrato do equipamento" })).toHaveTextContent("ThinkPad");
 
     fireEvent.change(select, { target: { value: "00000000-0000-4000-8000-000000000002" } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar situação" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar alterações" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Situação operacional atualizada.");
     expect(fetchMock).toHaveBeenNthCalledWith(2, `/api/v1/service-orders/${publicId}/operational-situation`, expect.objectContaining({
@@ -503,7 +504,7 @@ describe("ServiceOrderDetailPage", () => {
     render(<ServiceOrderDetailPage publicId={publicId} csrfToken="csrf-in-memory" canUpdateSituation section="details" onSectionChange={vi.fn()} onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "OS-000128" });
-    expect(screen.getByRole("button", { name: "Salvar situação" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Salvar alterações" })).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -522,7 +523,8 @@ describe("ServiceOrderDetailPage", () => {
 
     await screen.findByRole("heading", { name: "OS-000128" });
     fireEvent.change(screen.getByRole("combobox", { name: "Nova situação" }), { target: { value: "00000000-0000-4000-8000-000000000004" } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar situação" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar alterações" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
@@ -611,7 +613,7 @@ describe("ServiceOrderDetailPage", () => {
     expect(fetchMock.mock.calls.every(([url]) => String(url).includes("/service-orders/") || String(url).includes("/users/assignable"))).toBe(true);
 
     view.rerender(<ServiceOrderDetailPage {...props} section="events" />);
-    expect(await screen.findByText("Evento do sistema: ATRIBUICOES ALTERADAS")).toBeInTheDocument();
+    expect(await screen.findByText("Responsáveis alterados")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/service-orders/${publicId}/history?pageSize=20`, expect.objectContaining({ method: "GET" }));
   });
 

@@ -1,17 +1,79 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { linkedOpeningCustomer, openingCustomerDetails, editOpeningCustomer } from "./opening-customer-editor.js";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { parseCreatePersonDto } from "./dto/create-person.dto.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { normalizePersonInput } from "./domain/normalize-person-input.js";
-import { isStandardBrazilianPhone, normalizeEmailAddress, normalizePhoneNumber } from "./domain/normalize-person-contact.js";
+import { isNationalBrazilianPhone, isStandardBrazilianPhone, normalizeEmailAddress, normalizePhoneNumber } from "./domain/normalize-person-contact.js";
 import type { CreatePersonEmailInput, CreatePersonPhoneInput, PersonContactListQuery } from "./dto/person-contact.dto.js";
 import { toPersonResponse } from "./domain/person-response.mapper.js";
 import { maskPersonDocument } from "./domain/mask-person-document.js";
 import type { ListPeopleQuery } from "./dto/list-people-query.dto.js";
 import type { OpeningLookupQuery } from "../shared/dto/opening-lookup-query.dto.js";
+import { parseCompletePerson } from "./dto/complete-person.dto.js";
 
 @Injectable()
 export class PeopleService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getOpeningCustomerDetails(openingId: string, actorId: number) {
+    return this.prisma.$transaction(async tx => ({ data: openingCustomerDetails(await linkedOpeningCustomer(tx, openingId, actorId)) }));
+  }
+  async updateOpeningCustomerDetails(openingId: string, actorId: number, body: unknown) {
+    try { return await this.prisma.$transaction(tx => editOpeningCustomer(tx, openingId, actorId, body)); }
+    catch (error) { if (isPrismaUniqueViolation(error)) throw new ConflictException({ code: "DUPLICATE_DOCUMENT_OR_CONTACT", message: "Documento ou contato duplicado. Revise o cadastro." }); throw error; }
+  }
+
+  async createOpeningCustomer(body: unknown, actorUserId: number) {
+    return this.createCompletePerson(body, actorUserId, true);
+  }
+
+  async createCompletePerson(body: unknown, actorUserId: number, duringOpening = false) {
+    const { data, phones, emails, address, openingPublicId } = parseCompletePerson(body);
+    if (duringOpening && phones.some(phone => !isNationalBrazilianPhone(phone.number))) throw new BadRequestException({ code: "INVALID_PHONE", message: "Informe telefone brasileiro com DDD." });
+    if (phones.some(phone => !phone.standard && !phone.confirmed)) throw new ConflictException({ code: "PHONE_CONFIRMATION_REQUIRED", message: "Confirme o telefone fora do padrão nacional.", details: { field: "phones" } });
+    if (duringOpening && !openingPublicId) throw new BadRequestException({ code: "OPENING_REQUIRED", message: "Informe a abertura atual." });
+    if (!duringOpening && openingPublicId) throw new BadRequestException({ code: "UNSUPPORTED_FIELDS", message: "Use o cadastro da abertura para vincular cliente." });
+    try {
+      return await this.prisma.$transaction(async tx => {
+        let opening: { id: number; equipmentId: number | null } | undefined;
+        if (duringOpening) {
+          const rows = await tx.$queryRaw<Array<{ id: number; status: string; initiated_by_user_id: number; customer_created_during_opening: number | boolean; equipment_id: number | null }>>`SELECT id,status,initiated_by_user_id,customer_created_during_opening,equipment_id FROM service_order_openings WHERE public_id=${openingPublicId!} FOR UPDATE`;
+          const row = rows[0];
+          if (!row || row.initiated_by_user_id !== actorUserId) throw new NotFoundException({ code: "OPENING_NOT_FOUND", message: "Abertura não encontrada." });
+          if (row.status !== "IN_PROGRESS") throw new ConflictException({ code: "OPENING_NOT_IN_PROGRESS", message: "A abertura não está em andamento." });
+          if (row.customer_created_during_opening) throw new ConflictException({ code: "OPENING_CUSTOMER_ALREADY_CREATED", message: "Um cliente já foi cadastrado neste atendimento. Inicie outra abertura para cadastrar outro." });
+          if (!data.isActive) throw new BadRequestException({ code: "CUSTOMER_INACTIVE", message: "O cliente da abertura precisa estar ativo.", details: { field: "isActive" } });
+          if (row.equipment_id) throw new ConflictException({ code: "OPENING_EQUIPMENT_LINKED", message: "Retire o equipamento vinculado antes de cadastrar outro cliente." });
+          opening = { id: row.id, equipmentId: row.equipment_id };
+        }
+        if (data.document && await tx.person.findUnique({ where: { document: data.document }, select: { id: true } })) throw new ConflictException({ code: "DUPLICATE_DOCUMENT", message: "Documento já cadastrado. Pesquise e selecione o cliente existente." });
+        const duplicateName = !data.document && await tx.person.findFirst({ where: { name: data.name }, select: { id: true } });
+        const warnings = duplicateName ? [{ code: "POSSIBLE_DUPLICATE_NAME", message: "Já existe Pessoa com o mesmo nome. Confira o cadastro." }] : [];
+        const person = await tx.person.create({ data: { ...data, roles: { create: { role: "CUSTOMER" } } } });
+        if (address) await tx.personAddress.create({ data: { personId: person.id, ...address } as Prisma.PersonAddressUncheckedCreateInput });
+        for (const phone of phones) {
+          const contact = await tx.personPhone.create({ data: { personId: person.id, number: phone.number, isPrimary: phone.isPrimary } });
+          await tx.personContactEvent.create({ data: { personId: person.id, phoneId: contact.id, userId: actorUserId, eventType: "PHONE_CREATED", newValue: phone.number } });
+          if (phone.isPrimary) await tx.personContactEvent.create({ data: { personId: person.id, phoneId: contact.id, userId: actorUserId, eventType: "PHONE_PRIMARY_CHANGED", newValue: phone.number } });
+        }
+        for (const email of emails) {
+          const shared = await tx.personEmail.findFirst({ where: { address: email.address, personId: { not: person.id } }, select: { id: true } });
+          if (shared && !warnings.some(item => item.code === "EMAIL_SHARED_ACROSS_PEOPLE")) warnings.push({ code: "EMAIL_SHARED_ACROSS_PEOPLE", message: "Este e-mail também está cadastrado para outra Pessoa." });
+          const contact = await tx.personEmail.create({ data: { personId: person.id, address: email.address, isPrimary: email.isPrimary } });
+          await tx.personContactEvent.create({ data: { personId: person.id, emailId: contact.id, userId: actorUserId, eventType: "EMAIL_CREATED", newValue: email.address } });
+          if (email.isPrimary) await tx.personContactEvent.create({ data: { personId: person.id, emailId: contact.id, userId: actorUserId, eventType: "EMAIL_PRIMARY_CHANGED", newValue: email.address } });
+        }
+        if (opening) await tx.serviceOrderOpening.update({ where: { id: opening.id }, data: { customerId: person.id, customerCreatedDuringOpening: true } });
+        await tx.adminAuditLog.create({ data: { eventCode: duringOpening ? "CUSTOMER_CREATED_DURING_OPENING" : "PERSON_CREATED", actorUserId, detailsJson: { personPublicId: person.publicId, ...(openingPublicId ? { openingPublicId } : {}) } } });
+        return { data: duringOpening ? { publicId: person.publicId, name: person.name, personType: person.personType, documentHint: maskPersonDocument(person.document) } : toPersonResponse(person),
+          warnings };
+      });
+    } catch (error) {
+      if (isPrismaUniqueViolation(error)) throw new ConflictException({ code: "DUPLICATE_DOCUMENT", message: "Documento já cadastrado. Pesquise e selecione o cliente existente." });
+      throw error;
+    }
+  }
 
   async createPhone(publicId: string, input: CreatePersonPhoneInput, actorUserId?: number) {
     requirePersonChangeConfirmation(input.confirmPersonChange);
@@ -219,9 +281,9 @@ export class PeopleService {
   }
 
   async getByPublicId(publicId: string) {
-    const person = await this.prisma.person.findUnique({ where: { publicId } });
+    const person = await this.prisma.person.findUnique({ where: { publicId }, include: { address: { select: { postalCode: true, street: true, number: true, complement: true, district: true, city: true, state: true, country: true } } } });
     if (!person) throw new NotFoundException({ code: "PERSON_NOT_FOUND", message: "Pessoa não encontrada." });
-    return { data: toPersonResponse(person) };
+    return { data: { ...toPersonResponse(person), address: person.address } };
   }
 
   async list(query: ListPeopleQuery) {

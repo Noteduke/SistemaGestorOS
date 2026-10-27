@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, ConflictException } from "@nestjs/common";
 import type { Prisma, ServiceOrderMacroStatus } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import type { ListServiceOrdersQuery } from "./dto/list-service-orders-query.dto.js";
@@ -32,8 +32,14 @@ const summarySelect = {
 
 export const serviceOrderDetailSelect = {
   ...summarySelect,
+  customer: { select: { publicId: true, name: true, personType: true, document: true, tradeName: true, contactName: true,
+    phones: { select: { number: true }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
+    emails: { select: { address: true }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
+    address: { select: { street: true, number: true, complement: true, district: true, city: true, state: true, postalCode: true, country: true } },
+  } },
   complaint: true,
   intakeObservations: true,
+  intakeDataJson: true,
   newEquipmentSerialIdentificationStatus: true,
   customerSnapshotJson: true,
   equipmentSnapshotJson: true,
@@ -80,8 +86,12 @@ function toSummary(order: SummaryOrder) {
 export function toServiceOrderDetailView(order: DetailOrder) {
   return {
     ...toSummary(order),
+    customerPrint: { name: order.customer.name, personType: order.customer.personType, document: order.customer.document,
+      tradeName: order.customer.tradeName, contactName: order.customer.contactName,
+      phones: order.customer.phones?.map(phone => phone.number) ?? [], emails: order.customer.emails?.map(email => email.address) ?? [], address: order.customer.address ?? null },
     complaint: order.complaint,
     intakeObservations: order.intakeObservations,
+    intakeData: order.intakeDataJson ?? null,
     newEquipmentSerialIdentificationStatus: order.newEquipmentSerialIdentificationStatus,
     createdByUserPublicId: order.createdBy.publicId,
     assignedUserPublicIds: order.assignments.map(({ user }) => user.publicId),
@@ -100,9 +110,15 @@ export class ServiceOrdersReadService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(query: ListServiceOrdersQuery) {
+    const range = { ...(query.dateStart ? { gte: query.dateStart } : {}), ...(query.dateEnd ? { lt: query.dateEnd } : {}) };
     const where: Prisma.ServiceOrderWhereInput = { ...confirmedWhere,
+      ...(query.statusPublicId ? { operationalStatus: { publicId: query.statusPublicId } } : {}),
+      ...(query.state ? { macroStatus: query.state } : {}),
+      ...(query.technicianPublicId ? { assignments: { some: { user: { publicId: query.technicianPublicId } } } } : query.unassigned ? { assignments: { none: {} } } : {}),
+      ...(query.dateStart || query.dateEnd ? query.dateField === "exit" ? { events: { some: { eventType: "OS_ENCERRADA", occurredAt: range } } } : { openedAt: range } : {}),
+      ...(query.equipmentPublicId ? { equipment: { publicId: query.equipmentPublicId } } : {}),
       ...(query.technicalCompletion ? { technicalCompletion: query.technicalCompletion } : {}),
-      ...(query.awaitingPickup ? { macroStatus: "OPEN", technicalCompletion: { in: ["COMPLETED_WITH_REPAIR", "COMPLETED_WITHOUT_REPAIR"] } } : {}),
+      ...(query.awaitingPickup ? { AND: [{ macroStatus: "OPEN" }, { technicalCompletion: { in: ["COMPLETED_WITH_REPAIR", "COMPLETED_WITHOUT_REPAIR"] } }] } : {}),
     };
     const [orders, total] = await this.prisma.$transaction([
       this.prisma.serviceOrder.findMany({
@@ -118,6 +134,19 @@ export class ServiceOrdersReadService {
       data: orders.map(toSummary),
       pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.ceil(total / query.pageSize) },
     };
+  }
+
+  async filterTechnicians() {
+    return { data: await this.prisma.user.findMany({ where: { OR: [{ isActive: true }, { serviceOrderAssignments: { some: {} } }] }, select: { publicId: true, username: true }, orderBy: [{ username: "asc" }, { id: "asc" }] }) };
+  }
+
+  async getExitPrintData(publicId: string) {
+    const result = await this.getByPublicId(publicId);
+    if (!["FECHADA", "CANCELADA"].includes(result.data.macroStatus)) throw new ConflictException({ code: "EXIT_PRINT_REQUIRES_CLOSURE", message: "A impressão de saída somente é permitida após o encerramento ou cancelamento da OS." });
+    const closure = await this.prisma.serviceOrderEvent.findFirst({ where: { serviceOrder: { publicId }, eventType: { in: ["OS_ENCERRADA", "OS_CANCELADA"] } }, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], select: { eventType: true, occurredAt: true, payloadJson: true } });
+    const payload: unknown = closure?.payloadJson;
+    const outcome = payload && typeof payload === "object" && !Array.isArray(payload) && "outcome" in payload ? payload.outcome : null;
+    return { data: { ...result.data, closureEvent: closure ? { eventType: closure.eventType, occurredAt: closure.occurredAt, outcome: typeof outcome === "string" ? outcome : null } : null } };
   }
 
   async getByPublicId(publicId: string) {

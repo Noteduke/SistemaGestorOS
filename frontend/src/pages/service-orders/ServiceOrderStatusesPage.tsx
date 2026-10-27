@@ -1,3 +1,4 @@
+import { TrackedForm } from "../../components/PendingForms";
 import { useEffect, useState } from "react";
 import { listServiceOrderStatuses, saveServiceOrderStatus, type ServiceOrderStatus, type TechnicalCompletion } from "../../api/serviceOrders";
 
@@ -38,7 +39,7 @@ export function ServiceOrderStatusesPage({ csrfToken }: { csrfToken: string }) {
   return <section className="page-section">
     <div className="page-heading"><div><p className="eyebrow">Configuração administrativa</p><h1>Status de OS</h1><p>Defina o atributo técnico de cada status. O nome não determina se houve conclusão.</p></div></div>
     <div className="detail-content">
-      <form className="info-card form-grid" onSubmit={(event) => void submit(event)}>
+      <TrackedForm identity={form.publicId} className="info-card form-grid" onSubmit={(event) => void submit(event)}>
         <h2>{form.publicId ? "Editar status" : "Novo status"}</h2>
         <p>O atributo de conclusão fica imutável após a primeira atribuição a uma OS. Desativar impede novas atribuições, sem alterar as OS existentes.</p>
         <label>Nome do status<input maxLength={191} required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
@@ -46,7 +47,7 @@ export function ServiceOrderStatusesPage({ csrfToken }: { csrfToken: string }) {
         {form.publicId && <label><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Status ativo</label>}
         <div className="form-actions"><button className="button button--primary" disabled={saving}>{saving ? "Salvando…" : "Salvar status"}</button><button className="button button--secondary" type="button" onClick={() => setForm(empty)}>Limpar</button></div>
         {message && <p role="status" className="form-message form-message--success">{message}</p>}{error && <p role="alert" className="form-message form-message--error">{error}</p>}
-      </form>
+      </TrackedForm>
         <section className="info-card"><h2>Status cadastrados</h2>{loading ? <p>Carregando…</p> : statuses.length === 0 ? <p>Nenhum status cadastrado.</p> : <div className="table-scroll"><table><thead><tr><th>Nome</th><th>Conclusão técnica</th><th>Estado</th><th>Atributo editável</th><th></th></tr></thead><tbody>{statuses.map((status) => <tr key={status.publicId}><td>{status.name}</td><td>{completionOptions.find((item) => item.value === status.technicalCompletion)?.label}</td><td>{status.isActive ? "Ativo" : "Inativo"}</td><td>{status.technicalCompletionMutable ? "Sim" : "Imutável: já usado"}</td><td><button className="text-button" type="button" onClick={() => setForm({ publicId: status.publicId, name: status.name, technicalCompletion: status.technicalCompletion, isActive: status.isActive })}>Editar</button></td></tr>)}</tbody></table></div>}</section>
     </div>
   </section>;

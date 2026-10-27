@@ -303,3 +303,10 @@ A migration `20261023120000_company_settings` cria `company_settings`, configura
 O logotipo não é armazenado como blob no MySQL: somente chave aleatória e MIME são persistidos. PNG/JPEG até 2 MiB são guardados em filesystem persistente configurado, fora da raiz pública e segregado por ambiente. O Backend controla acesso e registra alterações no Log Administrativo. A migration `20261023120000_company_settings` foi aplicada e `prisma migrate status` confirmou o schema atualizado exclusivamente em `gestor_os_opening_test`; ela não foi aplicada em `gestor_os`.
 
 As sequências visíveis `OS-` e `HOS-` usam a alocação transacional por banco e a restrição numérica única já existente. O banco de homologação, quando provisionado, terá contador independente do banco de produção. Não foi criada tabela ou migration de sequência paralela, e o banco principal não recebe transformação dos números existentes.
+
+
+## Cadastro completo na abertura — revisão 23/10/2026
+
+Migration preparada: 20261024130000_opening_customer_form. Adiciona people.contact_name (VARCHAR(191) opcional), people.warning (TEXT opcional) e service_order_openings.customer_created_during_opening (BOOLEAN, false inicial). Não remove FK/colunas legadas nem dados. O contato textual da PJ não cria Pessoa relacionada. Endereço usa a relação única person_addresses existente; telefones/e-mails reutilizam as tabelas e índices de principalidade existentes. Cadastro, contatos, endereço, autoria e indicador da abertura são uma única transação.
+
+A carga inicial idempotente usa equipment_types e equipment_brands existentes e seus nomes únicos: 16 tipos e 27 marcas aprovados, preservando IDs e registros existentes. Nenhuma alteração dessas foi executada na homologação nesta preparação; migration e carga dependem de autorização separada e backup antes da aplicação.

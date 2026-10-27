@@ -1,3 +1,4 @@
+import { usePendingChanges } from "../../components/PendingForms";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -10,6 +11,7 @@ import { openServiceOrderBudgetPrint } from "./service-order-budget-print";
 type Props = { publicId: string; order?: ServiceOrderDetail; csrfToken: string; editToken: string; expectedRevision: string; canEdit: boolean; hasEditControl?: boolean; canManageStock?: boolean; canClose?: boolean; canCancel?: boolean; canReadCosts: boolean; canUpdateCosts: boolean; isOpen: boolean; onActiveCountChange?: (count: number) => void; onEditControlLost?: () => void; onRevisionChange?: (revision: string) => void; onFinalized?: (macroStatus: "FECHADA" | "CANCELADA", revision: string) => void; onDirtyChange?: (dirty: boolean) => void; onDataConflict?: () => void };
 type Mode = "service" | "labor" | "part" | "stock-part";
 
+function moneyKey(value:string) { const text=value.trim().replace(",", "."); return text && Number.isFinite(Number(text)) ? Number(text).toFixed(2) : text; }
 function errorText(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === "BUDGET_ITEM_DUPLICATE" && typeof error.details?.existingItemPublicId === "string") {
@@ -101,10 +103,12 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
   const canEditCurrent = canEdit && !revisionConflict;
   const canOperateClosure = hasEditControl && !revisionConflict;
   const editingItem = activeItems.find((item) => item.publicId === editing);
-  const dirty = mode !== "service" || Boolean(selectedService) || Boolean(selectedProduct) || Boolean(description.trim()) || Boolean(unitPrice.trim()) || Boolean(unitCost.trim()) || quantity !== "1"
-    || Boolean(editingItem && (editQuantity !== String(editingItem.quantity) || editPrice !== editingItem.unitPrice
+  const addDirty = Boolean(selectedService) || Boolean(selectedProduct) || Boolean(description.trim()) || Boolean(unitPrice.trim()) || Boolean(unitCost.trim()) || quantity !== "1"
+  const editDirty = Boolean(editingItem && (editQuantity !== String(editingItem.quantity) || moneyKey(editPrice) !== moneyKey(editingItem.unitPrice)
       || editDescription !== (editingItem.origin === "MANUAL" ? editingItem.description : "")
-      || editCost !== (editingItem.unitCost ?? "")));
+      || moneyKey(editCost) !== moneyKey(editingItem.unitCost ?? "")));
+  const dirty = addDirty || editDirty;
+  usePendingChanges(`budget-${publicId}`,dirty,canEditCurrent && !busy && (addDirty !== editDirty) ? ()=>{if(editDirty && editingItem)void saveEdit(editingItem);else document.querySelector<HTMLFormElement>(".budget-form")?.requestSubmit();}:undefined);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   function reportFailure(reason: unknown) {
@@ -185,7 +189,7 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
         const result = await addStockPartBudgetItem(publicId, { productPublicId: selectedProduct, quantity: Number(quantity), ...(unitPrice.trim() ? { unitPrice } : {}) }, csrfToken, editToken, expectedRevision);
         onRevisionChange?.(result.serviceOrderRevision);
       }
-      setDescription(""); setSelectedProduct(""); setQuantity("1"); setUnitPrice(""); setUnitCost(""); setMessage("Item adicionado ao orçamento.");
+      setDescription(""); setSelectedService(""); setSelectedProduct(""); setQuantity("1"); setUnitPrice(""); setUnitCost(""); setMessage("Item adicionado ao orçamento.");
       await reload();
     } catch (reason) { reportFailure(reason); }
     finally { setBusy(false); }
@@ -202,7 +206,7 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
     try {
       const body: Record<string, unknown> = { expectedVersion: item.version, quantity: Number(editQuantity), unitPrice: editPrice };
       if (item.origin === "MANUAL") body.description = editDescription;
-      if (canUpdateCosts && item.itemType === "MANUAL_PART") body.unitCost = editCost.trim() || null;
+      if (canUpdateCosts && item.itemType === "MANUAL_PART" && (canReadCosts || editCost.trim())) body.unitCost = editCost.trim() || null;
       const result = await updateBudgetItem(publicId, item.publicId, body, csrfToken, editToken, expectedRevision);
       onRevisionChange?.(result.serviceOrderRevision);
       setEditing(null); setMessage("Item atualizado."); await reload();
@@ -253,6 +257,7 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
 
   return (
     <section className="info-card budget-panel" aria-labelledby="budget-title">
+      {dirty && <p role="status" className="pending-indicator">Alterações não salvas no orçamento</p>}
       <div className="section-heading"><div><h2 id="budget-title">Orçamento</h2><p>Serviços e peças vinculados à OS. O total é calculado pelo servidor.</p></div><button className="button button--secondary" type="button" disabled={!order || !budget || dirty} onClick={() => { if (order && budget) void openServiceOrderBudgetPrint(order, budget).then((opened) => { if (!opened) setError("Não foi possível abrir a impressão. Verifique os pop-ups e a identificação da empresa."); }); }}>Imprimir / salvar como PDF</button></div>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
       {message && <p className="form-message form-message--success" role="status">{message}</p>}
@@ -275,25 +280,48 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
       </div>}
       {!budget ? <p role="status">Carregando itens do orçamento…</p> : activeItems.length === 0 ? <p className="muted">Nenhum item no orçamento.</p> : (
         <div className="table-scroll"><table className="budget-table"><thead><tr><th>Tipo</th><th>Descrição</th><th>Quantidade</th><th>Valor unitário</th><th>Total</th>{canReadCosts && activeItems.some((item) => item.itemType === "MANUAL_PART") && <th>Custo unitário</th>}{canEditCurrent && isOpen && <th>Ações</th>}</tr></thead>
-          <tbody>{activeItems.map((item) => <tr id={`budget-item-${item.publicId}`} key={item.publicId}>
+          <tbody>{activeItems.map((item) => <tr className={editing===item.publicId && editDirty?"section-pending":undefined} id={`budget-item-${item.publicId}`} key={item.publicId}>
             <td>{item.itemType === "MANUAL_PART" ? "Peça avulsa" : item.itemType === "STOCK_PART" ? "Peça do estoque" : item.origin === "REGISTERED" ? "Serviço cadastrado" : "Mão de obra avulsa"}</td>
             <td>{editing === item.publicId && item.origin === "MANUAL" ? <input aria-label="Descrição do item" maxLength={255} value={editDescription} disabled={!canEditCurrent} onChange={(event) => setEditDescription(event.target.value)} /> : item.description}</td>
             <td>{editing === item.publicId ? <input aria-label="Quantidade" type="number" min="1" max="999" step="1" value={editQuantity} disabled={!canEditCurrent} onChange={(event) => setEditQuantity(event.target.value)} /> : item.quantity}</td>
             <td>{editing === item.publicId ? <input aria-label="Valor unitário" inputMode="decimal" value={editPrice} disabled={!canEditCurrent} onChange={(event) => setEditPrice(event.target.value)} /> : `R$ ${item.unitPrice}`}</td>
             <td>R$ {item.total}</td>
             {canReadCosts && activeItems.some((entry) => entry.itemType === "MANUAL_PART") && <td>{item.itemType !== "MANUAL_PART" ? "—" : editing === item.publicId && canUpdateCosts ? <input aria-label="Custo unitário" inputMode="decimal" value={editCost} disabled={!canEditCurrent} onChange={(event) => setEditCost(event.target.value)} placeholder="Não informado" /> : item.unitCost == null ? "Não informado" : `R$ ${item.unitCost}`}</td>}
-            {canEditCurrent && isOpen && <td>{editing === item.publicId ? <><button className="text-button" type="button" disabled={busy} onClick={() => void saveEdit(item)}>Salvar</button><button className="text-button" type="button" disabled={busy} onClick={() => setEditing(null)}>Cancelar</button></> : <><button className="text-button" type="button" disabled={busy} onClick={() => startEdit(item)}>Editar</button>{item.itemType === "STOCK_PART" && canManageStock && <div className="stock-application-controls">
+            {canEditCurrent && isOpen && <td className="budget-actions">{editing === item.publicId ? <><button className="text-button" type="button" disabled={busy} onClick={() => void saveEdit(item)}>Salvar</button><button className="text-button" type="button" disabled={busy} onClick={() => {if(editDirty && !window.confirm("Descartar alterações deste item?"))return;setEditing(null);}}>Cancelar</button></> : <><button className="text-button" type="button" disabled={busy} onClick={() => startEdit(item)}>Editar</button>{item.itemType === "STOCK_PART" && canManageStock && <div className="stock-application-controls">
               <p>Aplicada: {item.appliedQuantity ?? 0}</p>
               <label>Quantidade para aplicar <input aria-label={`Quantidade para aplicar ${item.description}`} type="number" min="1" step="1" value={applyQuantities[item.publicId] ?? "1"} disabled={busy} onChange={(event) => setApplyQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
               <button className="text-button" type="button" disabled={busy} onClick={() => void applyStock(item)}>Marcar como aplicada</button>
               {(item.appliedQuantity ?? 0) > 0 && <><label>Quantidade para desfazer <input aria-label={`Quantidade para desfazer ${item.description}`} type="number" min="1" max={item.appliedQuantity} step="1" value={reverseQuantities[item.publicId] ?? "1"} disabled={busy} onChange={(event) => setReverseQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
                 <label>Unidades defeituosas <input aria-label={`Unidades defeituosas ${item.description}`} type="number" min="0" max={reverseQuantities[item.publicId] ?? "1"} step="1" value={defectiveQuantities[item.publicId] ?? "0"} disabled={busy} onChange={(event) => setDefectiveQuantities((current) => ({ ...current, [item.publicId]: event.target.value }))} /></label>
                 <button className="text-button" type="button" disabled={busy} onClick={() => void reverseStock(item)}>Desfazer aplicação</button></>}
-            </div>}<button className="text-button" type="button" disabled={busy} onClick={() => void remove(item)}>Remover</button></>}</td>}
+            </div>}<button className="text-button budget-remove" type="button" disabled={busy} onClick={() => void remove(item)}>Remover</button></>}</td>}
           </tr>)}</tbody>
         </table></div>
       )}
       <p className="budget-total"><strong>{conflictBudget ? "Total da composição lida antes do conflito" : "Total atual"}: R$ {budget?.total ?? "0.00"}</strong></p>
+      {(canEditCurrent || dirty) && isOpen && <form className={`budget-form ${addDirty ? "section-pending" : ""}`} aria-label={conflictBudget || revisionConflict ? "Rascunho local do orçamento não salvo" : "Editar orçamento"} onSubmit={(event) => void submit(event)}>
+        <h3>Adicionar item</h3>
+        <label htmlFor="budget-item-type">Tipo</label>
+        <select id="budget-item-type" value={mode} disabled={!canEditCurrent || busy} onChange={(event) => { setMode(event.target.value as Mode); setUnitPrice(""); setDescription(""); setSelectedProduct(""); setProductSearch(""); setError(null); }}>
+          <option value="service">Serviço cadastrado</option><option value="labor">Mão de obra avulsa</option><option value="part">Peça avulsa</option><option value="stock-part">Peça do estoque</option>
+        </select>
+        {mode === "service" ? <><label htmlFor="budget-service">Serviço ativo</label><select id="budget-service" value={selectedService} disabled={!canEditCurrent || busy} onChange={(event) => { const selected = services.find((item) => item.publicId === event.target.value); setSelectedService(event.target.value); setUnitPrice(selected?.defaultPrice ?? ""); }}><option value="">Selecione</option>{services.map((service) => <option key={service.publicId} value={service.publicId}>{service.name} · R$ {service.defaultPrice}</option>)}</select><label htmlFor="budget-service-price">Valor unitário (sugestão editável)</label><input id="budget-service-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} /></> : <>
+          {mode === "stock-part" ? <>
+            <label htmlFor="budget-product-search">Pesquisar produtos ativos</label><input id="budget-product-search" value={productSearch} disabled={!canEditCurrent || busy} onChange={(event) => setProductSearch(event.target.value)} placeholder="Código ou descrição" />
+            <label htmlFor="budget-product">Produto</label><select id="budget-product" value={selectedProduct} disabled={!canEditCurrent || busy} onChange={(event) => { const selected = products.find((item) => item.publicId === event.target.value); setSelectedProduct(event.target.value); setUnitPrice(selected?.defaultPrice ?? ""); }}><option value="">Selecione um produto ativo</option>{products.map((product) => <option key={product.publicId} value={product.publicId}>{product.internalCode ? `${product.internalCode} · ` : ""}{product.description}</option>)}</select>
+            {selectedProduct && products.find((product) => product.publicId === selectedProduct)?.defaultPrice === null && <p className="muted">Este produto não tem preço padrão. Informe o valor unitário para continuar.</p>}
+            <label htmlFor="budget-price">Valor unitário</label><input id="budget-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} required />
+          </> : <>
+            <label htmlFor="budget-description">Descrição</label><input id="budget-description" maxLength={255} value={description} disabled={!canEditCurrent || busy} onChange={(event) => setDescription(event.target.value)} />
+            <label htmlFor="budget-price">Valor unitário</label><input id="budget-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} />
+            {mode === "part" && canUpdateCosts && <><label htmlFor="budget-cost">Custo unitário (opcional)</label><input id="budget-cost" inputMode="decimal" value={unitCost} disabled={!canEditCurrent || busy} onChange={(event) => setUnitCost(event.target.value)} placeholder="Não informado" /></>}
+          </>}
+        </>}
+        <label htmlFor="budget-quantity">Quantidade (1 a 999)</label><input id="budget-quantity" type="number" min="1" max="999" step="1" value={quantity} disabled={!canEditCurrent || busy} onChange={(event) => setQuantity(event.target.value)} />
+        {!canEditCurrent && <p className="muted">Rascunho não salvo preservado em somente leitura.</p>}
+        <button className="button button--primary" type="submit" disabled={!canEditCurrent || busy}>{busy ? "Salvando…" : "Adicionar ao orçamento"}</button>
+      </form>}
+      {!isOpen && <p className="muted">Orçamento em modo somente leitura para esta OS.</p>}
       {isOpen && (canClose || canCancel) && <section className="service-order-closure" aria-labelledby="service-order-closure-title">
         <h3 id="service-order-closure-title">Encerramento e cancelamento</h3>
         {closureError && <p className="form-message form-message--error" role="alert">{closureError}</p>}
@@ -320,29 +348,6 @@ export function ServiceOrderBudgetPanel({ publicId, order, csrfToken, editToken,
           <button className="button button--secondary" type="button" disabled={closureBusy} onClick={() => setClosureMode(null)}>Voltar</button>
         </form>}
       </section>}
-      {(canEditCurrent || dirty) && isOpen && <form className="budget-form" aria-label={conflictBudget || revisionConflict ? "Rascunho local do orçamento não salvo" : "Editar orçamento"} onSubmit={(event) => void submit(event)}>
-        <h3>Adicionar item</h3>
-        <label htmlFor="budget-item-type">Tipo</label>
-        <select id="budget-item-type" value={mode} disabled={!canEditCurrent || busy} onChange={(event) => { setMode(event.target.value as Mode); setUnitPrice(""); setDescription(""); setSelectedProduct(""); setProductSearch(""); setError(null); }}>
-          <option value="service">Serviço cadastrado</option><option value="labor">Mão de obra avulsa</option><option value="part">Peça avulsa</option><option value="stock-part">Peça do estoque</option>
-        </select>
-        {mode === "service" ? <><label htmlFor="budget-service">Serviço ativo</label><select id="budget-service" value={selectedService} disabled={!canEditCurrent || busy} onChange={(event) => { const selected = services.find((item) => item.publicId === event.target.value); setSelectedService(event.target.value); setUnitPrice(selected?.defaultPrice ?? ""); }}><option value="">Selecione</option>{services.map((service) => <option key={service.publicId} value={service.publicId}>{service.name} · R$ {service.defaultPrice}</option>)}</select><label htmlFor="budget-service-price">Valor unitário (sugestão editável)</label><input id="budget-service-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} /></> : <>
-          {mode === "stock-part" ? <>
-            <label htmlFor="budget-product-search">Pesquisar produtos ativos</label><input id="budget-product-search" value={productSearch} disabled={!canEditCurrent || busy} onChange={(event) => setProductSearch(event.target.value)} placeholder="Código ou descrição" />
-            <label htmlFor="budget-product">Produto</label><select id="budget-product" value={selectedProduct} disabled={!canEditCurrent || busy} onChange={(event) => { const selected = products.find((item) => item.publicId === event.target.value); setSelectedProduct(event.target.value); setUnitPrice(selected?.defaultPrice ?? ""); }}><option value="">Selecione um produto ativo</option>{products.map((product) => <option key={product.publicId} value={product.publicId}>{product.internalCode ? `${product.internalCode} · ` : ""}{product.description}</option>)}</select>
-            {selectedProduct && products.find((product) => product.publicId === selectedProduct)?.defaultPrice === null && <p className="muted">Este produto não tem preço padrão. Informe o valor unitário para continuar.</p>}
-            <label htmlFor="budget-price">Valor unitário</label><input id="budget-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} required />
-          </> : <>
-            <label htmlFor="budget-description">Descrição</label><input id="budget-description" maxLength={255} value={description} disabled={!canEditCurrent || busy} onChange={(event) => setDescription(event.target.value)} />
-            <label htmlFor="budget-price">Valor unitário</label><input id="budget-price" inputMode="decimal" value={unitPrice} disabled={!canEditCurrent || busy} onChange={(event) => setUnitPrice(event.target.value)} />
-            {mode === "part" && canUpdateCosts && <><label htmlFor="budget-cost">Custo unitário (opcional)</label><input id="budget-cost" inputMode="decimal" value={unitCost} disabled={!canEditCurrent || busy} onChange={(event) => setUnitCost(event.target.value)} placeholder="Não informado" /></>}
-          </>}
-        </>}
-        <label htmlFor="budget-quantity">Quantidade (1 a 999)</label><input id="budget-quantity" type="number" min="1" max="999" step="1" value={quantity} disabled={!canEditCurrent || busy} onChange={(event) => setQuantity(event.target.value)} />
-        {!canEditCurrent && <p className="muted">Rascunho não salvo preservado em somente leitura.</p>}
-        <button className="button button--primary" type="submit" disabled={!canEditCurrent || busy}>{busy ? "Salvando…" : "Adicionar ao orçamento"}</button>
-      </form>}
-      {!isOpen && <p className="muted">Orçamento em modo somente leitura para esta OS.</p>}
     </section>
   );
 }

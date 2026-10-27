@@ -11,6 +11,15 @@ const item = {
 };
 function response(body: unknown) { return { ok: true, status: 200, json: async () => body }; }
 
+it("abrir edição sem alterar e escolher tipo não produz pendência", async()=>{
+  const changed=vi.fn();vi.stubGlobal("fetch",vi.fn().mockResolvedValue(response({data:[item],total:"20.00",canReadCosts:true})));
+  render(<ServiceOrderBudgetPanel publicId={orderId} csrfToken="csrf" editToken="00000000-0000-4000-8000-000000000001" expectedRevision="2026-10-14T12:00:00.000Z" canEdit canReadCosts canUpdateCosts isOpen onDirtyChange={changed}/>);
+  await screen.findByText("Fonte");fireEvent.click(screen.getByRole("button",{name:"Editar"}));
+  expect(changed.mock.lastCall?.[0]).toBe(false);fireEvent.click(screen.getByRole("button",{name:"Cancelar"}));
+  fireEvent.change(screen.getByLabelText("Tipo"),{target:{value:"part"}});expect(changed.mock.lastCall?.[0]).toBe(false);
+  fireEvent.change(screen.getByLabelText("Descrição"),{target:{value:"Peça nova"}});expect(changed.mock.lastCall?.[0]).toBe(true);
+});
+
 it("oculta custo e total de custo sem autorização específica", async () => {
   const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ ...item, unitCost: undefined, totalCost: undefined }], total: "20.00", canReadCosts: false }));
   vi.stubGlobal("fetch", fetchMock);
@@ -70,6 +79,7 @@ it("pesquisa peça do estoque, copia preço padrão editável e não envia saldo
   await screen.findByText("Nenhum item no orçamento.");
   await userEvent.selectOptions(screen.getByLabelText("Tipo"), "stock-part");
   await userEvent.type(screen.getByLabelText("Pesquisar produtos ativos"), "fonte");
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/products/available-for-order") && String(url).includes("search=fonte"))).toBe(true));
   await screen.findByRole("option", { name: /F-01 · FONTE/ });
   await userEvent.selectOptions(screen.getByLabelText("Produto"), productPublicId);
   expect(screen.getByLabelText("Valor unitário")).toHaveValue("6.50");
@@ -78,7 +88,7 @@ it("pesquisa peça do estoque, copia preço padrão editável e não envia saldo
   await userEvent.click(screen.getByRole("button", { name: "Adicionar ao orçamento" }));
 
   await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/budget-items/stock-part") && init?.method === "POST")).toBe(true));
-  const lookupCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/products/available-for-order"));
+  const lookupCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/products/available-for-order") && String(url).includes("search=fonte"));
   expect(String(lookupCall?.[0])).toContain("search=fonte");
   const createCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/budget-items/stock-part") && init?.method === "POST");
   expect(createCall?.[1]).toEqual(expect.objectContaining({

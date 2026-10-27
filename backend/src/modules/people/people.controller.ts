@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { parseCreatePersonDto } from "./dto/create-person.dto.js";
 import { parseListPeopleQuery } from "./dto/list-people-query.dto.js";
 import {
@@ -17,8 +17,8 @@ export class PeopleController {
 
   @Post()
   @RequirePermissions("people.create")
-  create(@Body() body: unknown) {
-    return this.people.create(parseCreatePersonDto(body));
+  create(@Body() body: unknown, @Req() request: AuthRequest) {
+    return this.people.createCompletePerson(body, request.auth!.id);
   }
 
   @Get()
@@ -31,6 +31,24 @@ export class PeopleController {
   @RequirePermissions("service_orders.opening.create")
   listOpeningCustomers(@Query() query: Record<string, unknown>) {
     return this.people.listOpeningCustomers(parseOpeningLookupQuery(query));
+  }
+
+  @Post("customers")
+  @RequirePermissions("people.create", "service_orders.opening.create")
+  createOpeningCustomer(@Body() body: unknown, @Req() request: AuthRequest) {
+    return this.people.createOpeningCustomer(body, request.auth!.id);
+  }
+
+  @Get("customers/opening/:openingId")
+  @RequirePermissions("service_orders.opening.create")
+  getOpeningCustomer(@Param("openingId") openingId: string, @Req() request: AuthRequest) {
+    return this.people.getOpeningCustomerDetails(openingId, request.auth!.id);
+  }
+
+  @Patch("customers/opening/:openingId")
+  @RequirePermissions("service_orders.opening.create", "people.update", "people.contacts.add")
+  updateOpeningCustomer(@Param("openingId") openingId: string, @Body() body: unknown, @Req() request: AuthRequest) {
+    return this.people.updateOpeningCustomerDetails(openingId, request.auth!.id, body);
   }
 
   @Get(":publicId")

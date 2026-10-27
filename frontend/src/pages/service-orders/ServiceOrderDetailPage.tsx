@@ -1,3 +1,5 @@
+import { usePendingChanges } from "../../components/PendingForms";
+import { historyFields, historyTitle } from "./history-presentation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -7,11 +9,11 @@ import {
   deleteServiceOrderNote,
   errorMessage,
   getServiceOrder,
+  getServiceOrderExitPrintData,
   getServiceOrderEditControl,
   heartbeatServiceOrderEditControl,
   listAssignableUsers,
   listServiceOrderHistory,
-  listServiceOrderEvents,
   getServiceOrderBudget,
   listServiceOrderStatuses,
   operationalSituationErrorMessage,
@@ -28,7 +30,6 @@ import {
   type ServiceOrderDetail,
   type ServiceOrderHistoryPage,
   type ServiceOrderStatus,
-  type ServiceOrderEvent,
 } from "../../api/serviceOrders";
 import { getCompanySettings } from "../../api/companySettings";
 import { AsyncState } from "../../components/AsyncState";
@@ -84,22 +85,14 @@ interface ServiceOrderDetailPageProps {
   onBack: () => void;
   discardChangesVersion?: number;
   onUnsavedChange?: (dirty: boolean) => void;
+  offerEntryPrint?: boolean;
+  onDismissEntryPrint?: () => void;
 }
 
 function dateLabel(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("pt-BR");
-}
-
-function eventValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
-}
-
-function eventLabel(key: string): string {
-  return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toLocaleUpperCase("pt-BR"));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -113,10 +106,11 @@ function closureConsumptions(payload: Record<string, unknown> | null) {
   });
 }
 
-export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canReadEvents = false, canEditBudget = false, canManageStock = false, canClose = false, canCancel = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange }: ServiceOrderDetailPageProps) {
+export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = false, canReadBudget = false, canReadEvents = false, canEditBudget = false, canClose = false, canCancel = false, canManageStock = false, canReadBudgetCosts = false, canUpdateBudgetCosts = false, canManageEdit = false, canTakeoverEdit = false, canUpdateSituation = false, canManageAssignments = false, currentUsername, section, onSectionChange, onBack, discardChangesVersion = 0, onUnsavedChange, offerEntryPrint=false, onDismissEntryPrint }: ServiceOrderDetailPageProps) {
   const [order, setOrder] = useState<ServiceOrderDetail | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [offerExitPrint,setOfferExitPrint]=useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ServiceOrderHistoryPage | null>(null);
@@ -358,6 +352,10 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   const editableDraft = Boolean(order && currentSituation && selectedSituation !== currentSituation)
     || Boolean(order && editingAssignments && !sameUserSet(order.assignedUserPublicIds, selectedUserPublicIds))
     || budgetDirty;
+  usePendingChanges(`situation-${publicId}`,Boolean(order && currentSituation && selectedSituation !== currentSituation),isEditing && !dataConflict?()=>void saveSituation():undefined);
+  usePendingChanges(`assignments-${publicId}`,Boolean(order && editingAssignments && !sameUserSet(order.assignedUserPublicIds,selectedUserPublicIds)),isEditing && !dataConflict?()=>void saveAssignments():undefined);
+  usePendingChanges(`note-${publicId}`,Boolean(noteText.trim()),()=>document.querySelector<HTMLFormElement>(".note-form")?.requestSubmit());
+  useEffect(()=>()=>onUnsavedChange?.(false),[publicId]);
   useEffect(() => {
     unsavedRef.current = unsaved;
     editableDraftRef.current = editableDraft;
@@ -604,27 +602,29 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
   }
 
   async function printExitDocument() {
-    if (!order || printing) return;
+    if (!order || order.macroStatus === "ABERTA" || printing) return;
     const popup = openPrintWindow();
     if (!popup) { setPrintError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); return; }
     setPrinting(true); setPrintError(null);
     try {
-      const [budget, events, company] = await Promise.all([getServiceOrderBudget(publicId), listServiceOrderEvents(publicId, 1, 100), getCompanySettings()]);
-      const printEvents: ServiceOrderEvent[] = events.data.map((event) => ({ ...event, actor: event.actor ?? null }));
-      writePrintDocument(popup, buildServiceOrderExitPrintHtml(order, budget.data, budget.total, printEvents, company.data));
-    } catch { writePrintError(popup); setPrintError("Não foi possível preparar a impressão de saída. Verifique as permissões e tente novamente."); }
+      const [budget, company, printable] = await Promise.all([getServiceOrderBudget(publicId), getCompanySettings(), getServiceOrderExitPrintData(publicId)]);
+      writePrintDocument(popup, buildServiceOrderExitPrintHtml(printable.data, budget.data, budget.total, [], company.data), {autoPrint:false});
+      setOfferExitPrint(false);
+    } catch { writePrintError(popup,"Não foi possível preparar os dados da saída. Feche esta janela e tente novamente."); setPrintError("Não foi possível preparar a impressão de saída. Verifique as permissões e tente novamente."); }
     finally { setPrinting(false); }
   }
 
   async function printEntryDocument() {
-    if (!order) return;
+    if (!order || printing) return;
     const popup = openPrintWindow();
     if (!popup) { setPrintError("O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente novamente."); return; }
-    setPrintError(null);
+    setPrintError(null);setPrinting(true);
     try {
-      const { data: company } = await getCompanySettings();
-      writePrintDocument(popup, buildServiceOrderEntryPrintHtml(order, company));
-    } catch { writePrintError(popup); setPrintError("Não foi possível carregar a identificação da empresa para impressão."); }
+      const [{data:company},{data:printable}] = await Promise.all([getCompanySettings(),getServiceOrder(publicId)]);
+      writePrintDocument(popup, buildServiceOrderEntryPrintHtml(printable, company), {autoPrint:false});
+      onDismissEntryPrint?.();
+    } catch { writePrintError(popup,"Não foi possível carregar os dados salvos da OS e da empresa. Feche esta janela e tente novamente."); setPrintError("Não foi possível carregar os dados salvos da OS e da empresa para impressão."); }
+    finally {setPrinting(false);}
   }
 
   function sameUserSet(left: string[], right: string[]): boolean {
@@ -686,6 +686,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
 
   return (
     <section className="page-section">
+      {unsaved && <p className="pending-indicator">Alterações não salvas — confira situação, responsáveis, orçamento ou observação destacados abaixo. <button type="button" className="text-button" onClick={()=>{const target=document.querySelector<HTMLElement>(".detail-content .field-pending,.detail-content .section-pending,.note-form .field-pending");target?.scrollIntoView?.({block:"center"});target?.focus();}}>Localizar alterações</button></p>}
       <button className="back-link" onClick={onBack}>← Voltar para Ordens de Serviço</button>
       <AsyncState loading={loading} error={error} onRetry={() => setReload((value) => value + 1)} />
       {!loading && !error && order && (
@@ -730,9 +731,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
           </div>
           <div className="document-print-actions no-print">
             <button className="button button--secondary" type="button" onClick={() => void printEntryDocument()}>Imprimir OS de entrada</button>
-            <button className="button button--secondary" type="button" onClick={() => void printExitDocument()} disabled={printing || !canReadBudget || !canReadEvents}>{printing ? "Preparando saída…" : "Imprimir OS de saída"}</button>
+            {order.macroStatus !== "ABERTA" && <button className="button button--secondary" type="button" onClick={() => void printExitDocument()} disabled={printing || !canReadBudget || !canReadEvents}>{printing ? "Preparando saída…" : "Imprimir OS de saída"}</button>}
             {(!canReadBudget || !canReadEvents) && <span className="muted">A impressão de saída exige leitura da OS, orçamento e histórico.</span>}
           </div>
+          {offerEntryPrint && <section role="dialog" aria-modal="true" aria-label="Impressão da OS de entrada" className="info-card no-print"><h2>Deseja imprimir a Ordem de Serviço de entrada?</h2><p>A OS já foi gravada. Não imprimir não desfaz a gravação.</p><div className="form-actions"><button className="button button--primary" disabled={printing} onClick={()=>void printEntryDocument()}>Imprimir</button><button className="button button--secondary" disabled={printing} onClick={()=>onDismissEntryPrint?.()}>Não imprimir</button></div></section>}
+          {offerExitPrint && order.macroStatus !== "ABERTA" && canReadBudget && canReadEvents && <section role="dialog" aria-modal="true" aria-label="Impressão da OS de saída" className="info-card no-print"><h2>Deseja imprimir a Ordem de Serviço de saída?</h2><p>O encerramento foi concluído. A impressão é opcional.</p><div className="form-actions"><button className="button button--primary" disabled={printing} onClick={()=>void printExitDocument()}>Imprimir</button><button className="button button--secondary" disabled={printing} onClick={()=>setOfferExitPrint(false)}>Não imprimir</button></div></section>}
           {printError && <p className="form-message form-message--error" role="alert">{printError}</p>}
 
           <div className="tabs" role="group" aria-label="Seções da Ordem de Serviço">
@@ -756,6 +759,10 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                   <div><dt>Atualizada em</dt><dd>{dateLabel(order.updatedAt)}</dd></div>
                   {order.complaint && <div className="detail-grid__wide"><dt>Reclamação</dt><dd>{order.complaint}</dd></div>}
                   {order.intakeObservations && <div className="detail-grid__wide"><dt>Observações de entrada</dt><dd>{order.intakeObservations}</dd></div>}
+                  {order.intakeData && <>
+                    <div><dt>Prioridade</dt><dd>{{ NORMAL: "Normal", URGENT: "Urgente", VERY_URGENT: "Muito urgente", LOW: "Baixa prioridade" }[order.intakeData.priority]}</dd></div>
+                    {([ ["Sintoma identificado", order.intakeData.reportedDefect], ["Acessórios", order.intakeData.accessories], ["Estado geral", order.intakeData.physicalCondition], ["Bateria", order.intakeData.battery] ] as const).map(([label, value]) => value && <div className="detail-grid__wide" key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+                  </>}
                 </dl>
               </section>
               <section className="info-card situation-editor" aria-labelledby="situation-editor-title">
@@ -766,6 +773,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                   <label htmlFor="operational-situation">Nova situação</label>
                   <select
                     id="operational-situation"
+                    className={selectedSituation !== currentSituation ? "field-pending" : undefined}
                     value={selectedSituation}
                     onChange={(event) => { setSelectedSituation(event.target.value); setSituationMessage(null); setSituationError(null); }}
                     disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || updatingSituation}
@@ -773,13 +781,13 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                     {(operationalStatuses.length ? operationalStatuses.filter((status) => status.isActive || status.publicId === order.operationalStatus.publicId) : operationalSituationOptions.map((option) => ({ publicId: option.value, name: option.label, technicalCompletion: "NOT_COMPLETED", allowsBudgetWithdrawal: false, isActive: true, technicalCompletionMutable: false, version: 1 } as ServiceOrderStatus))).map((status) => <option key={status.publicId} value={status.publicId}>{status.name}{status.isActive ? "" : " (inativo — atual)"}</option>)}
                   </select>
                   <button className="button button--primary" type="button" onClick={() => void saveSituation()} disabled={!isEditing || dataConflict || !canUpdateSituation || !currentSituation || !selectedSituation || selectedSituation === currentSituation || updatingSituation}>
-                    {updatingSituation ? "Salvando…" : "Salvar situação"}
+                    {updatingSituation ? "Salvando…" : "Salvar alterações"}
                   </button>
                 </div>
                 {situationError && <p className="form-message form-message--error" role="alert">{situationError}</p>}
                 {situationMessage && <p className="form-message form-message--success" role="status">{situationMessage}</p>}
               </section>
-              <section className="info-card assignments-editor" aria-labelledby="assignments-title">
+              <section className={`info-card assignments-editor ${editingAssignments && !sameUserSet(order.assignedUserPublicIds,selectedUserPublicIds)?"section-pending":""}`} aria-labelledby="assignments-title">
                 <div className="section-heading">
                   <div><h2 id="assignments-title">Responsáveis nominais</h2><p>Administração é uma fila; responsáveis nominais são escolhidos explicitamente.</p></div>
                 </div>
@@ -862,6 +870,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 onEditControlLost={markEditControlLost}
                 onRevisionChange={(revision) => { baseRevisionRef.current = revision; setEditRevision(revision); setOrder((current) => current ? { ...current, updatedAt: revision } : current); }}
                 onFinalized={(macroStatus, revision) => {
+                  setOfferExitPrint(true);
                   baseRevisionRef.current = revision;
                   isEditingRef.current = false;
                   setIsEditing(false);
@@ -887,7 +896,7 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                 <form className="note-form" onSubmit={(event) => void addNote(event)}>
                   <label htmlFor="service-order-note">Nova observação</label>
                   <div className="note-form__controls">
-                    <input id="service-order-note" type="text" value={noteText} maxLength={255} disabled={noteSaving}
+                    <input id="service-order-note" className={noteText.trim()?"field-pending":undefined} type="text" value={noteText} maxLength={255} disabled={noteSaving}
                       onChange={(event) => setNoteText(event.target.value)} />
                     <button className="button button--primary" type="submit" disabled={noteSaving || !noteText.trim()}>
                       {noteSaving ? "Adicionando…" : "Adicionar"}
@@ -908,11 +917,11 @@ export function ServiceOrderDetailPage({ publicId, csrfToken, canCreateNote = fa
                         <article className="event-card">
                           {item.kind === "SYSTEM_EVENT" ? (
                             <>
-                              <div className="event-heading"><div><h3>Evento do sistema: {item.eventType.replaceAll("_", " ")}</h3><p>{dateLabel(item.occurredAt)}</p></div><span className="event-number">{item.serviceOrderNumber}</span></div>
+                              <div className="event-heading"><div><h3>{historyTitle(item.eventType)}</h3><p>{dateLabel(item.occurredAt)}</p></div><span className="event-number">{item.serviceOrderNumber}</span></div>
                               <p className="event-actor">Responsável: <strong>{item.actor.username}</strong></p>
                               {item.payload && Object.keys(item.payload).length > 0 && (
                                 <dl className="event-payload">
-                                  {Object.entries(item.payload).map(([key, value]) => <div key={key}><dt>{eventLabel(key)}</dt><dd>{eventValue(value)}</dd></div>)}
+                                  {historyFields(item.payload).map(field => <div key={field.key}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}
                                 </dl>
                               )}
                               {canManageStock && item.eventType === "OS_ENCERRADA" && closureConsumptions(item.payload).map((movement) => {
